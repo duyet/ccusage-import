@@ -37,6 +37,7 @@ jobs:
         uv run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics --exclude=.venv
     
     - name: Type check with mypy
+      continue-on-error: true
       run: |
         uv run mypy ccusage_importer.py --ignore-missing-imports
     

@@ -16,7 +16,7 @@ import concurrent.futures
 import threading
 import time
 from datetime import datetime, date
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 
 import clickhouse_connect
 from dotenv import load_dotenv
@@ -84,7 +84,7 @@ class LoadingAnimation:
             self.thread = threading.Thread(target=self._animate, daemon=True)
             self.thread.start()
 
-    def stop(self, success_message: str = None, error_message: str = None):
+    def stop(self, success_message: Optional[str] = None, error_message: Optional[str] = None):
         """Stop the animation and show final message"""
         if self.is_running:
             self.is_running = False
@@ -196,7 +196,7 @@ class ClickHouseImporter:
         """Parse date string to Python date object"""
         return datetime.strptime(date_str, "%Y-%m-%d").date()
 
-    def _parse_datetime(self, datetime_str: str) -> datetime:
+    def _parse_datetime(self, datetime_str: Optional[str]) -> Optional[datetime]:
         """Parse datetime string to Python datetime object"""
         if datetime_str is None:
             return None
@@ -207,7 +207,7 @@ class ClickHouseImporter:
             return datetime.fromisoformat(datetime_str).replace(tzinfo=None)
         return datetime.fromisoformat(datetime_str).replace(tzinfo=None)
 
-    def _extract_burn_rate(self, burn_rate_data) -> float:
+    def _extract_burn_rate(self, burn_rate_data) -> Optional[float]:
         """Extract burn rate value from data (can be None, float, or dict)"""
         if burn_rate_data is None:
             return None
@@ -218,7 +218,7 @@ class ClickHouseImporter:
             return burn_rate_data.get("costPerHour", None)
         return None
 
-    def _extract_projection(self, projection_data) -> float:
+    def _extract_projection(self, projection_data) -> Optional[float]:
         """Extract projection value from data (can be None, float, or dict)"""
         if projection_data is None:
             return None
