@@ -177,8 +177,14 @@ class TestFinalCoveragePaths:
         assert "2. desktop-1" in output
 
     @patch("ccusage_importer.subprocess.run")
-    def test_system_check_command_failures(self, mock_run):
+    @patch("ccusage_importer.clickhouse_connect.get_client")
+    def test_system_check_command_failures(self, mock_get_client, mock_run):
         """Test system_check with various command failures (lines 1149-1156, 1219)"""
+
+        # Mock successful ClickHouse connection
+        mock_client = Mock()
+        mock_client.query.return_value = Mock(result_rows=[[1]])
+        mock_get_client.return_value = mock_client
 
         # Test subprocess CalledProcessError with stderr
         def mock_run_with_failure(cmd, **kwargs):
