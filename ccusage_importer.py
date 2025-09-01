@@ -84,7 +84,9 @@ class LoadingAnimation:
             self.thread = threading.Thread(target=self._animate, daemon=True)
             self.thread.start()
 
-    def stop(self, success_message: Optional[str] = None, error_message: Optional[str] = None):
+    def stop(
+        self, success_message: Optional[str] = None, error_message: Optional[str] = None
+    ):
         """Stop the animation and show final message"""
         if self.is_running:
             self.is_running = False
