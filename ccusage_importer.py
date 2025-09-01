@@ -5,6 +5,8 @@ Imports data from ccusage JSON output into ClickHouse database
 Designed to be run as a cronjob, handles idempotent inserts
 """
 
+import argparse
+import hashlib
 import json
 import os
 import socket
@@ -31,6 +33,28 @@ CH_DATABASE = os.getenv("CH_DATABASE", "default")
 
 # Machine identification - use env override or detect hostname
 MACHINE_NAME = os.getenv("MACHINE_NAME", socket.gethostname().lower())
+
+# Project privacy settings (global configuration)
+HASH_PROJECT_NAMES = True
+
+
+def hash_project_name(project_path: str) -> str:
+    """
+    Create a stable, short hash of project paths for privacy.
+    
+    Args:
+        project_path: Full project path or session ID
+        
+    Returns:
+        8-character hexadecimal hash (stable and collision-resistant)
+    """
+    if not HASH_PROJECT_NAMES:
+        return project_path
+    
+    # Use SHA-256 for cryptographic security, take first 8 chars for brevity
+    # This provides ~4 billion possible values with very low collision probability
+    hash_object = hashlib.sha256(project_path.encode('utf-8'))
+    return hash_object.hexdigest()[:8]
 
 
 class LoadingAnimation:
@@ -83,18 +107,14 @@ class UIFormatter:
     """Enhanced UI formatting utilities"""
     
     @staticmethod
-    def print_header(title: str, width: int = 70):
-        """Print a formatted header"""
-        print("\n" + "═" * width)
-        print(f"  {title}")
-        print("═" * width)
+    def print_header(title: str, width: int = 50):
+        """Print a compact header"""
+        print(f"\n🚀 {title}")
     
     @staticmethod
-    def print_section(title: str, width: int = 70):
-        """Print a section divider"""
-        print(f"\n{'─' * width}")
-        print(f"  {title}")
-        print(f"{'─' * width}")
+    def print_section(title: str, width: int = 50):
+        """Print a compact section"""
+        print(f"\n{title}")
     
     @staticmethod
     def print_step(step_num: int, title: str, description: str = ""):
@@ -106,9 +126,9 @@ class UIFormatter:
             print(f"\n{step_num}️⃣  {title}")
     
     @staticmethod
-    def print_metric(label: str, value: str, width: int = 35):
-        """Print a formatted metric"""
-        print(f"  • {label:<{width}} {value:>15}")
+    def print_metric(label: str, value: str, width: int = 25):
+        """Print a compact metric"""
+        print(f"  {label}: {value}")
     
     @staticmethod
     def format_duration(seconds: float) -> str:
@@ -149,12 +169,9 @@ class ClickHouseImporter:
             )
             # Test connection
             self.client.command("SELECT 1")
-            print(f"✓ Connected to ClickHouse at {CH_HOST}:{CH_PORT}")
+            # Connection successful - no need to print
         except Exception as e:
-            print(f"✗ Failed to connect to ClickHouse: {e}")
-            print(f"  Host: {CH_HOST}:{CH_PORT}")
-            print(f"  User: {CH_USER}")
-            print(f"  Database: {CH_DATABASE}")
+            print(f"✗ Connection failed: {e}")
             raise
 
         # Detect available package runner (bunx or npx)
@@ -176,7 +193,7 @@ class ClickHouseImporter:
                 )
                 return "npx"
             except (subprocess.CalledProcessError, FileNotFoundError):
-                print("⚠️  Neither bunx nor npx found, defaulting to npx")
+                # Silently default to npx
                 return "npx"
 
     def _parse_date(self, date_str: str) -> date:
@@ -308,7 +325,7 @@ class ClickHouseImporter:
     def upsert_daily_data(self, daily_data: List[Dict[str, Any]]):
         """Insert or update daily usage data"""
         if not daily_data:
-            print("No daily data to import")
+            # No daily data available
             return
 
         # Delete existing data for these dates and machine first
@@ -362,13 +379,13 @@ class ClickHouseImporter:
             # Models used
             for model in item["modelsUsed"]:
                 model_used_rows.append(
-                    ["daily", item["date"], model, datetime.now()]
+                    ["daily", item["date"], MACHINE_NAME, model, datetime.now()]
                 )
 
         # Insert data
         if rows:
             self.client.insert("ccusage_usage_daily", rows)
-            print(f"✓ Inserted {len(rows)} daily records")
+            # Daily records inserted
 
         if model_breakdown_rows:
             # Delete existing model breakdowns
@@ -394,12 +411,12 @@ class ClickHouseImporter:
             )
             self.client.command(delete_query)
             self.client.insert("ccusage_models_used", model_used_rows)
-            print(f"✓ Inserted {len(model_used_rows)} models used records")
+            # Models used records inserted
 
     def upsert_monthly_data(self, monthly_data: List[Dict[str, Any]]):
         """Insert or update monthly usage data"""
         if not monthly_data:
-            print("No monthly data to import")
+            # No monthly data available
             return
 
         # Delete existing data for these months and machine first
@@ -462,7 +479,7 @@ class ClickHouseImporter:
         # Insert data
         if rows:
             self.client.insert("ccusage_usage_monthly", rows)
-            print(f"✓ Inserted {len(rows)} monthly records")
+            # Monthly records inserted
 
         if model_breakdown_rows:
             months_str = ",".join([f"'{m}'" for m in months])
@@ -487,11 +504,11 @@ class ClickHouseImporter:
     def upsert_session_data(self, session_data: List[Dict[str, Any]]):
         """Insert or update session usage data"""
         if not session_data:
-            print("No session data to import")
+            # No session data available
             return
 
         # Delete existing data for these sessions first
-        session_ids = [item["sessionId"] for item in session_data]
+        session_ids = [hash_project_name(item["sessionId"]) for item in session_data]
         if session_ids:
             sessions_str = ",".join([f"'{s}'" for s in session_ids])
             self.client.command(
@@ -504,22 +521,26 @@ class ClickHouseImporter:
         model_used_rows = []
 
         for item in session_data:
-            # Main session record
+            # Hash project information for privacy
+            hashed_session_id = hash_project_name(item["sessionId"])
+            hashed_project_path = hash_project_name(item["projectPath"])
+            
+            # Main session record (order matches table schema)
             rows.append(
                 [
-                    item["sessionId"],
-                    MACHINE_NAME,
-                    item["projectPath"],
-                    item["inputTokens"],
-                    item["outputTokens"],
-                    item["cacheCreationTokens"],
-                    item["cacheReadTokens"],
-                    item["totalTokens"],
-                    item["totalCost"],
-                    self._parse_date(item["lastActivity"]),
-                    len(item["modelsUsed"]),
-                    datetime.now(),
-                    datetime.now(),
+                    hashed_session_id,          # session_id
+                    hashed_project_path,        # project_path  
+                    MACHINE_NAME,               # machine_name
+                    item["inputTokens"],        # input_tokens
+                    item["outputTokens"],       # output_tokens
+                    item["cacheCreationTokens"], # cache_creation_tokens
+                    item["cacheReadTokens"],    # cache_read_tokens
+                    item["totalTokens"],        # total_tokens
+                    item["totalCost"],          # total_cost
+                    self._parse_date(item["lastActivity"]), # last_activity
+                    len(item["modelsUsed"]),    # models_count
+                    datetime.now(),             # created_at
+                    datetime.now(),             # updated_at
                 ]
             )
 
@@ -528,7 +549,7 @@ class ClickHouseImporter:
                 model_breakdown_rows.append(
                     [
                         "session",
-                        item["sessionId"],
+                        hashed_session_id,
                         MACHINE_NAME,
                         breakdown["modelName"],
                         breakdown["inputTokens"],
@@ -542,13 +563,13 @@ class ClickHouseImporter:
 
             for model in item["modelsUsed"]:
                 model_used_rows.append(
-                    ["session", item["sessionId"], MACHINE_NAME, model, datetime.now()]
+                    ["session", hashed_session_id, MACHINE_NAME, model, datetime.now()]
                 )
 
         # Insert data
         if rows:
             self.client.insert("ccusage_usage_sessions", rows)
-            print(f"✓ Inserted {len(rows)} session records")
+            # Session records inserted
 
         if model_breakdown_rows:
             sessions_str = ",".join([f"'{s}'" for s in session_ids])
@@ -573,7 +594,7 @@ class ClickHouseImporter:
     def upsert_blocks_data(self, blocks_data: List[Dict[str, Any]]):
         """Insert or update blocks usage data"""
         if not blocks_data:
-            print("No blocks data to import")
+            # No blocks data available
             return
 
         # Delete existing data for these blocks first
@@ -596,6 +617,7 @@ class ClickHouseImporter:
                     MACHINE_NAME,                                              # machine_name
                     self._parse_datetime(item["startTime"]),                      # start_time
                     self._parse_datetime(item["endTime"]),                       # end_time
+                    self._parse_datetime(item.get("actualEndTime")),           # actual_end_time
                     1 if item["isActive"] else 0,                               # is_active
                     1 if item["isGap"] else 0,                                  # is_gap
                     item["entries"],                                            # entries
@@ -607,11 +629,10 @@ class ClickHouseImporter:
                     item["costUSD"],                                           # cost_usd
                     len(item["models"]),                                       # models_count
                     datetime.now(),                                            # created_at
-                    self._parse_datetime(item.get("actualEndTime")),           # actual_end_time
+                    datetime.now(),                                            # updated_at
                     self._parse_datetime(item.get("usageLimitResetTime", None)),     # usage_limit_reset_time
                     self._extract_burn_rate(item.get("burnRate")),             # burn_rate
                     self._extract_projection(item.get("projection")),          # projection
-                    datetime.now(),                                            # updated_at
                 ]
             )
 
@@ -625,7 +646,7 @@ class ClickHouseImporter:
         # Insert data
         if rows:
             self.client.insert("ccusage_usage_blocks", rows)
-            print(f"✓ Inserted {len(rows)} block records")
+            # Block records inserted
 
         if model_used_rows:
             blocks_str = ",".join([f"'{b}'" for b in block_ids])
@@ -641,7 +662,7 @@ class ClickHouseImporter:
     ):
         """Insert or update projects daily usage data"""
         if not projects_data:
-            print("No projects daily data to import")
+            # No projects data available
             return
 
         # Prepare data for insertion
@@ -710,7 +731,7 @@ class ClickHouseImporter:
         # Insert data
         if rows:
             self.client.insert("ccusage_usage_projects_daily", rows)
-            print(f"✓ Inserted {len(rows)} project daily records")
+            # Project daily records inserted
 
         if model_breakdown_rows:
             # Delete existing model breakdowns for these records
@@ -740,7 +761,7 @@ class ClickHouseImporter:
 
     def get_import_statistics(self) -> Dict[str, Any]:
         """Get comprehensive statistics after import"""
-        print("📈 Generating import statistics...")
+        # Generate statistics silently
         
         stats = {}
         
@@ -761,7 +782,7 @@ class ClickHouseImporter:
                 count_result = self.client.query(f"SELECT count() FROM {table}").result_rows[0]
                 table_counts[table] = int(count_result[0])
             except Exception as e:
-                print(f"  ⚠️  Could not get count for {table}: {e}")
+                # Silently handle table count error
                 table_counts[table] = 0
         
         stats['table_counts'] = table_counts
@@ -912,34 +933,32 @@ class ClickHouseImporter:
         UIFormatter.print_metric("Max Cost Session", f"${session['max_cost_session']:,.2f}")
         UIFormatter.print_metric("Total Session Tokens", UIFormatter.format_number(session['total_session_tokens']))
         
-        # Active blocks
-        UIFormatter.print_section("🧱 Real-time Status", 70)
-        UIFormatter.print_metric("Active Blocks", f"{stats['active_blocks']:,}")
+        # Active blocks - compact
+        if stats['active_blocks'] > 0:
+            UIFormatter.print_section("🧱 Active Blocks")
+            UIFormatter.print_metric("Count", f"{stats['active_blocks']:,}")
         
-        # Machine breakdown statistics
-        if stats.get('machine_stats') and len(stats['machine_stats']) > 1:
-            UIFormatter.print_section("🖥️  Multi-Machine Breakdown", 70)
-            for i, machine in enumerate(stats['machine_stats'], 1):
-                machine_name = machine['machine_name']
-                cost_str = f"${machine['total_cost']:,.2f}"
-                tokens_str = UIFormatter.format_number(machine['total_tokens'])
-                days_str = f"{machine['active_days']} days"
-                last_activity = machine['last_activity']
-                UIFormatter.print_metric(f"{i}. {machine_name}", f"{cost_str} ({tokens_str} tokens, {days_str}, last: {last_activity})")
-        elif stats.get('machine_stats') and len(stats['machine_stats']) == 1:
-            # Single machine - show machine name for reference
-            machine = stats['machine_stats'][0]
-            UIFormatter.print_section("🖥️  Machine Info", 70)
-            UIFormatter.print_metric("Current Machine", machine['machine_name'])
+        # Machine info - compact
+        if stats.get('machine_stats'):
+            if len(stats['machine_stats']) > 1:
+                UIFormatter.print_section("🖥️  Machines")
+                for i, machine in enumerate(stats['machine_stats'], 1):
+                    cost_str = f"${machine['total_cost']:,.2f}"
+                    UIFormatter.print_metric(f"{i}. {machine['machine_name']}", cost_str)
+            else:
+                machine = stats['machine_stats'][0]
+                UIFormatter.print_section("🖥️  Machine")
+                UIFormatter.print_metric("Name", machine['machine_name'])
         
-        print("═" * 70 + "\n")
+        print()  # Just a blank line
 
     def import_all_data(self):
         """Import all ccusage data into ClickHouse with enhanced UI and animations"""
-        UIFormatter.print_header("🚀 CCUSAGE DATA IMPORTER", 70)
-        print(f"   Target: {CH_DATABASE} at {CH_HOST}:{CH_PORT}")
-        print(f"   Machine: {MACHINE_NAME}")
-        print(f"   Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        UIFormatter.print_header("CCUSAGE DATA IMPORTER")
+        privacy_status = "Enabled" if HASH_PROJECT_NAMES else "Disabled"
+        print(f"Database: {CH_DATABASE} at {CH_HOST}:{CH_PORT} | Machine: {MACHINE_NAME}")
+        print(f"Project Privacy: {privacy_status}")
+        print()
 
         overall_start = datetime.now()
         
@@ -964,30 +983,24 @@ class ClickHouseImporter:
 
             # Import monthly data 
             if "monthly" in all_data and "monthly" in all_data["monthly"]:
-                loader = LoadingAnimation("Processing monthly data")
-                loader.start()
                 self.upsert_monthly_data(all_data["monthly"]["monthly"])
-                loader.stop("Monthly data processed")
+                print("✓ Monthly")
             else:
-                print("⚠️  No monthly data found")
+                print("⚠️  No monthly data")
 
             # Import session data
             if "session" in all_data and "sessions" in all_data["session"]:
-                loader = LoadingAnimation("Processing session data")
-                loader.start()
                 self.upsert_session_data(all_data["session"]["sessions"])
-                loader.stop("Session data processed")
+                print("✓ Sessions")
             else:
-                print("⚠️  No session data found")
+                print("⚠️  No session data")
 
             # Import blocks data
             if "blocks" in all_data and "blocks" in all_data["blocks"]:
-                loader = LoadingAnimation("Processing blocks data")
-                loader.start()
                 self.upsert_blocks_data(all_data["blocks"]["blocks"])
-                loader.stop("Blocks data processed")
+                print("✓ Blocks")
             else:
-                print("⚠️  No blocks data found")
+                print("⚠️  No blocks data")
 
             # Import projects daily data
             if "projects" in all_data and "projects" in all_data["projects"]:
@@ -1004,33 +1017,179 @@ class ClickHouseImporter:
             UIFormatter.print_step(3, "Generating analytics", 
                                   "Computing usage statistics and insights...")
             
-            loader = LoadingAnimation("Computing statistics")
-            loader.start()
             stats = self.get_import_statistics()
-            loader.stop("Statistics generated")
-            
-            print(f"\n✅ Import completed successfully!")
-            print(f"   Processing time: {UIFormatter.format_duration(import_duration)}")
-            print(f"   Total time: {UIFormatter.format_duration(overall_duration)}")
+            print(f"\n✓ Import completed in {UIFormatter.format_duration(overall_duration)}")
             
             # Display beautiful statistics
             self.print_statistics(stats)
 
         except Exception as e:
-            if 'loader' in locals():
-                loader.stop(error_message=f"Import failed: {e}")
-            else:
-                print(f"\n❌ Import failed: {e}")
+            print(f"\n❌ Import failed: {e}")
             raise
 
 
-def main():
-    """Main function"""
+def system_check():
+    """Comprehensive system validation and prerequisites check"""
+    print("🚀 CCUSAGE SYSTEM CHECK")
+    print(f"Machine: {MACHINE_NAME}")
+    print()
+    
+    all_checks_passed = True
+    
+    # 1. Check ccusage availability
+    print("🔧 Checking ccusage availability...")
+    
+    # Check bunx
+    bunx_available = False
     try:
-        importer = ClickHouseImporter()
-        importer.import_all_data()
+        result = subprocess.run(['bunx', '--version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"  ✅ bunx available: {result.stdout.strip()}")
+            bunx_available = True
+    except FileNotFoundError:
+        pass
+    
+    # Check npx
+    npx_available = False
+    try:
+        result = subprocess.run(['npx', '--version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            print(f"  ✅ npx available: {result.stdout.strip()}")
+            npx_available = True
+    except FileNotFoundError:
+        pass
+    
+    if not (bunx_available or npx_available):
+        print("  ❌ Neither bunx nor npx is available - ccusage cannot be executed")
+        all_checks_passed = False
+    
+    # Test ccusage execution
+    print("\n📊 Testing ccusage execution...")
+    ccusage_commands = [
+        ('daily', 'npx ccusage@latest daily --json'),
+        ('monthly', 'npx ccusage@latest monthly --json'),
+        ('session', 'npx ccusage@latest session --json'),
+        ('blocks', 'npx ccusage@latest blocks --json'),
+        ('projects', 'npx ccusage@latest daily --instances --json')
+    ]
+    
+    for cmd_name, cmd in ccusage_commands:
+        try:
+            result = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                print(f"  ✅ {cmd_name}: {len(data.get('data', data))} records available")
+            else:
+                print(f"  ❌ {cmd_name}: Failed to execute - {result.stderr}")
+                all_checks_passed = False
+        except subprocess.TimeoutExpired:
+            print(f"  ⚠️  {cmd_name}: Command timed out (30s)")
+            all_checks_passed = False
+        except json.JSONDecodeError:
+            print(f"  ⚠️  {cmd_name}: Invalid JSON response")
+            all_checks_passed = False
+        except Exception as e:
+            print(f"  ❌ {cmd_name}: Error - {e}")
+            all_checks_passed = False
+    
+    # 2. Enhanced ClickHouse connection check
+    print(f"\n🗄️  Checking ClickHouse connection...")
+    try:
+        # Test basic connection
+        client = clickhouse_connect.get_client(
+            host=CH_HOST,
+            port=CH_PORT,
+            username=CH_USER,
+            password=CH_PASSWORD,
+            database=CH_DATABASE
+        )
+        
+        # Get version and server info
+        result = client.query("SELECT version() as version")
+        version = result.result_rows[0][0] if result.result_rows else "Unknown"
+        print(f"  ✅ Connected to ClickHouse {version} at {CH_HOST}:{CH_PORT}")
+        
+        # Test database access
+        result = client.query("SELECT database() as current_db")
+        current_db = result.result_rows[0][0] if result.result_rows else "Unknown"
+        print(f"  ✅ Database access: {current_db}")
+        
+        # Test basic query execution
+        result = client.query(f"SELECT count() as total_tables FROM system.tables WHERE database = '{CH_DATABASE}'")
+        table_count = result.result_rows[0][0] if result.result_rows else 0
+        print(f"  ✅ Query execution: {table_count} tables in database")
+        
+        # Test write permissions (create/drop temp table)
+        try:
+            client.command("CREATE TABLE IF NOT EXISTS temp_check_table (id UInt32) ENGINE = Memory")
+            client.command("DROP TABLE IF EXISTS temp_check_table")
+            print(f"  ✅ Write permissions: Verified")
+        except Exception as perm_e:
+            print(f"  ⚠️  Write permissions: Limited - {perm_e}")
+            # Don't fail the overall check for write permission issues
+        
+        
+    except Exception as e:
+        print(f"  ❌ ClickHouse connection failed: {e}")
+        all_checks_passed = False
+        return all_checks_passed
+    
+    # 3. Check permissions and environment
+    print(f"\n🔐 Environment check...")
+    print(f"  ✅ CH_HOST: {CH_HOST}")
+    print(f"  ✅ CH_PORT: {CH_PORT}")  
+    print(f"  ✅ CH_USER: {CH_USER}")
+    print(f"  ✅ CH_DATABASE: {CH_DATABASE}")
+    print(f"  ✅ MACHINE_NAME: {MACHINE_NAME}")
+    
+    # 4. Summary
+    print(f"\n{'='*50}")
+    if all_checks_passed:
+        print("✅ ALL CHECKS PASSED - System ready for ccusage import")
+    else:
+        print("❌ SOME CHECKS FAILED - Please fix issues above")
+        
+    print(f"{'='*50}")
+    return all_checks_passed
+
+
+def main():
+    """Main function with argument parsing"""
+    global HASH_PROJECT_NAMES
+    
+    parser = argparse.ArgumentParser(
+        description='ccusage to ClickHouse Data Importer',
+        epilog='Examples:\n  %(prog)s                    # Import with privacy enabled (default)\n  %(prog)s --no-hash-projects  # Import with original project names\n  %(prog)s --check             # Validate system prerequisites',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        '--check', 
+        action='store_true',
+        help='Run comprehensive system check instead of importing data'
+    )
+    parser.add_argument(
+        '--no-hash-projects',
+        action='store_true',
+        help='Disable project name hashing (store original paths/session IDs)'
+    )
+    
+    args = parser.parse_args()
+    
+    # Set global privacy configuration
+    if args.no_hash_projects:
+        HASH_PROJECT_NAMES = False
+    
+    try:
+        if args.check:
+            # Run system check
+            success = system_check()
+            sys.exit(0 if success else 1)
+        else:
+            # Run normal import
+            importer = ClickHouseImporter()
+            importer.import_all_data()
     except KeyboardInterrupt:
-        print("\n⏹️  Import cancelled by user")
+        print("\n⏹️  Operation cancelled by user")
         sys.exit(0)
     except Exception as e:
         print(f"\n💥 Fatal error: {e}")

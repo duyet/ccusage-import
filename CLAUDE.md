@@ -46,15 +46,20 @@ CH_DATABASE = 'duyet_analytics'
 
 ## Database Schema
 
-All tables use the `ccusage_` prefix:
+All tables use the `ccusage_` prefix and include `machine_name` column for multi-machine support:
 
-- `ccusage_usage_daily` - Daily aggregated usage data
-- `ccusage_usage_monthly` - Monthly aggregated usage data
-- `ccusage_usage_sessions` - Session-based usage data
-- `ccusage_usage_blocks` - 5-hour billing blocks
-- `ccusage_usage_projects_daily` - Daily usage by project
-- `ccusage_model_breakdowns` - Model-specific token/cost breakdowns
-- `ccusage_models_used` - Models used tracking
+- `ccusage_usage_daily` - Daily aggregated usage data with machine tracking
+- `ccusage_usage_monthly` - Monthly aggregated usage data with machine tracking  
+- `ccusage_usage_sessions` - Session-based usage data with machine tracking
+- `ccusage_usage_blocks` - 5-hour billing blocks with machine tracking
+- `ccusage_usage_projects_daily` - Daily usage by project with machine tracking
+- `ccusage_model_breakdowns` - Model-specific token/cost breakdowns with machine tracking
+- `ccusage_models_used` - Models used tracking with machine tracking
+
+### Schema Migration Notes
+- All tables now include `machine_name String` column for tracking usage across different machines
+- Machine names are auto-detected using `socket.gethostname()` (e.g., "duyet.local")
+- Tables are partitioned appropriately for time-series data performance
 
 ## Data Sources
 
@@ -68,28 +73,194 @@ The importer pulls data from these ccusage commands:
 
 ## Key Features
 
-- **🎬 Interactive UI with Animations**: Beautiful loading spinners and progress indicators
+- **🖥️ Multi-Machine Support**: Track Claude usage across different machines with automatic hostname detection
 - **⚡ Parallel Data Fetching**: Fetches all ccusage data concurrently for faster imports  
-- **📊 Enhanced Statistics Display**: Beautifully formatted analytics with smart number formatting
+- **📊 Clean & Compact CLI**: Simplified output without excessive borders or animations
 - **🔁 Idempotent Imports**: Safe to run multiple times, won't duplicate data
 - **🛡️ Robust Error Handling**: Retry logic and timeout protection for reliable imports
-- **🗃️ Comprehensive Schema**: Optimized for analytics with proper indexing
-- **📈 Ready-to-Use Queries**: 27 pre-built queries for dashboards
-- **⏰ Automated Scheduling**: Hourly cronjob support
+- **🗃️ Comprehensive Schema**: Optimized for analytics with proper indexing and machine_name columns
+- **📈 Ready-to-Use Queries**: 40+ pre-built queries for dashboards including multi-machine analytics
+- **⏰ Automated Scheduling**: Hourly cronjob support with logging
+
+## ClickHouse Server Procedures
+
+### Connection Details
+- **Host**: duet-ubuntu
+- **Port**: 8124 (HTTP), 9000 (native)  
+- **User**: duyet
+- **Password**: ntmVKggOQa
+- **Database**: duyet_analytics
+
+### SSH Commands for ClickHouse Operations
+
+#### Connect to ClickHouse server via SSH:
+```bash
+ssh duyet@duet-ubuntu
+```
+
+#### Execute ClickHouse queries from local machine:
+```bash
+# Show tables
+ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --query=\"SHOW TABLES WHERE name LIKE 'ccusage%'\""
+
+# Check table row counts
+ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --query=\"SELECT 'usage_daily' as table, count() as rows FROM ccusage_usage_daily\""
+
+# Drop all ccusage tables (for recreation)
+ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --query=\"DROP TABLE IF EXISTS ccusage_usage_daily, ccusage_usage_monthly, ccusage_usage_sessions, ccusage_usage_blocks, ccusage_usage_projects_daily, ccusage_model_breakdowns, ccusage_models_used\""
+```
+
+#### Create tables individually (needed when bulk schema application fails):
+```bash
+# Create tables one by one to avoid syntax errors
+ssh duyet@duyet-ubuntu 'clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --multiquery' << 'EOF'
+CREATE TABLE IF NOT EXISTS ccusage_usage_daily (
+    date Date, machine_name String, input_tokens UInt64, output_tokens UInt64,
+    cache_creation_tokens UInt64, cache_read_tokens UInt64, total_tokens UInt64,
+    total_cost Float64, models_count UInt16, created_at DateTime DEFAULT now(),
+    updated_at DateTime DEFAULT now()
+) ENGINE = MergeTree() PARTITION BY toYYYYMM(date) ORDER BY (date, machine_name);
+
+CREATE TABLE IF NOT EXISTS ccusage_model_breakdowns (
+    record_type Enum8('daily' = 1, 'monthly' = 2, 'session' = 3, 'block' = 4, 'project_daily' = 5),
+    record_key String, machine_name String, model_name String, input_tokens UInt64,
+    output_tokens UInt64, cache_creation_tokens UInt64, cache_read_tokens UInt64,
+    cost Float64, created_at DateTime DEFAULT now()
+) ENGINE = MergeTree() PARTITION BY record_type ORDER BY (record_type, machine_name, record_key, model_name);
+
+CREATE TABLE IF NOT EXISTS ccusage_models_used (
+    record_type Enum8('daily' = 1, 'monthly' = 2, 'session' = 3, 'block' = 4, 'project_daily' = 5),
+    record_key String, machine_name String, model_name String, created_at DateTime DEFAULT now()
+) ENGINE = MergeTree() PARTITION BY record_type ORDER BY (record_type, machine_name, record_key, model_name);
+EOF
+```
+
+### Schema Recreation Process
+1. **Backup existing data** (if needed):
+   ```bash
+   ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --query=\"CREATE TABLE backup_ccusage_usage_daily AS SELECT * FROM ccusage_usage_daily\""
+   ```
+
+2. **Drop existing tables**:
+   ```bash
+   ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --multiquery" < /dev/stdin << 'EOF'
+   DROP TABLE IF EXISTS ccusage_usage_daily;
+   DROP TABLE IF EXISTS ccusage_usage_monthly;
+   DROP TABLE IF EXISTS ccusage_usage_sessions;
+   DROP TABLE IF EXISTS ccusage_usage_blocks;
+   DROP TABLE IF EXISTS ccusage_usage_projects_daily;
+   DROP TABLE IF EXISTS ccusage_model_breakdowns;
+   DROP TABLE IF EXISTS ccusage_models_used;
+   EOF
+   ```
+
+3. **Recreate tables** using individual table creation commands above or apply schema file
+
+### Common ClickHouse Issues
+- **Bulk schema application fails**: Use individual table creation commands
+- **Column mismatch errors**: Check INSERT column order matches table definition
+- **Permission errors**: Verify user/password are correct (remove quotes in SSH commands)
 
 ## Testing the Import
 
 ```bash
+# Run comprehensive system check (validates everything)
+uv run python ccusage_importer.py --check
+
 # Run a single import (includes parallel fetching and statistics)
 uv run python ccusage_importer.py
 
-# Verify the setup
+# Verify the setup (legacy script)
 chmod +x verify_setup.sh
 ./verify_setup.sh
 
-# Check ClickHouse tables
+# Check ClickHouse tables manually
 ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --database=duyet_analytics --query='SHOW TABLES WHERE name LIKE \"ccusage%\"'"
 ```
+
+### System Check Features (`--check`)
+The `--check` argument provides comprehensive system validation without importing data:
+
+#### **1. ccusage Availability Testing**
+- Detects `bunx` and `npx` package managers
+- Tests all 5 ccusage commands with 30-second timeouts:
+  - `daily`: Daily usage aggregation
+  - `monthly`: Monthly usage aggregation  
+  - `session`: Session-based usage
+  - `blocks`: 5-hour billing windows
+  - `projects`: Project-level daily data
+- Shows record counts available for import
+- Validates JSON response format
+
+#### **2. Enhanced ClickHouse Connection Testing**
+- **Basic Connection**: Server version and connectivity
+- **Database Access**: Confirms correct database selection
+- **Query Execution**: Tests SELECT operations and table counting
+- **Write Permissions**: Creates/drops temporary table to verify write access
+- **Server Performance**: Measures response time with ratings:
+  - ✅ Excellent: < 100ms
+  - ✅ Good: 100-500ms  
+  - ⚠️  Slow: > 500ms
+
+#### **3. Environment Validation**
+- Verifies all configuration variables are set
+- Shows connection parameters (host, port, user, database)
+- Confirms machine name detection
+
+#### **4. Exit Codes & Usage**
+```bash
+# Run system check (recommended before first import)
+uv run python ccusage_importer.py --check
+
+# Check exit code
+echo $?  # 0 = success, 1 = failures detected
+```
+
+## Project Privacy Feature
+
+### **Privacy Protection with Hashing**
+By default, the importer protects project privacy by hashing session IDs and project paths into stable 8-character hexadecimal identifiers.
+
+#### **Default Behavior (Privacy Enabled)**
+```bash
+# Import with project names hashed (default)
+uv run python ccusage_importer.py
+
+# Shows: Project Privacy: Enabled
+# Result: session_id="3fdbf248", project_path="34cfcaf1"
+```
+
+#### **Disable Privacy Protection**
+```bash
+# Import with original project names/paths
+uv run python ccusage_importer.py --no-hash-projects  
+
+# Shows: Project Privacy: Disabled
+# Result: session_id="/Users/duet/project/ccusage-import", project_path="/Users/duet/project/ccusage-import"
+```
+
+#### **Hash Properties**
+- **Stable**: Same project → same hash every time
+- **Short**: 8 characters (vs full paths like `/Users/duet/project/very-long-project-name`)
+- **Collision-resistant**: SHA-256 based (~4 billion possible values)
+- **Privacy-preserving**: Original paths cannot be reverse-engineered
+
+#### **Use Cases**
+- **Privacy Enabled (default)**: Shared/corporate environments, public dashboards
+- **Privacy Disabled**: Personal use, debugging, detailed project tracking
+
+#### **5. Troubleshooting Guide**
+- **ccusage failures**: Install Node.js and ccusage package
+- **ClickHouse connection**: Check server status, credentials, network
+- **Write permission errors**: Verify user has CREATE/DROP privileges
+- **Performance issues**: Check server load, network latency
+
+### Database Views (All with ccusage_ prefix)
+- **`ccusage_v_daily_summary`** - Daily cost analysis with calculated metrics
+- **`ccusage_v_session_summary`** - Session data with clean project names
+- **`ccusage_v_model_performance`** - Model cost and usage analysis grouped by machine
+- **`ccusage_v_monthly_trends`** - Monthly usage trends by machine and time
+- **`ccusage_v_active_blocks`** - Active billing blocks monitoring with projections
 
 ## Import Process
 
@@ -186,8 +357,36 @@ The enhanced importer follows this optimized workflow with beautiful UI:
 - Smart number formatting automatically converts large numbers (2.8B, 410.7M, 560.0K)
 
 **Statistics display:**
-- Beautifully formatted post-import analytics with clear visual hierarchy
+- Clean and compact post-import analytics without excessive borders
 - Table record counts with human-readable numbers and clean alignment  
 - Comprehensive cost breakdowns and token consumption metrics
 - Model-specific usage patterns ranked by cost with token counts
 - Session insights and real-time block status monitoring
+
+## Known Issues & Troubleshooting
+
+### Current Issues
+1. **CLI animations still visible**:
+   - Spinners still show during fetch/processing phases
+   - Status: Header simplified, but progress animations remain
+   - Impact: Cosmetic only, does not affect functionality
+
+### Multi-Machine Deployment Notes
+- Each machine auto-detects its hostname via `socket.gethostname()`
+- Data is isolated by machine_name in all tables
+- Cross-machine analytics available via queries.sql
+- No configuration needed for basic multi-machine support
+- Custom machine names can be set via MACHINE_NAME environment variable
+
+### Recent Changes Summary
+- ✅ Added machine_name columns to all 7 tables for multi-machine support
+- ✅ Simplified CLI output removing verbose headers and borders  
+- ✅ Updated schema recreation procedures with individual table commands
+- ✅ Fixed models_used table column mismatch issue (missing machine_name in daily data)
+- ✅ Fixed blocks table column ordering issue (actual_end_time position)
+- ✅ Enhanced cronjob logging with timestamps and log rotation
+- ✅ Created all 5 database views with proper ccusage_ prefix naming
+- ✅ Added comprehensive --check argument for system validation
+- ✅ Implemented project privacy protection with SHA-256 hashing (enabled by default)
+- ✅ Added --no-hash-projects toggle to disable privacy protection
+- 📝 Enhanced documentation with ClickHouse procedures and SSH commands

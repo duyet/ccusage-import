@@ -168,7 +168,7 @@ SETTINGS index_granularity = 8192;
 -- ===============================
 
 -- Real-time cost analysis by model across all record types
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_cost_by_model
+CREATE MATERIALIZED VIEW IF NOT EXISTS ccusage_mv_cost_by_model
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(created_at)
 ORDER BY (model_name, machine_name, toDate(created_at))
@@ -186,7 +186,7 @@ FROM ccusage_model_breakdowns
 GROUP BY model_name, machine_name, toDate(created_at), created_at;
 
 -- Daily usage trends
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_daily_trends
+CREATE MATERIALIZED VIEW IF NOT EXISTS ccusage_mv_daily_trends
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(date)
 ORDER BY (date, machine_name)
@@ -212,7 +212,7 @@ FROM (
 GROUP BY date, machine_name;
 
 -- Top projects by cost
-CREATE MATERIALIZED VIEW IF NOT EXISTS mv_top_projects
+CREATE MATERIALIZED VIEW IF NOT EXISTS ccusage_mv_top_projects
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(last_activity)
 ORDER BY (last_activity, machine_name, session_id)
@@ -247,7 +247,7 @@ ALTER TABLE ccusage_models_used ADD INDEX idx_model_record (record_type, model_n
 -- ==========================
 
 -- Simple view for daily cost analysis
-CREATE VIEW IF NOT EXISTS v_daily_summary AS
+CREATE VIEW IF NOT EXISTS ccusage_v_daily_summary AS
 SELECT 
     date,
     machine_name,
@@ -262,7 +262,7 @@ FROM ccusage_usage_daily
 ORDER BY date DESC, machine_name;
 
 -- Session summary with clean project names
-CREATE VIEW IF NOT EXISTS v_session_summary AS
+CREATE VIEW IF NOT EXISTS ccusage_v_session_summary AS
 SELECT 
     session_id,
     machine_name,
@@ -280,7 +280,7 @@ FROM ccusage_usage_sessions
 ORDER BY total_cost DESC;
 
 -- Model performance analysis
-CREATE VIEW IF NOT EXISTS v_model_performance AS
+CREATE VIEW IF NOT EXISTS ccusage_v_model_performance AS
 SELECT 
     model_name,
     machine_name,
@@ -294,7 +294,7 @@ GROUP BY model_name, machine_name
 ORDER BY total_cost DESC;
 
 -- Monthly trends analysis
-CREATE VIEW IF NOT EXISTS v_monthly_trends AS
+CREATE VIEW IF NOT EXISTS ccusage_v_monthly_trends AS
 SELECT 
     month,
     year,
@@ -302,14 +302,12 @@ SELECT
     machine_name,
     total_cost,
     total_tokens,
-    total_cost / total_tokens * 1000000 as cost_per_million_tokens,
-    total_cost - LAG(total_cost) OVER (PARTITION BY machine_name ORDER BY year, month_num) as cost_change,
-    (total_cost - LAG(total_cost) OVER (PARTITION BY machine_name ORDER BY year, month_num)) / LAG(total_cost) OVER (PARTITION BY machine_name ORDER BY year, month_num) * 100 as cost_change_percent
+    total_cost / total_tokens * 1000000 as cost_per_million_tokens
 FROM ccusage_usage_monthly
 ORDER BY year, month_num, machine_name;
 
 -- Active blocks analysis (for current usage monitoring)
-CREATE VIEW IF NOT EXISTS v_active_blocks AS
+CREATE VIEW IF NOT EXISTS ccusage_v_active_blocks AS
 SELECT 
     block_id,
     machine_name,
