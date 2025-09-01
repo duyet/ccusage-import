@@ -41,32 +41,32 @@ HASH_PROJECT_NAMES = True
 def hash_project_name(project_path: str) -> str:
     """
     Create a stable, short hash of project paths for privacy.
-    
+
     Args:
         project_path: Full project path or session ID
-        
+
     Returns:
         8-character hexadecimal hash (stable and collision-resistant)
     """
     if not HASH_PROJECT_NAMES:
         return project_path
-    
+
     # Use SHA-256 for cryptographic security, take first 8 chars for brevity
     # This provides ~4 billion possible values with very low collision probability
-    hash_object = hashlib.sha256(project_path.encode('utf-8'))
+    hash_object = hashlib.sha256(project_path.encode("utf-8"))
     return hash_object.hexdigest()[:8]
 
 
 class LoadingAnimation:
     """Animated loading indicator for long-running operations"""
-    
+
     def __init__(self, message: str = "Loading", spinner_chars: str = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
         self.message = message
         self.spinner_chars = spinner_chars
         self.is_running = False
         self.thread = None
         self.current_line = ""
-        
+
     def _animate(self):
         """Internal animation loop"""
         i = 0
@@ -76,24 +76,24 @@ class LoadingAnimation:
             print(self.current_line, end="", flush=True)
             time.sleep(0.1)
             i += 1
-            
+
     def start(self):
         """Start the loading animation"""
         if not self.is_running:
             self.is_running = True
             self.thread = threading.Thread(target=self._animate, daemon=True)
             self.thread.start()
-            
+
     def stop(self, success_message: str = None, error_message: str = None):
         """Stop the animation and show final message"""
         if self.is_running:
             self.is_running = False
             if self.thread:
                 self.thread.join(timeout=0.2)
-            
+
             # Clear the current line
             print("\r" + " " * len(self.current_line), end="\r", flush=True)
-            
+
             # Show final message
             if error_message:
                 print(f"❌ {error_message}")
@@ -105,17 +105,17 @@ class LoadingAnimation:
 
 class UIFormatter:
     """Enhanced UI formatting utilities"""
-    
+
     @staticmethod
     def print_header(title: str, width: int = 50):
         """Print a compact header"""
         print(f"\n🚀 {title}")
-    
+
     @staticmethod
     def print_section(title: str, width: int = 50):
         """Print a compact section"""
         print(f"\n{title}")
-    
+
     @staticmethod
     def print_step(step_num: int, title: str, description: str = ""):
         """Print a numbered step"""
@@ -124,12 +124,12 @@ class UIFormatter:
             print(f"   {description}")
         else:
             print(f"\n{step_num}️⃣  {title}")
-    
+
     @staticmethod
     def print_metric(label: str, value: str, width: int = 25):
         """Print a compact metric"""
         print(f"  {label}: {value}")
-    
+
     @staticmethod
     def format_duration(seconds: float) -> str:
         """Format duration in a human-readable way"""
@@ -141,7 +141,7 @@ class UIFormatter:
             mins = int(seconds // 60)
             secs = seconds % 60
             return f"{mins}m {secs:.1f}s"
-    
+
     @staticmethod
     def format_number(num: int) -> str:
         """Format large numbers with appropriate suffixes"""
@@ -181,16 +181,12 @@ class ClickHouseImporter:
         """Detect whether bunx or npx is available, prefer bunx"""
         try:
             # Try bunx first (faster)
-            subprocess.run(
-                ["bunx", "--version"], capture_output=True, check=True
-            )
+            subprocess.run(["bunx", "--version"], capture_output=True, check=True)
             return "bunx"
         except (subprocess.CalledProcessError, FileNotFoundError):
             try:
                 # Fall back to npx
-                subprocess.run(
-                    ["npx", "--version"], capture_output=True, check=True
-                )
+                subprocess.run(["npx", "--version"], capture_output=True, check=True)
                 return "npx"
             except (subprocess.CalledProcessError, FileNotFoundError):
                 # Silently default to npx
@@ -199,18 +195,18 @@ class ClickHouseImporter:
     def _parse_date(self, date_str: str) -> date:
         """Parse date string to Python date object"""
         return datetime.strptime(date_str, "%Y-%m-%d").date()
-    
+
     def _parse_datetime(self, datetime_str: str) -> datetime:
         """Parse datetime string to Python datetime object"""
         if datetime_str is None:
             return None
         # Handle ISO format: "2025-08-02T15:00:00.000Z"
-        if datetime_str.endswith('Z'):
+        if datetime_str.endswith("Z"):
             # Remove 'Z' and parse as UTC
             datetime_str = datetime_str[:-1]
             return datetime.fromisoformat(datetime_str).replace(tzinfo=None)
         return datetime.fromisoformat(datetime_str).replace(tzinfo=None)
-    
+
     def _extract_burn_rate(self, burn_rate_data) -> float:
         """Extract burn rate value from data (can be None, float, or dict)"""
         if burn_rate_data is None:
@@ -219,9 +215,9 @@ class ClickHouseImporter:
             return float(burn_rate_data)
         if isinstance(burn_rate_data, dict):
             # Extract costPerHour from complex burn rate object
-            return burn_rate_data.get('costPerHour', None)
+            return burn_rate_data.get("costPerHour", None)
         return None
-    
+
     def _extract_projection(self, projection_data) -> float:
         """Extract projection value from data (can be None, float, or dict)"""
         if projection_data is None:
@@ -230,69 +226,84 @@ class ClickHouseImporter:
             return float(projection_data)
         if isinstance(projection_data, dict):
             # Extract totalCost from complex projection object
-            return projection_data.get('totalCost', None)
+            return projection_data.get("totalCost", None)
         return None
 
     def fetch_ccusage_data_parallel(self) -> Dict[str, Dict[str, Any]]:
         """Fetch all ccusage data in parallel with animated loading indicator"""
         commands = [
             ("daily", "daily"),
-            ("monthly", "monthly"), 
+            ("monthly", "monthly"),
             ("session", "session"),
             ("blocks", "blocks"),
-            ("projects", "daily --instances")
+            ("projects", "daily --instances"),
         ]
-        
-        UIFormatter.print_step(1, "Fetching ccusage data", 
-                              "Executing 5 ccusage commands concurrently...")
-        
+
+        UIFormatter.print_step(
+            1, "Fetching ccusage data", "Executing 5 ccusage commands concurrently..."
+        )
+
         # Start loading animation
         loader = LoadingAnimation("Fetching data from ccusage")
         loader.start()
-        
+
         start_time = datetime.now()
         results = {}
         completed_count = 0
-        
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
             # Submit all commands
             future_to_key = {
-                executor.submit(self.run_ccusage_command, cmd): key 
+                executor.submit(self.run_ccusage_command, cmd): key
                 for key, cmd in commands
             }
-            
+
             # Collect results as they complete
             for future in concurrent.futures.as_completed(future_to_key):
                 key = future_to_key[future]
                 completed_count += 1
-                
+
                 try:
                     results[key] = future.result()
-                    loader.stop(f"{key} data fetched ({completed_count}/{len(commands)})")
+                    loader.stop(
+                        f"{key} data fetched ({completed_count}/{len(commands)})"
+                    )
                     if completed_count < len(commands):
-                        loader = LoadingAnimation(f"Fetching remaining data ({completed_count}/{len(commands)} complete)")
+                        loader = LoadingAnimation(
+                            f"Fetching remaining data ({completed_count}/{len(commands)} complete)"
+                        )
                         loader.start()
                 except Exception as e:
                     loader.stop(error_message=f"{key} data failed: {e}")
                     results[key] = {}
                     if completed_count < len(commands):
-                        loader = LoadingAnimation(f"Fetching remaining data ({completed_count}/{len(commands)} complete)")
+                        loader = LoadingAnimation(
+                            f"Fetching remaining data ({completed_count}/{len(commands)} complete)"
+                        )
                         loader.start()
-        
+
         fetch_duration = (datetime.now() - start_time).total_seconds()
-        print(f"\n✅ All data sources fetched in {UIFormatter.format_duration(fetch_duration)}")
+        print(
+            f"\n✅ All data sources fetched in {UIFormatter.format_duration(fetch_duration)}"
+        )
         return results
 
-    def run_ccusage_command(self, command: str, verbose: bool = False) -> Dict[str, Any]:
+    def run_ccusage_command(
+        self, command: str, verbose: bool = False
+    ) -> Dict[str, Any]:
         """Run ccusage command and return JSON data with retry logic"""
         max_retries = 2
         for attempt in range(max_retries):
             try:
                 if verbose and attempt == 0:
-                    print(f"Running: {self.package_runner} ccusage@latest {command} --json")
+                    print(
+                        f"Running: {self.package_runner} ccusage@latest {command} --json"
+                    )
                 elif verbose:
-                    print(f"  Retry {attempt}: {self.package_runner} ccusage@latest {command} --json")
-                    
+                    print(
+                        f"  Retry {attempt}: {self.package_runner} ccusage@latest {command} --json"
+                    )
+
                 result = subprocess.run(
                     [self.package_runner, "ccusage@latest"]
                     + command.split()
@@ -305,12 +316,16 @@ class ClickHouseImporter:
                 return json.loads(result.stdout)
             except subprocess.TimeoutExpired:
                 if verbose:
-                    print(f"  Timeout running ccusage {command} (attempt {attempt + 1})")
+                    print(
+                        f"  Timeout running ccusage {command} (attempt {attempt + 1})"
+                    )
                 if attempt == max_retries - 1:
                     return {}
             except subprocess.CalledProcessError as e:
                 if verbose:
-                    print(f"  Error running ccusage {command} (attempt {attempt + 1}): {e}")
+                    print(
+                        f"  Error running ccusage {command} (attempt {attempt + 1}): {e}"
+                    )
                     if e.stderr:
                         print(f"  Error output: {e.stderr}")
                 if attempt == max_retries - 1:
@@ -319,7 +334,7 @@ class ClickHouseImporter:
                 if verbose:
                     print(f"  Error parsing JSON from ccusage {command}: {e}")
                 return {}
-        
+
         return {}
 
     def upsert_daily_data(self, daily_data: List[Dict[str, Any]]):
@@ -395,12 +410,8 @@ class ClickHouseImporter:
                 f"'daily' AND record_key IN ({dates_str})"
             )
             self.client.command(delete_query)
-            self.client.insert(
-                "ccusage_model_breakdowns", model_breakdown_rows
-            )
-            print(
-                f"✓ Inserted {len(model_breakdown_rows)} model breakdown records"
-            )
+            self.client.insert("ccusage_model_breakdowns", model_breakdown_rows)
+            print(f"✓ Inserted {len(model_breakdown_rows)} model breakdown records")
 
         if model_used_rows:
             # Delete existing model used records
@@ -488,9 +499,7 @@ class ClickHouseImporter:
                 f"'monthly' AND record_key IN ({months_str}) AND machine_name = '{MACHINE_NAME}'"
             )
             self.client.command(delete_query)
-            self.client.insert(
-                "ccusage_model_breakdowns", model_breakdown_rows
-            )
+            self.client.insert("ccusage_model_breakdowns", model_breakdown_rows)
 
         if model_used_rows:
             months_str = ",".join([f"'{m}'" for m in months])
@@ -524,23 +533,23 @@ class ClickHouseImporter:
             # Hash project information for privacy
             hashed_session_id = hash_project_name(item["sessionId"])
             hashed_project_path = hash_project_name(item["projectPath"])
-            
+
             # Main session record (order matches table schema)
             rows.append(
                 [
-                    hashed_session_id,          # session_id
-                    hashed_project_path,        # project_path  
-                    MACHINE_NAME,               # machine_name
-                    item["inputTokens"],        # input_tokens
-                    item["outputTokens"],       # output_tokens
-                    item["cacheCreationTokens"], # cache_creation_tokens
-                    item["cacheReadTokens"],    # cache_read_tokens
-                    item["totalTokens"],        # total_tokens
-                    item["totalCost"],          # total_cost
-                    self._parse_date(item["lastActivity"]), # last_activity
-                    len(item["modelsUsed"]),    # models_count
-                    datetime.now(),             # created_at
-                    datetime.now(),             # updated_at
+                    hashed_session_id,  # session_id
+                    hashed_project_path,  # project_path
+                    MACHINE_NAME,  # machine_name
+                    item["inputTokens"],  # input_tokens
+                    item["outputTokens"],  # output_tokens
+                    item["cacheCreationTokens"],  # cache_creation_tokens
+                    item["cacheReadTokens"],  # cache_read_tokens
+                    item["totalTokens"],  # total_tokens
+                    item["totalCost"],  # total_cost
+                    self._parse_date(item["lastActivity"]),  # last_activity
+                    len(item["modelsUsed"]),  # models_count
+                    datetime.now(),  # created_at
+                    datetime.now(),  # updated_at
                 ]
             )
 
@@ -578,9 +587,7 @@ class ClickHouseImporter:
                 f"'session' AND record_key IN ({sessions_str}) AND machine_name = '{MACHINE_NAME}'"
             )
             self.client.command(delete_query)
-            self.client.insert(
-                "ccusage_model_breakdowns", model_breakdown_rows
-            )
+            self.client.insert("ccusage_model_breakdowns", model_breakdown_rows)
 
         if model_used_rows:
             sessions_str = ",".join([f"'{s}'" for s in session_ids])
@@ -613,26 +620,30 @@ class ClickHouseImporter:
             # Main block record - order matches actual table schema
             rows.append(
                 [
-                    item["id"],                                                    # block_id
-                    MACHINE_NAME,                                              # machine_name
-                    self._parse_datetime(item["startTime"]),                      # start_time
-                    self._parse_datetime(item["endTime"]),                       # end_time
-                    self._parse_datetime(item.get("actualEndTime")),           # actual_end_time
-                    1 if item["isActive"] else 0,                               # is_active
-                    1 if item["isGap"] else 0,                                  # is_gap
-                    item["entries"],                                            # entries
-                    item["tokenCounts"]["inputTokens"],                         # input_tokens
-                    item["tokenCounts"]["outputTokens"],                        # output_tokens
-                    item["tokenCounts"]["cacheCreationInputTokens"],            # cache_creation_tokens
-                    item["tokenCounts"]["cacheReadInputTokens"],                # cache_read_tokens
-                    item["totalTokens"],                                        # total_tokens
-                    item["costUSD"],                                           # cost_usd
-                    len(item["models"]),                                       # models_count
-                    datetime.now(),                                            # created_at
-                    datetime.now(),                                            # updated_at
-                    self._parse_datetime(item.get("usageLimitResetTime", None)),     # usage_limit_reset_time
-                    self._extract_burn_rate(item.get("burnRate")),             # burn_rate
-                    self._extract_projection(item.get("projection")),          # projection
+                    item["id"],  # block_id
+                    MACHINE_NAME,  # machine_name
+                    self._parse_datetime(item["startTime"]),  # start_time
+                    self._parse_datetime(item["endTime"]),  # end_time
+                    self._parse_datetime(item.get("actualEndTime")),  # actual_end_time
+                    1 if item["isActive"] else 0,  # is_active
+                    1 if item["isGap"] else 0,  # is_gap
+                    item["entries"],  # entries
+                    item["tokenCounts"]["inputTokens"],  # input_tokens
+                    item["tokenCounts"]["outputTokens"],  # output_tokens
+                    item["tokenCounts"][
+                        "cacheCreationInputTokens"
+                    ],  # cache_creation_tokens
+                    item["tokenCounts"]["cacheReadInputTokens"],  # cache_read_tokens
+                    item["totalTokens"],  # total_tokens
+                    item["costUSD"],  # cost_usd
+                    len(item["models"]),  # models_count
+                    datetime.now(),  # created_at
+                    datetime.now(),  # updated_at
+                    self._parse_datetime(
+                        item.get("usageLimitResetTime", None)
+                    ),  # usage_limit_reset_time
+                    self._extract_burn_rate(item.get("burnRate")),  # burn_rate
+                    self._extract_projection(item.get("projection")),  # projection
                 ]
             )
 
@@ -735,7 +746,13 @@ class ClickHouseImporter:
 
         if model_breakdown_rows:
             # Delete existing model breakdowns for these records
-            record_keys = set([f"{item['date']}_{project_id}" for project_id, daily_records in projects_data.items() for item in daily_records])
+            record_keys = set(
+                [
+                    f"{item['date']}_{project_id}"
+                    for project_id, daily_records in projects_data.items()
+                    for item in daily_records
+                ]
+            )
             if record_keys:
                 keys_str = ",".join([f"'{k}'" for k in record_keys])
                 delete_query = (
@@ -743,13 +760,17 @@ class ClickHouseImporter:
                     f"'project_daily' AND record_key IN ({keys_str}) AND machine_name = '{MACHINE_NAME}'"
                 )
                 self.client.command(delete_query)
-            self.client.insert(
-                "ccusage_model_breakdowns", model_breakdown_rows
-            )
+            self.client.insert("ccusage_model_breakdowns", model_breakdown_rows)
 
         if model_used_rows:
             # Delete existing models used for these records
-            record_keys = set([f"{item['date']}_{project_id}" for project_id, daily_records in projects_data.items() for item in daily_records])
+            record_keys = set(
+                [
+                    f"{item['date']}_{project_id}"
+                    for project_id, daily_records in projects_data.items()
+                    for item in daily_records
+                ]
+            )
             if record_keys:
                 keys_str = ",".join([f"'{k}'" for k in record_keys])
                 delete_query = (
@@ -762,31 +783,33 @@ class ClickHouseImporter:
     def get_import_statistics(self) -> Dict[str, Any]:
         """Get comprehensive statistics after import"""
         # Generate statistics silently
-        
+
         stats = {}
-        
+
         # Table row counts - get them individually to avoid SQL issues
         tables = [
-            'ccusage_usage_daily',
-            'ccusage_usage_monthly', 
-            'ccusage_usage_sessions',
-            'ccusage_usage_blocks',
-            'ccusage_usage_projects_daily',
-            'ccusage_model_breakdowns',
-            'ccusage_models_used'
+            "ccusage_usage_daily",
+            "ccusage_usage_monthly",
+            "ccusage_usage_sessions",
+            "ccusage_usage_blocks",
+            "ccusage_usage_projects_daily",
+            "ccusage_model_breakdowns",
+            "ccusage_models_used",
         ]
-        
+
         table_counts = {}
         for table in tables:
             try:
-                count_result = self.client.query(f"SELECT count() FROM {table}").result_rows[0]
+                count_result = self.client.query(
+                    f"SELECT count() FROM {table}"
+                ).result_rows[0]
                 table_counts[table] = int(count_result[0])
             except Exception as e:
                 # Silently handle table count error
                 table_counts[table] = 0
-        
-        stats['table_counts'] = table_counts
-        
+
+        stats["table_counts"] = table_counts
+
         # Usage summary
         usage_summary_query = """
         SELECT 
@@ -801,20 +824,22 @@ class ClickHouseImporter:
             count(distinct date) as days_with_usage
         FROM ccusage_usage_daily
         """
-        
+
         usage_result = self.client.query(usage_summary_query).result_rows[0]
-        stats['usage_summary'] = {
-            'total_cost': float(usage_result[0]) if usage_result[0] else 0.0,
-            'total_tokens': int(usage_result[1]) if usage_result[1] else 0,
-            'total_input_tokens': int(usage_result[2]) if usage_result[2] else 0,
-            'total_output_tokens': int(usage_result[3]) if usage_result[3] else 0,
-            'total_cache_creation_tokens': int(usage_result[4]) if usage_result[4] else 0,
-            'total_cache_read_tokens': int(usage_result[5]) if usage_result[5] else 0,
-            'earliest_date': str(usage_result[6]) if usage_result[6] else None,
-            'latest_date': str(usage_result[7]) if usage_result[7] else None,
-            'days_with_usage': int(usage_result[8]) if usage_result[8] else 0
+        stats["usage_summary"] = {
+            "total_cost": float(usage_result[0]) if usage_result[0] else 0.0,
+            "total_tokens": int(usage_result[1]) if usage_result[1] else 0,
+            "total_input_tokens": int(usage_result[2]) if usage_result[2] else 0,
+            "total_output_tokens": int(usage_result[3]) if usage_result[3] else 0,
+            "total_cache_creation_tokens": (
+                int(usage_result[4]) if usage_result[4] else 0
+            ),
+            "total_cache_read_tokens": int(usage_result[5]) if usage_result[5] else 0,
+            "earliest_date": str(usage_result[6]) if usage_result[6] else None,
+            "latest_date": str(usage_result[7]) if usage_result[7] else None,
+            "days_with_usage": int(usage_result[8]) if usage_result[8] else 0,
         }
-        
+
         # Model usage
         model_stats_query = """
         SELECT 
@@ -827,19 +852,19 @@ class ClickHouseImporter:
         GROUP BY model_name
         ORDER BY total_cost DESC
         """
-        
+
         model_results = self.client.query(model_stats_query).result_rows
-        stats['model_usage'] = [
+        stats["model_usage"] = [
             {
-                'model_name': row[0],
-                'usage_count': int(row[1]),
-                'total_cost': float(row[2]),
-                'total_tokens': int(row[3])
+                "model_name": row[0],
+                "usage_count": int(row[1]),
+                "total_cost": float(row[2]),
+                "total_tokens": int(row[3]),
             }
             for row in model_results
         ]
-        
-        # Session statistics  
+
+        # Session statistics
         session_stats_query = """
         SELECT 
             count() as total_sessions,
@@ -848,25 +873,27 @@ class ClickHouseImporter:
             sum(total_tokens) as total_session_tokens
         FROM ccusage_usage_sessions
         """
-        
+
         session_result = self.client.query(session_stats_query).result_rows[0]
-        stats['session_stats'] = {
-            'total_sessions': int(session_result[0]) if session_result[0] else 0,
-            'avg_cost_per_session': float(session_result[1]) if session_result[1] else 0.0,
-            'max_cost_session': float(session_result[2]) if session_result[2] else 0.0,
-            'total_session_tokens': int(session_result[3]) if session_result[3] else 0
+        stats["session_stats"] = {
+            "total_sessions": int(session_result[0]) if session_result[0] else 0,
+            "avg_cost_per_session": (
+                float(session_result[1]) if session_result[1] else 0.0
+            ),
+            "max_cost_session": float(session_result[2]) if session_result[2] else 0.0,
+            "total_session_tokens": int(session_result[3]) if session_result[3] else 0,
         }
-        
+
         # Active blocks
         active_blocks_query = """
         SELECT count() as active_blocks
         FROM ccusage_usage_blocks 
         WHERE is_active = 1
         """
-        
+
         active_result = self.client.query(active_blocks_query).result_rows[0]
-        stats['active_blocks'] = int(active_result[0]) if active_result[0] else 0
-        
+        stats["active_blocks"] = int(active_result[0]) if active_result[0] else 0
+
         # Machine-specific statistics
         machine_stats_query = """
         SELECT 
@@ -879,101 +906,135 @@ class ClickHouseImporter:
         GROUP BY machine_name
         ORDER BY machine_total_cost DESC
         """
-        
+
         machine_results = self.client.query(machine_stats_query).result_rows
-        stats['machine_stats'] = [
+        stats["machine_stats"] = [
             {
-                'machine_name': row[0],
-                'total_cost': float(row[1]),
-                'total_tokens': int(row[2]), 
-                'active_days': int(row[3]),
-                'last_activity': str(row[4])
+                "machine_name": row[0],
+                "total_cost": float(row[1]),
+                "total_tokens": int(row[2]),
+                "active_days": int(row[3]),
+                "last_activity": str(row[4]),
             }
             for row in machine_results
         ]
-        
+
         return stats
-    
+
     def print_statistics(self, stats: Dict[str, Any]):
         """Print beautifully formatted statistics"""
         UIFormatter.print_header("📊 IMPORT SUMMARY & STATISTICS", 70)
-        
+
         # Table counts with enhanced formatting
         UIFormatter.print_section("📋 Database Records", 70)
-        for table, count in stats['table_counts'].items():
-            table_display = table.replace('ccusage_', '').replace('_', ' ').title()
+        for table, count in stats["table_counts"].items():
+            table_display = table.replace("ccusage_", "").replace("_", " ").title()
             count_formatted = UIFormatter.format_number(count)
             UIFormatter.print_metric(table_display, f"{count_formatted} records")
-        
+
         # Usage summary with better number formatting
-        usage = stats['usage_summary']
+        usage = stats["usage_summary"]
         UIFormatter.print_section("💰 Usage Analytics", 70)
         UIFormatter.print_metric("Total Cost", f"${usage['total_cost']:,.2f}")
-        UIFormatter.print_metric("Total Tokens", UIFormatter.format_number(usage['total_tokens']))
-        UIFormatter.print_metric("Input Tokens", UIFormatter.format_number(usage['total_input_tokens']))
-        UIFormatter.print_metric("Output Tokens", UIFormatter.format_number(usage['total_output_tokens']))
-        UIFormatter.print_metric("Cache Creation Tokens", UIFormatter.format_number(usage['total_cache_creation_tokens']))
-        UIFormatter.print_metric("Cache Read Tokens", UIFormatter.format_number(usage['total_cache_read_tokens']))
-        UIFormatter.print_metric("Date Range", f"{usage['earliest_date']} → {usage['latest_date']}")
-        UIFormatter.print_metric("Days with Usage", f"{usage['days_with_usage']:,} days")
-        
+        UIFormatter.print_metric(
+            "Total Tokens", UIFormatter.format_number(usage["total_tokens"])
+        )
+        UIFormatter.print_metric(
+            "Input Tokens", UIFormatter.format_number(usage["total_input_tokens"])
+        )
+        UIFormatter.print_metric(
+            "Output Tokens", UIFormatter.format_number(usage["total_output_tokens"])
+        )
+        UIFormatter.print_metric(
+            "Cache Creation Tokens",
+            UIFormatter.format_number(usage["total_cache_creation_tokens"]),
+        )
+        UIFormatter.print_metric(
+            "Cache Read Tokens",
+            UIFormatter.format_number(usage["total_cache_read_tokens"]),
+        )
+        UIFormatter.print_metric(
+            "Date Range", f"{usage['earliest_date']} → {usage['latest_date']}"
+        )
+        UIFormatter.print_metric(
+            "Days with Usage", f"{usage['days_with_usage']:,} days"
+        )
+
         # Model breakdown with cleaner formatting
         UIFormatter.print_section("🤖 Top Models by Cost", 70)
-        for i, model in enumerate(stats['model_usage'][:5], 1):
-            model_name = model['model_name'].replace('claude-', '').replace('-20250514', '')
+        for i, model in enumerate(stats["model_usage"][:5], 1):
+            model_name = (
+                model["model_name"].replace("claude-", "").replace("-20250514", "")
+            )
             cost_str = f"${model['total_cost']:,.2f}"
-            tokens_str = UIFormatter.format_number(model['total_tokens'])
-            UIFormatter.print_metric(f"{i}. {model_name}", f"{cost_str} ({tokens_str} tokens)")
-        
+            tokens_str = UIFormatter.format_number(model["total_tokens"])
+            UIFormatter.print_metric(
+                f"{i}. {model_name}", f"{cost_str} ({tokens_str} tokens)"
+            )
+
         # Session stats
-        session = stats['session_stats']
+        session = stats["session_stats"]
         UIFormatter.print_section("💼 Session Insights", 70)
         UIFormatter.print_metric("Total Sessions", f"{session['total_sessions']:,}")
-        UIFormatter.print_metric("Avg Cost per Session", f"${session['avg_cost_per_session']:,.2f}")
-        UIFormatter.print_metric("Max Cost Session", f"${session['max_cost_session']:,.2f}")
-        UIFormatter.print_metric("Total Session Tokens", UIFormatter.format_number(session['total_session_tokens']))
-        
+        UIFormatter.print_metric(
+            "Avg Cost per Session", f"${session['avg_cost_per_session']:,.2f}"
+        )
+        UIFormatter.print_metric(
+            "Max Cost Session", f"${session['max_cost_session']:,.2f}"
+        )
+        UIFormatter.print_metric(
+            "Total Session Tokens",
+            UIFormatter.format_number(session["total_session_tokens"]),
+        )
+
         # Active blocks - compact
-        if stats['active_blocks'] > 0:
+        if stats["active_blocks"] > 0:
             UIFormatter.print_section("🧱 Active Blocks")
             UIFormatter.print_metric("Count", f"{stats['active_blocks']:,}")
-        
+
         # Machine info - compact
-        if stats.get('machine_stats'):
-            if len(stats['machine_stats']) > 1:
+        if stats.get("machine_stats"):
+            if len(stats["machine_stats"]) > 1:
                 UIFormatter.print_section("🖥️  Machines")
-                for i, machine in enumerate(stats['machine_stats'], 1):
+                for i, machine in enumerate(stats["machine_stats"], 1):
                     cost_str = f"${machine['total_cost']:,.2f}"
-                    UIFormatter.print_metric(f"{i}. {machine['machine_name']}", cost_str)
+                    UIFormatter.print_metric(
+                        f"{i}. {machine['machine_name']}", cost_str
+                    )
             else:
-                machine = stats['machine_stats'][0]
+                machine = stats["machine_stats"][0]
                 UIFormatter.print_section("🖥️  Machine")
-                UIFormatter.print_metric("Name", machine['machine_name'])
-        
+                UIFormatter.print_metric("Name", machine["machine_name"])
+
         print()  # Just a blank line
 
     def import_all_data(self):
         """Import all ccusage data into ClickHouse with enhanced UI and animations"""
         UIFormatter.print_header("CCUSAGE DATA IMPORTER")
         privacy_status = "Enabled" if HASH_PROJECT_NAMES else "Disabled"
-        print(f"Database: {CH_DATABASE} at {CH_HOST}:{CH_PORT} | Machine: {MACHINE_NAME}")
+        print(
+            f"Database: {CH_DATABASE} at {CH_HOST}:{CH_PORT} | Machine: {MACHINE_NAME}"
+        )
         print(f"Project Privacy: {privacy_status}")
         print()
 
         overall_start = datetime.now()
-        
+
         try:
             # Fetch all data in parallel
             all_data = self.fetch_ccusage_data_parallel()
-            
+
             # Process and import data
-            UIFormatter.print_step(2, "Processing and importing data",
-                                  "Converting data types and inserting into ClickHouse...")
-            
+            UIFormatter.print_step(
+                2,
+                "Processing and importing data",
+                "Converting data types and inserting into ClickHouse...",
+            )
+
             loader = LoadingAnimation("Processing data")
             loader.start()
             import_start = datetime.now()
-            
+
             # Import daily data
             if "daily" in all_data and "daily" in all_data["daily"]:
                 self.upsert_daily_data(all_data["daily"]["daily"])
@@ -981,7 +1042,7 @@ class ClickHouseImporter:
             else:
                 loader.stop(error_message="No daily data found")
 
-            # Import monthly data 
+            # Import monthly data
             if "monthly" in all_data and "monthly" in all_data["monthly"]:
                 self.upsert_monthly_data(all_data["monthly"]["monthly"])
                 print("✓ Monthly")
@@ -1013,13 +1074,16 @@ class ClickHouseImporter:
 
             import_duration = (datetime.now() - import_start).total_seconds()
             overall_duration = (datetime.now() - overall_start).total_seconds()
-            
-            UIFormatter.print_step(3, "Generating analytics", 
-                                  "Computing usage statistics and insights...")
-            
+
+            UIFormatter.print_step(
+                3, "Generating analytics", "Computing usage statistics and insights..."
+            )
+
             stats = self.get_import_statistics()
-            print(f"\n✓ Import completed in {UIFormatter.format_duration(overall_duration)}")
-            
+            print(
+                f"\n✓ Import completed in {UIFormatter.format_duration(overall_duration)}"
+            )
+
             # Display beautiful statistics
             self.print_statistics(stats)
 
@@ -1033,52 +1097,56 @@ def system_check():
     print("🚀 CCUSAGE SYSTEM CHECK")
     print(f"Machine: {MACHINE_NAME}")
     print()
-    
+
     all_checks_passed = True
-    
+
     # 1. Check ccusage availability
     print("🔧 Checking ccusage availability...")
-    
+
     # Check bunx
     bunx_available = False
     try:
-        result = subprocess.run(['bunx', '--version'], capture_output=True, text=True)
+        result = subprocess.run(["bunx", "--version"], capture_output=True, text=True)
         if result.returncode == 0:
             print(f"  ✅ bunx available: {result.stdout.strip()}")
             bunx_available = True
     except FileNotFoundError:
         pass
-    
+
     # Check npx
     npx_available = False
     try:
-        result = subprocess.run(['npx', '--version'], capture_output=True, text=True)
+        result = subprocess.run(["npx", "--version"], capture_output=True, text=True)
         if result.returncode == 0:
             print(f"  ✅ npx available: {result.stdout.strip()}")
             npx_available = True
     except FileNotFoundError:
         pass
-    
+
     if not (bunx_available or npx_available):
         print("  ❌ Neither bunx nor npx is available - ccusage cannot be executed")
         all_checks_passed = False
-    
+
     # Test ccusage execution
     print("\n📊 Testing ccusage execution...")
     ccusage_commands = [
-        ('daily', 'npx ccusage@latest daily --json'),
-        ('monthly', 'npx ccusage@latest monthly --json'),
-        ('session', 'npx ccusage@latest session --json'),
-        ('blocks', 'npx ccusage@latest blocks --json'),
-        ('projects', 'npx ccusage@latest daily --instances --json')
+        ("daily", "npx ccusage@latest daily --json"),
+        ("monthly", "npx ccusage@latest monthly --json"),
+        ("session", "npx ccusage@latest session --json"),
+        ("blocks", "npx ccusage@latest blocks --json"),
+        ("projects", "npx ccusage@latest daily --instances --json"),
     ]
-    
+
     for cmd_name, cmd in ccusage_commands:
         try:
-            result = subprocess.run(cmd.split(), capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd.split(), capture_output=True, text=True, timeout=30
+            )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
-                print(f"  ✅ {cmd_name}: {len(data.get('data', data))} records available")
+                print(
+                    f"  ✅ {cmd_name}: {len(data.get('data', data))} records available"
+                )
             else:
                 print(f"  ❌ {cmd_name}: Failed to execute - {result.stderr}")
                 all_checks_passed = False
@@ -1091,7 +1159,7 @@ def system_check():
         except Exception as e:
             print(f"  ❌ {cmd_name}: Error - {e}")
             all_checks_passed = False
-    
+
     # 2. Enhanced ClickHouse connection check
     print(f"\n🗄️  Checking ClickHouse connection...")
     try:
@@ -1101,54 +1169,57 @@ def system_check():
             port=CH_PORT,
             username=CH_USER,
             password=CH_PASSWORD,
-            database=CH_DATABASE
+            database=CH_DATABASE,
         )
-        
+
         # Get version and server info
         result = client.query("SELECT version() as version")
         version = result.result_rows[0][0] if result.result_rows else "Unknown"
         print(f"  ✅ Connected to ClickHouse {version} at {CH_HOST}:{CH_PORT}")
-        
+
         # Test database access
         result = client.query("SELECT database() as current_db")
         current_db = result.result_rows[0][0] if result.result_rows else "Unknown"
         print(f"  ✅ Database access: {current_db}")
-        
+
         # Test basic query execution
-        result = client.query(f"SELECT count() as total_tables FROM system.tables WHERE database = '{CH_DATABASE}'")
+        result = client.query(
+            f"SELECT count() as total_tables FROM system.tables WHERE database = '{CH_DATABASE}'"
+        )
         table_count = result.result_rows[0][0] if result.result_rows else 0
         print(f"  ✅ Query execution: {table_count} tables in database")
-        
+
         # Test write permissions (create/drop temp table)
         try:
-            client.command("CREATE TABLE IF NOT EXISTS temp_check_table (id UInt32) ENGINE = Memory")
+            client.command(
+                "CREATE TABLE IF NOT EXISTS temp_check_table (id UInt32) ENGINE = Memory"
+            )
             client.command("DROP TABLE IF EXISTS temp_check_table")
             print(f"  ✅ Write permissions: Verified")
         except Exception as perm_e:
             print(f"  ⚠️  Write permissions: Limited - {perm_e}")
             # Don't fail the overall check for write permission issues
-        
-        
+
     except Exception as e:
         print(f"  ❌ ClickHouse connection failed: {e}")
         all_checks_passed = False
         return all_checks_passed
-    
+
     # 3. Check permissions and environment
     print(f"\n🔐 Environment check...")
     print(f"  ✅ CH_HOST: {CH_HOST}")
-    print(f"  ✅ CH_PORT: {CH_PORT}")  
+    print(f"  ✅ CH_PORT: {CH_PORT}")
     print(f"  ✅ CH_USER: {CH_USER}")
     print(f"  ✅ CH_DATABASE: {CH_DATABASE}")
     print(f"  ✅ MACHINE_NAME: {MACHINE_NAME}")
-    
+
     # 4. Summary
     print(f"\n{'='*50}")
     if all_checks_passed:
         print("✅ ALL CHECKS PASSED - System ready for ccusage import")
     else:
         print("❌ SOME CHECKS FAILED - Please fix issues above")
-        
+
     print(f"{'='*50}")
     return all_checks_passed
 
@@ -1156,29 +1227,29 @@ def system_check():
 def main():
     """Main function with argument parsing"""
     global HASH_PROJECT_NAMES
-    
+
     parser = argparse.ArgumentParser(
-        description='ccusage to ClickHouse Data Importer',
-        epilog='Examples:\n  %(prog)s                    # Import with privacy enabled (default)\n  %(prog)s --no-hash-projects  # Import with original project names\n  %(prog)s --check             # Validate system prerequisites',
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="ccusage to ClickHouse Data Importer",
+        epilog="Examples:\n  %(prog)s                    # Import with privacy enabled (default)\n  %(prog)s --no-hash-projects  # Import with original project names\n  %(prog)s --check             # Validate system prerequisites",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        '--check', 
-        action='store_true',
-        help='Run comprehensive system check instead of importing data'
+        "--check",
+        action="store_true",
+        help="Run comprehensive system check instead of importing data",
     )
     parser.add_argument(
-        '--no-hash-projects',
-        action='store_true',
-        help='Disable project name hashing (store original paths/session IDs)'
+        "--no-hash-projects",
+        action="store_true",
+        help="Disable project name hashing (store original paths/session IDs)",
     )
-    
+
     args = parser.parse_args()
-    
+
     # Set global privacy configuration
     if args.no_hash_projects:
         HASH_PROJECT_NAMES = False
-    
+
     try:
         if args.check:
             # Run system check
