@@ -7,15 +7,14 @@ Tests the complete workflow including CLI, ClickHouse integration, and real data
 import os
 import subprocess
 import sys
-import tempfile
-import json
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
+
 import pytest
 
 # Add the project root to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from ccusage_importer import main, system_check, hash_project_name, HASH_PROJECT_NAMES
+from ccusage_importer import hash_project_name, main, system_check
 
 
 class TestEndToEndIntegration:
@@ -176,8 +175,7 @@ class TestEndToEndIntegration:
         # Test default privacy enabled behavior
         with patch("ccusage_importer.ClickHouseImporter") as mock_importer, patch(
             "ccusage_importer.HASH_PROJECT_NAMES"
-        ) as mock_hash_setting:
-
+        ):
             # Mock importer
             mock_instance = Mock()
             mock_importer.return_value = mock_instance
@@ -282,7 +280,6 @@ class TestEndToEndIntegration:
         with patch("ccusage_importer.subprocess.run") as mock_run, patch(
             "ccusage_importer.clickhouse_connect.get_client"
         ) as mock_client:
-
             # Mock ccusage command responses
             mock_run.side_effect = [
                 # ccusage commands return valid JSON

@@ -11,9 +11,72 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "black>=24.8.0",
-    "flake8>=5.0.4",
+    "ruff>=0.8.0",
     "mypy>=1.14.1",
     "pytest>=8.3.5",
     "pytest-cov>=5.0.0",
 ]
+
+[tool.ruff]
+# Set line length to match black's default
+line-length = 88
+
+# Enable pycodestyle (`E`) and Pyflakes (`F`) codes by default
+# Plus additional useful rules
+lint.select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings  
+    "F",  # Pyflakes
+    "I",  # isort
+    "N",  # pep8-naming
+    "UP", # pyupgrade
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+]
+
+# Ignore specific rules that are too strict for this project
+lint.ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex (we'll handle complexity manually)
+]
+
+# Exclude directories
+exclude = [
+    ".bzr",
+    ".direnv", 
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+
+# Target Python 3.8+ to match project requirements
+target-version = "py38"
+
+[tool.ruff.lint.per-file-ignores]
+# Allow unused imports in __init__.py files
+"__init__.py" = ["F401"]
+# Allow longer lines in test files for readability
+"tests/*.py" = ["E501"]
+
+[tool.ruff.format]
+# Use single quotes for strings
+quote-style = "double"
+# Preserve existing trailing commas
+skip-magic-trailing-comma = false

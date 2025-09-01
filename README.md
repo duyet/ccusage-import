@@ -50,22 +50,9 @@ Track Claude Code usage across multiple machines seamlessly:
 
 ### 1. Setup ClickHouse Schema
 
-**For New Installations:**
 ```bash
 # Create database and tables on your ClickHouse server
 clickhouse-client --host YOUR_HOST --user YOUR_USER --password YOUR_PASSWORD --database YOUR_DATABASE < ccusage_clickhouse_schema.sql
-```
-
-**For Existing Installations (Migration Required):**
-```bash
-# ⚠️  BREAKING CHANGE: Multi-machine support requires schema migration
-# Backup your existing data first!
-clickhouse-client --host YOUR_HOST --user YOUR_USER --password YOUR_PASSWORD --database YOUR_DATABASE --query "CREATE TABLE backup_ccusage_usage_daily AS SELECT * FROM ccusage_usage_daily"
-
-# Apply the updated schema (this will recreate tables with machine_name column)
-clickhouse-client --host YOUR_HOST --user YOUR_USER --password YOUR_PASSWORD --database YOUR_DATABASE < ccusage_clickhouse_schema.sql
-
-# Note: This will clear existing data. Restore from backup if needed and add machine_name manually.
 ```
 
 ### 2. Setup Environment and Dependencies

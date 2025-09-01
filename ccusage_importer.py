@@ -6,17 +6,17 @@ Designed to be run as a cronjob, handles idempotent inserts
 """
 
 import argparse
+import concurrent.futures
 import hashlib
 import json
 import os
 import socket
 import subprocess
 import sys
-import concurrent.futures
 import threading
 import time
-from datetime import datetime, date
-from typing import Dict, List, Any, Tuple, Optional
+from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 
 import clickhouse_connect
 from dotenv import load_dotenv
@@ -136,7 +136,7 @@ class UIFormatter:
     def format_duration(seconds: float) -> str:
         """Format duration in a human-readable way"""
         if seconds < 1:
-            return f"{seconds*1000:.0f}ms"
+            return f"{seconds * 1000:.0f}ms"
         elif seconds < 60:
             return f"{seconds:.1f}s"
         else:
@@ -148,11 +148,11 @@ class UIFormatter:
     def format_number(num: int) -> str:
         """Format large numbers with appropriate suffixes"""
         if num >= 1_000_000_000:
-            return f"{num/1_000_000_000:.1f}B"
+            return f"{num / 1_000_000_000:.1f}B"
         elif num >= 1_000_000:
-            return f"{num/1_000_000:.1f}M"
+            return f"{num / 1_000_000:.1f}M"
         elif num >= 1_000:
-            return f"{num/1_000:.1f}K"
+            return f"{num / 1_000:.1f}K"
         else:
             return f"{num:,}"
 
@@ -748,13 +748,11 @@ class ClickHouseImporter:
 
         if model_breakdown_rows:
             # Delete existing model breakdowns for these records
-            record_keys = set(
-                [
-                    f"{item['date']}_{project_id}"
-                    for project_id, daily_records in projects_data.items()
-                    for item in daily_records
-                ]
-            )
+            record_keys = {
+                f"{item['date']}_{project_id}"
+                for project_id, daily_records in projects_data.items()
+                for item in daily_records
+            }
             if record_keys:
                 keys_str = ",".join([f"'{k}'" for k in record_keys])
                 delete_query = (
@@ -766,13 +764,11 @@ class ClickHouseImporter:
 
         if model_used_rows:
             # Delete existing models used for these records
-            record_keys = set(
-                [
-                    f"{item['date']}_{project_id}"
-                    for project_id, daily_records in projects_data.items()
-                    for item in daily_records
-                ]
-            )
+            record_keys = {
+                f"{item['date']}_{project_id}"
+                for project_id, daily_records in projects_data.items()
+                for item in daily_records
+            }
             if record_keys:
                 keys_str = ",".join([f"'{k}'" for k in record_keys])
                 delete_query = (
@@ -806,7 +802,7 @@ class ClickHouseImporter:
                     f"SELECT count() FROM {table}"
                 ).result_rows[0]
                 table_counts[table] = int(count_result[0])
-            except Exception as e:
+            except Exception:
                 # Silently handle table count error
                 table_counts[table] = 0
 
@@ -814,7 +810,7 @@ class ClickHouseImporter:
 
         # Usage summary
         usage_summary_query = """
-        SELECT 
+        SELECT
             sum(total_cost) as total_cost,
             sum(total_tokens) as total_tokens,
             sum(input_tokens) as total_input_tokens,
@@ -844,12 +840,12 @@ class ClickHouseImporter:
 
         # Model usage
         model_stats_query = """
-        SELECT 
+        SELECT
             model_name,
             count() as usage_count,
             sum(cost) as total_cost,
             sum(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) as total_tokens
-        FROM ccusage_model_breakdowns 
+        FROM ccusage_model_breakdowns
         WHERE record_type = 'daily'
         GROUP BY model_name
         ORDER BY total_cost DESC
@@ -868,7 +864,7 @@ class ClickHouseImporter:
 
         # Session statistics
         session_stats_query = """
-        SELECT 
+        SELECT
             count() as total_sessions,
             avg(total_cost) as avg_cost_per_session,
             max(total_cost) as max_cost_session,
@@ -889,7 +885,7 @@ class ClickHouseImporter:
         # Active blocks
         active_blocks_query = """
         SELECT count() as active_blocks
-        FROM ccusage_usage_blocks 
+        FROM ccusage_usage_blocks
         WHERE is_active = 1
         """
 
@@ -898,7 +894,7 @@ class ClickHouseImporter:
 
         # Machine-specific statistics
         machine_stats_query = """
-        SELECT 
+        SELECT
             machine_name,
             sum(total_cost) as machine_total_cost,
             sum(total_tokens) as machine_total_tokens,
@@ -1035,7 +1031,7 @@ class ClickHouseImporter:
 
             loader = LoadingAnimation("Processing data")
             loader.start()
-            import_start = datetime.now()
+            # import_start = datetime.now()
 
             # Import daily data
             if "daily" in all_data and "daily" in all_data["daily"]:
@@ -1074,7 +1070,7 @@ class ClickHouseImporter:
             else:
                 print("⚠️  No projects data found")
 
-            import_duration = (datetime.now() - import_start).total_seconds()
+            # import_duration = (datetime.now() - import_start).total_seconds()
             overall_duration = (datetime.now() - overall_start).total_seconds()
 
             UIFormatter.print_step(
@@ -1163,7 +1159,7 @@ def system_check():
             all_checks_passed = False
 
     # 2. Enhanced ClickHouse connection check
-    print(f"\n🗄️  Checking ClickHouse connection...")
+    print("\n🗄️  Checking ClickHouse connection...")
     try:
         # Test basic connection
         client = clickhouse_connect.get_client(
@@ -1197,7 +1193,7 @@ def system_check():
                 "CREATE TABLE IF NOT EXISTS temp_check_table (id UInt32) ENGINE = Memory"
             )
             client.command("DROP TABLE IF EXISTS temp_check_table")
-            print(f"  ✅ Write permissions: Verified")
+            print("  ✅ Write permissions: Verified")
         except Exception as perm_e:
             print(f"  ⚠️  Write permissions: Limited - {perm_e}")
             # Don't fail the overall check for write permission issues
@@ -1208,7 +1204,7 @@ def system_check():
         return all_checks_passed
 
     # 3. Check permissions and environment
-    print(f"\n🔐 Environment check...")
+    print("\n🔐 Environment check...")
     print(f"  ✅ CH_HOST: {CH_HOST}")
     print(f"  ✅ CH_PORT: {CH_PORT}")
     print(f"  ✅ CH_USER: {CH_USER}")
@@ -1216,13 +1212,13 @@ def system_check():
     print(f"  ✅ MACHINE_NAME: {MACHINE_NAME}")
 
     # 4. Summary
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     if all_checks_passed:
         print("✅ ALL CHECKS PASSED - System ready for ccusage import")
     else:
         print("❌ SOME CHECKS FAILED - Please fix issues above")
 
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
     return all_checks_passed
 
 

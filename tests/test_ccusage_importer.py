@@ -655,6 +655,7 @@ class TestEnvironmentVariables:
         with patch.dict(os.environ, test_env):
             # Re-import to get fresh values
             import importlib
+
             import ccusage_importer
 
             importlib.reload(ccusage_importer)
