@@ -25,7 +25,7 @@ class TestClickHouseImporter:
         mock = Mock()
         mock.command.return_value = None
         mock.insert.return_value = None
-        
+
         # Create a mock that returns different results based on query content
         def mock_query(query_str):
             mock_result = Mock()
@@ -48,7 +48,7 @@ class TestClickHouseImporter:
                 # Default usage summary query
                 mock_result.result_rows = [[0.0, 0, 0, 0, 0, 0, None, None, 0]]
             return mock_result
-            
+
         mock.query.side_effect = mock_query
         return mock
 
@@ -501,12 +501,12 @@ class TestClickHouseImporter:
             {"blocks": sample_blocks_data},
             {"projects": sample_projects_data},
         ]
-        
+
         # Mock statistics to avoid complex query mocking
         mock_get_stats.return_value = {
             "table_counts": {"ccusage_usage_daily": 1},
             "usage_summary": {
-                "total_cost": 0.05, 
+                "total_cost": 0.05,
                 "total_tokens": 1000,
                 "total_input_tokens": 600,
                 "total_output_tokens": 400,
@@ -514,17 +514,17 @@ class TestClickHouseImporter:
                 "total_cache_read_tokens": 100,
                 "earliest_date": "2024-01-01",
                 "latest_date": "2024-12-31",
-                "days_with_usage": 30
+                "days_with_usage": 30,
             },
             "model_usage": [],
             "session_stats": {
                 "total_sessions": 0,
                 "total_session_tokens": 0,
                 "avg_cost_per_session": 0.0,
-                "max_cost_session": 0.0
+                "max_cost_session": 0.0,
             },
             "machine_stats": [],
-            "active_blocks": 0
+            "active_blocks": 0,
         }
 
         importer_with_mock_client.import_all_data()
@@ -555,18 +555,30 @@ class TestClickHouseImporter:
             {},  # No 'blocks' key
             {},  # No 'projects' key
         ]
-        
+
         # Mock statistics to avoid query issues
         mock_get_stats.return_value = {
             "table_counts": {},
             "usage_summary": {
-                "total_cost": 0.0, "total_tokens": 0, "total_input_tokens": 0,
-                "total_output_tokens": 0, "total_cache_creation_tokens": 0,
-                "total_cache_read_tokens": 0, "earliest_date": None,
-                "latest_date": None, "days_with_usage": 0
+                "total_cost": 0.0,
+                "total_tokens": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cache_creation_tokens": 0,
+                "total_cache_read_tokens": 0,
+                "earliest_date": None,
+                "latest_date": None,
+                "days_with_usage": 0,
             },
-            "model_usage": [], "session_stats": {"total_sessions": 0, "total_session_tokens": 0, "avg_cost_per_session": 0.0, "max_cost_session": 0.0},
-            "machine_stats": [], "active_blocks": 0
+            "model_usage": [],
+            "session_stats": {
+                "total_sessions": 0,
+                "total_session_tokens": 0,
+                "avg_cost_per_session": 0.0,
+                "max_cost_session": 0.0,
+            },
+            "machine_stats": [],
+            "active_blocks": 0,
         }
 
         # Should not raise exception
@@ -583,25 +595,35 @@ class TestClickHouseImporter:
         """Test import_all_data graceful exception handling"""
         # Mock commands to raise exceptions
         mock_run_command.side_effect = Exception("Test error")
-        
+
         # Mock statistics with complete structure
         mock_get_stats.return_value = {
             "table_counts": {},
             "usage_summary": {
-                "total_cost": 0.0, "total_tokens": 0, "total_input_tokens": 0,
-                "total_output_tokens": 0, "total_cache_creation_tokens": 0,
-                "total_cache_read_tokens": 0, "earliest_date": None,
-                "latest_date": None, "days_with_usage": 0
+                "total_cost": 0.0,
+                "total_tokens": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_cache_creation_tokens": 0,
+                "total_cache_read_tokens": 0,
+                "earliest_date": None,
+                "latest_date": None,
+                "days_with_usage": 0,
             },
             "model_usage": [],
-            "session_stats": {"total_sessions": 0, "total_session_tokens": 0, "avg_cost_per_session": 0.0, "max_cost_session": 0.0},
+            "session_stats": {
+                "total_sessions": 0,
+                "total_session_tokens": 0,
+                "avg_cost_per_session": 0.0,
+                "max_cost_session": 0.0,
+            },
             "machine_stats": [],
-            "active_blocks": 0
+            "active_blocks": 0,
         }
 
         # Should handle exceptions gracefully and complete successfully
         importer_with_mock_client.import_all_data()
-        
+
         # Verify that commands were attempted (even though they failed)
         assert mock_run_command.call_count >= 1
 
