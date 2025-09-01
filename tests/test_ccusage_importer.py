@@ -255,15 +255,11 @@ class TestClickHouseImporter:
             assert mock_run.call_count == 2
 
     @patch("ccusage_importer.subprocess.run")
-    def test_run_ccusage_command_success(
-        self, mock_run, importer_with_mock_client
-    ):
+    def test_run_ccusage_command_success(self, mock_run, importer_with_mock_client):
         """Test successful ccusage command execution"""
         # Mock successful subprocess run
         mock_result = Mock()
-        mock_result.stdout = (
-            '{"daily": [{"date": "2024-12-31", "totalCost": 0.05}]}'
-        )
+        mock_result.stdout = '{"daily": [{"date": "2024-12-31", "totalCost": 0.05}]}'
         mock_run.return_value = mock_result
 
         result = importer_with_mock_client.run_ccusage_command("daily")
@@ -287,18 +283,14 @@ class TestClickHouseImporter:
         """Test ccusage command subprocess error handling"""
         from subprocess import CalledProcessError
 
-        mock_run.side_effect = CalledProcessError(
-            1, "npx", stderr="Command failed"
-        )
+        mock_run.side_effect = CalledProcessError(1, "npx", stderr="Command failed")
 
         result = importer_with_mock_client.run_ccusage_command("daily")
 
         assert result == {}
 
     @patch("ccusage_importer.subprocess.run")
-    def test_run_ccusage_command_json_error(
-        self, mock_run, importer_with_mock_client
-    ):
+    def test_run_ccusage_command_json_error(self, mock_run, importer_with_mock_client):
         """Test ccusage command JSON parsing error handling"""
         # Mock subprocess with invalid JSON
         mock_result = Mock()
@@ -319,9 +311,7 @@ class TestClickHouseImporter:
         importer_with_mock_client.upsert_daily_data(sample_daily_data)
 
         # Verify DELETE command was called (first call after reset)
-        delete_call = importer_with_mock_client.client.command.call_args_list[
-            0
-        ][0][0]
+        delete_call = importer_with_mock_client.client.command.call_args_list[0][0][0]
         assert (
             "DELETE FROM ccusage_usage_daily WHERE date IN ('2024-12-31')"
             in delete_call
@@ -353,9 +343,7 @@ class TestClickHouseImporter:
         importer_with_mock_client.upsert_monthly_data(sample_monthly_data)
 
         # Verify DELETE command was called
-        delete_call = importer_with_mock_client.client.command.call_args_list[
-            0
-        ][0][0]
+        delete_call = importer_with_mock_client.client.command.call_args_list[0][0][0]
         assert (
             "DELETE FROM ccusage_usage_monthly WHERE month IN ('2024-12')"
             in delete_call
@@ -374,9 +362,7 @@ class TestClickHouseImporter:
         importer_with_mock_client.upsert_session_data(sample_session_data)
 
         # Verify DELETE command was called
-        delete_call = importer_with_mock_client.client.command.call_args_list[
-            0
-        ][0][0]
+        delete_call = importer_with_mock_client.client.command.call_args_list[0][0][0]
         assert (
             "DELETE FROM ccusage_usage_sessions WHERE session_id IN ('test-session-123')"
             in delete_call
@@ -395,9 +381,7 @@ class TestClickHouseImporter:
         importer_with_mock_client.upsert_blocks_data(sample_blocks_data)
 
         # Verify DELETE command was called
-        delete_call = importer_with_mock_client.client.command.call_args_list[
-            0
-        ][0][0]
+        delete_call = importer_with_mock_client.client.command.call_args_list[0][0][0]
         assert (
             "DELETE FROM ccusage_usage_blocks WHERE block_id IN ('block-123')"
             in delete_call
@@ -406,9 +390,7 @@ class TestClickHouseImporter:
         # Verify INSERT calls were made (blocks + models_used)
         assert importer_with_mock_client.client.insert.call_count == 2
 
-    def test_upsert_blocks_data_skip_synthetic(
-        self, importer_with_mock_client
-    ):
+    def test_upsert_blocks_data_skip_synthetic(self, importer_with_mock_client):
         """Test blocks data upsert skips synthetic models"""
         blocks_data_with_synthetic = [
             {
@@ -434,14 +416,10 @@ class TestClickHouseImporter:
             }
         ]
 
-        importer_with_mock_client.upsert_blocks_data(
-            blocks_data_with_synthetic
-        )
+        importer_with_mock_client.upsert_blocks_data(blocks_data_with_synthetic)
 
         # Verify models_used insert was called, but should only have 1 model (not synthetic)
-        models_used_call = (
-            importer_with_mock_client.client.insert.call_args_list[1]
-        )
+        models_used_call = importer_with_mock_client.client.insert.call_args_list[1]
         assert len(models_used_call[0][1]) == 1  # Only one model inserted
         assert models_used_call[0][1][0][2] == "claude-sonnet-4-20250514"
 
@@ -452,14 +430,10 @@ class TestClickHouseImporter:
         # Reset mock to clear initialization calls
         importer_with_mock_client.client.reset_mock()
 
-        importer_with_mock_client.upsert_projects_daily_data(
-            sample_projects_data
-        )
+        importer_with_mock_client.upsert_projects_daily_data(sample_projects_data)
 
         # Verify DELETE command was called
-        delete_call = importer_with_mock_client.client.command.call_args_list[
-            0
-        ][0][0]
+        delete_call = importer_with_mock_client.client.command.call_args_list[0][0][0]
         assert (
             "DELETE FROM ccusage_usage_projects_daily WHERE date IN ('2024-12-31')"
             in delete_call
