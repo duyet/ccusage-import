@@ -29,20 +29,27 @@ ccusage is a CLI tool that analyzes Claude Code usage data from local JSONL file
 ### 1. Setup ClickHouse Schema
 
 ```bash
-# Create database and tables
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --database=duyet_analytics" < ccusage_clickhouse_schema.sql
+# Create database and tables on your ClickHouse server
+clickhouse-client --host YOUR_HOST --user YOUR_USER --password YOUR_PASSWORD --database YOUR_DATABASE < ccusage_clickhouse_schema.sql
 ```
 
-### 2. Install Dependencies
+### 2. Setup Environment and Dependencies
 
 ```bash
-pip3 install clickhouse-connect
+# Copy environment template
+cp .env.example .env
+
+# Edit .env with your ClickHouse credentials
+vi .env
+
+# Install dependencies with uv
+uv sync
 ```
 
 ### 3. Run Initial Data Import
 
 ```bash
-python3 ccusage_importer.py
+uv run python ccusage_importer.py
 ```
 
 ### 4. Setup Automated Import (Optional)
@@ -183,13 +190,15 @@ ccusage-import/
 
 ### ClickHouse Connection Settings
 
-Edit these variables in `ccusage_importer.py`:
+Create a `.env` file in the project root (copy from `.env.example`):
 
-```python
-CH_HOST = 'duet-ubuntu'
-CH_USER = 'duyet'
-CH_PASSWORD = 'ntmVKggOQa'
-CH_DATABASE = 'duyet_analytics'
+```bash
+# ClickHouse Configuration
+CH_HOST=your_clickhouse_host
+CH_PORT=8123
+CH_USER=your_username
+CH_PASSWORD=your_password_here
+CH_DATABASE=your_database
 ```
 
 ### Cronjob Schedule
@@ -234,7 +243,8 @@ python3 ccusage_importer.py
 
 - **ccusage**: `npm install -g ccusage` or `npx ccusage@latest`
 - **ClickHouse**: Server with duyet_analytics database
-- **Python 3.6+**: With `clickhouse-connect` package
+- **Python 3.8+**: With dependencies managed by `uv`
+- **Environment file**: `.env` with ClickHouse credentials
 
 ## Contributing
 
