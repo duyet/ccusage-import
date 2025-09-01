@@ -27,8 +27,10 @@ class TestFinalCoveragePaths:
 
         importer = ClickHouseImporter()
 
-        # Mock subprocess to raise a different exception not handled specifically
-        mock_run.side_effect = RuntimeError("Unexpected error")
+        # Mock subprocess to raise CalledProcessError on all retry attempts
+        # This will trigger the fallback return {} at line 340 after max retries
+        error = subprocess.CalledProcessError(1, ["bunx"])
+        mock_run.side_effect = error
 
         # This should trigger the fallback return {} at line 340
         result = importer.run_ccusage_command("daily", verbose=False)
@@ -61,10 +63,10 @@ class TestFinalCoveragePaths:
             "session_stats": {
                 "total_sessions": 5,
                 "avg_cost_per_session": 20.0,
-                "max_cost_per_session": 50.0,
+                "max_cost_session": 50.0,
                 "total_session_tokens": 5000,
             },
-            "active_blocks": {"active_blocks": 1},
+            "active_blocks": 1,
         }
 
         # Capture output
@@ -106,10 +108,10 @@ class TestFinalCoveragePaths:
             "session_stats": {
                 "total_sessions": 5,
                 "avg_cost_per_session": 20.0,
-                "max_cost_per_session": 50.0,
+                "max_cost_session": 50.0,
                 "total_session_tokens": 5000,
             },
-            "active_blocks": {"active_blocks": 1},
+            "active_blocks": 1,
             "machine_stats": [
                 {"machine_name": "laptop-1", "total_cost": 100.0}
             ],  # Single machine
@@ -154,10 +156,10 @@ class TestFinalCoveragePaths:
             "session_stats": {
                 "total_sessions": 10,
                 "avg_cost_per_session": 20.0,
-                "max_cost_per_session": 50.0,
+                "max_cost_session": 50.0,
                 "total_session_tokens": 10000,
             },
-            "active_blocks": {"active_blocks": 2},
+            "active_blocks": 2,
             "machine_stats": [
                 {"machine_name": "laptop-1", "total_cost": 120.0},
                 {"machine_name": "desktop-1", "total_cost": 80.0},
@@ -229,7 +231,7 @@ class TestFinalCoveragePaths:
         mock_client.query.return_value = Mock(result_rows=[[1]])  # Basic query works
 
         def mock_command(cmd):
-            if "CREATE TABLE temp_check_table" in cmd:
+            if "CREATE TABLE IF NOT EXISTS temp_check_table" in cmd:
                 raise Exception("Permission denied for table creation")
             # Other commands work
 
