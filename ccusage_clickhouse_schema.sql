@@ -360,6 +360,7 @@ CREATE TABLE IF NOT EXISTS ccusage_import_history
     statistics_json String,  -- JSON blob containing all import statistics
     import_status String DEFAULT 'completed',  -- 'completed', 'failed', 'partial'
     records_imported UInt32 DEFAULT 0,
+    data_hash String DEFAULT '',  -- Hash of imported data to detect identical imports
     created_at DateTime DEFAULT now()
 )
 ENGINE = MergeTree()

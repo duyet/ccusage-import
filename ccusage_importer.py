@@ -178,6 +178,9 @@ class ClickHouseImporter:
 
         # Detect available package runner (bunx or npx)
         self.package_runner = self._detect_package_runner()
+        
+        # Check and prompt for missing tables
+        self._check_and_create_tables_if_needed()
 
     def _detect_package_runner(self) -> str:
         """Detect whether bunx or npx is available, prefer bunx"""
@@ -193,6 +196,89 @@ class ClickHouseImporter:
             except (subprocess.CalledProcessError, FileNotFoundError):
                 # Silently default to npx
                 return "npx"
+
+    def _check_and_create_tables_if_needed(self):
+        """Check if required tables exist and prompt to create them if missing"""
+        required_tables = [
+            "ccusage_usage_daily",
+            "ccusage_usage_monthly", 
+            "ccusage_usage_sessions",
+            "ccusage_usage_blocks",
+            "ccusage_usage_projects_daily",
+            "ccusage_model_breakdowns",
+            "ccusage_models_used",
+            "ccusage_import_history"
+        ]
+        
+        missing_tables = []
+        
+        try:
+            # Check which tables exist
+            result = self.client.query("SHOW TABLES")
+            existing_tables = {row[0] for row in result.result_rows}
+            
+            # Find missing required tables
+            for table in required_tables:
+                if table not in existing_tables:
+                    missing_tables.append(table)
+            
+            if missing_tables:
+                print(f"\n⚠️  Missing ClickHouse tables detected:")
+                for table in missing_tables:
+                    table_display = table.replace("ccusage_", "").replace("_", " ").title()
+                    print(f"   - {table_display} ({table})")
+                
+                print(f"\n🔧 Required tables: {len(required_tables)}")
+                print(f"📋 Found: {len(existing_tables & set(required_tables))}")
+                print(f"❌ Missing: {len(missing_tables)}")
+                
+                response = input(f"\n❓ Create {len(missing_tables)} missing tables? [Y/n]: ").strip().lower()
+                
+                if response in ['', 'y', 'yes']:
+                    self._create_missing_tables()
+                    print("✅ Tables created successfully!")
+                else:
+                    print("⚠️  Warning: Missing tables may cause import errors")
+                    
+        except Exception as e:
+            print(f"⚠️  Warning: Could not check table existence: {e}")
+
+    def _create_missing_tables(self):
+        """Execute the ClickHouse schema to create missing tables"""
+        import os
+        schema_file = os.path.join(os.path.dirname(__file__), "ccusage_clickhouse_schema.sql")
+        
+        if not os.path.exists(schema_file):
+            print(f"❌ Schema file not found: {schema_file}")
+            return
+            
+        try:
+            # Read and execute the schema file
+            with open(schema_file, 'r') as f:
+                schema_sql = f.read()
+            
+            # Split into individual statements and execute
+            statements = [stmt.strip() for stmt in schema_sql.split(';') if stmt.strip()]
+            
+            print("🔧 Creating tables...")
+            loader = LoadingAnimation("Creating database tables")
+            loader.start()
+            
+            for statement in statements:
+                if statement.upper().startswith(('CREATE TABLE', 'CREATE DATABASE')):
+                    try:
+                        self.client.command(statement)
+                    except Exception as e:
+                        # Ignore "table already exists" errors
+                        if "already exists" not in str(e).lower():
+                            loader.stop(f"Error creating table: {e}")
+                            raise
+            
+            loader.stop("Database tables created")
+            
+        except Exception as e:
+            print(f"❌ Error creating tables: {e}")
+            raise
 
     def _parse_date(self, date_str: str) -> date:
         """Parse date string to Python date object"""
@@ -1006,16 +1092,17 @@ class ClickHouseImporter:
 
         print()  # Just a blank line
 
-    def save_import_statistics(self, stats: Dict[str, Any], import_duration_seconds: float, records_imported: int = 0):
+    def save_import_statistics(self, stats: Dict[str, Any], import_duration_seconds: float, records_imported: int = 0, data_hash: str = ""):
         """Save import statistics to history table for comparison tracking"""
         try:
             import json
             statistics_json = json.dumps(stats, default=str, separators=(',', ':'))
             
+            # Include data hash to detect identical imports
             self.client.command(f"""
                 INSERT INTO ccusage_import_history 
-                (import_timestamp, machine_name, import_duration_seconds, statistics_json, records_imported)
-                VALUES (now(), '{MACHINE_NAME}', {import_duration_seconds}, '{statistics_json}', {records_imported})
+                (import_timestamp, machine_name, import_duration_seconds, statistics_json, records_imported, import_status, data_hash)
+                VALUES (now(), '{MACHINE_NAME}', {import_duration_seconds}, '{statistics_json}', {records_imported}, 'completed', '{data_hash}')
             """)
             
         except Exception as e:
@@ -1040,6 +1127,40 @@ class ClickHouseImporter:
         except Exception as e:
             print(f"⚠️  Warning: Could not retrieve previous statistics: {e}")
             return {}
+
+    def _calculate_data_hash(self, all_data: Dict[str, Any]) -> str:
+        """Calculate a hash of the imported data to detect identical imports"""
+        import json
+        import hashlib
+        
+        try:
+            # Create a stable hash of the data content
+            data_str = json.dumps(all_data, sort_keys=True, default=str)
+            return hashlib.md5(data_str.encode()).hexdigest()[:12]  # Short hash
+        except Exception:
+            return ""
+
+    def _is_identical_import(self, all_data: Dict[str, Any]) -> bool:
+        """Check if this data is identical to the previous import"""
+        try:
+            current_hash = self._calculate_data_hash(all_data)
+            
+            result = self.client.query(f"""
+                SELECT data_hash
+                FROM ccusage_import_history 
+                WHERE machine_name = '{MACHINE_NAME}' 
+                ORDER BY import_timestamp DESC 
+                LIMIT 1
+            """)
+            
+            if result.result_rows:
+                last_hash = result.result_rows[0][0]
+                return last_hash == current_hash
+                
+            return False
+            
+        except Exception:
+            return False
 
     def print_statistics_with_comparison(self, stats: Dict[str, Any]):
         """Print statistics with comparison to previous import"""
@@ -1207,6 +1328,16 @@ class ClickHouseImporter:
         try:
             # Fetch all data in parallel
             all_data = self.fetch_ccusage_data_parallel()
+            
+            # Check if this data is identical to the previous import
+            is_identical = self._is_identical_import(all_data)
+            if is_identical:
+                print("🔄 Identical data detected - No new data since last import")
+                # Still get statistics but don't show comparison
+                stats = self.get_import_statistics()
+                UIFormatter.print_header("📊 CURRENT DATABASE STATISTICS", 70)
+                self.print_statistics(stats)
+                return
 
             # Process and import data
             UIFormatter.print_step(
@@ -1271,9 +1402,10 @@ class ClickHouseImporter:
             # Display beautiful statistics with comparison to previous import
             self.print_statistics_with_comparison(stats)
             
-            # Save import statistics for future comparison
+            # Save import statistics for future comparison with data hash
             total_records = sum(stats.get("table_counts", {}).values())
-            self.save_import_statistics(stats, overall_duration, total_records)
+            current_hash = self._calculate_data_hash(all_data)
+            self.save_import_statistics(stats, overall_duration, total_records, current_hash)
 
         except Exception as e:
             print(f"\n❌ Import failed: {e}")
