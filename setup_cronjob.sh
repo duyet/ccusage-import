@@ -1,51 +1,55 @@
 #!/bin/bash
 # Setup cronjob for ccusage data import to ClickHouse
 
-# Install required Python packages
-echo "Installing required Python packages..."
-pip3 install clickhouse-connect
+PROJECT_DIR="/Users/duet/project/ccusage-import"
+SCRIPT_PATH="$PROJECT_DIR/ccusage_importer.py"
 
-# Make the importer script executable
-chmod +x /tmp/ccusage_importer.py
+# Check if project directory exists
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "❌ Project directory not found: $PROJECT_DIR"
+    exit 1
+fi
 
-# Copy script to a permanent location
-sudo cp /tmp/ccusage_importer.py /usr/local/bin/ccusage_importer.py
+# Check if script exists
+if [ ! -f "$SCRIPT_PATH" ]; then
+    echo "❌ Script not found: $SCRIPT_PATH"
+    exit 1
+fi
 
 # Create log directory and set permissions
-sudo mkdir -p /var/log/ccusage
-sudo chown $USER:$USER /var/log/ccusage
+mkdir -p "$HOME/.local/log/ccusage"
+LOG_DIR="$HOME/.local/log/ccusage"
+
+echo "🔧 Setting up ccusage cronjob..."
+echo "📁 Project: $PROJECT_DIR"  
+echo "📜 Script: $SCRIPT_PATH"
+echo "📋 Logs: $LOG_DIR"
 
 # Add cronjob to run every hour with enhanced logging
-echo "Setting up cronjob to run every hour with timestamp logging..."
-(crontab -l 2>/dev/null; echo "0 * * * * echo \"\$(date): Starting ccusage import\" >> /var/log/ccusage/import.log && /usr/bin/python3 /usr/local/bin/ccusage_importer.py >> /var/log/ccusage/import.log 2>&1 && echo \"\$(date): ccusage import completed\" >> /var/log/ccusage/import.log") | crontab -
+echo "⏰ Setting up cronjob to run every hour with timestamp logging..."
+(crontab -l 2>/dev/null; echo "0 * * * * cd $PROJECT_DIR && echo \"\$(date): Starting ccusage import\" >> $LOG_DIR/import.log && /usr/local/bin/uv run python ccusage_importer.py >> $LOG_DIR/import.log 2>&1 && echo \"\$(date): ccusage import completed\" >> $LOG_DIR/import.log") | crontab -
 
 # Run initial import
-echo "Running initial import..."
-python3 /usr/local/bin/ccusage_importer.py
+echo "🚀 Running initial import..."
+cd "$PROJECT_DIR" && uv run python ccusage_importer.py
 
-# Create logrotate configuration to prevent logs from growing too large
-sudo tee /etc/logrotate.d/ccusage > /dev/null << 'EOF'
-/var/log/ccusage/*.log {
-    daily
-    rotate 30
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 644
-}
-EOF
-
-echo "Setup completed!"
-echo "Cronjob will run every hour at minute 0"
-echo "Enhanced logging with timestamps enabled"
+echo ""
+echo "✅ Setup completed!"
+echo "⏰ Cronjob will run every hour at minute 0"
+echo "📝 Enhanced logging with timestamps enabled"
 echo ""
 echo "📁 Log files:"
-echo "   - Main log: /var/log/ccusage/import.log"
-echo "   - Rotation: 30 days, daily compression"
+echo "   - Main log: $LOG_DIR/import.log"
+echo "   - Location: $LOG_DIR/"
 echo ""
 echo "🔧 Management commands:"
 echo "   - View current crontab: crontab -l"
-echo "   - View recent logs: tail -f /var/log/ccusage/import.log"
-echo "   - View log history: ls -la /var/log/ccusage/"
-echo "   - Test manual run: /usr/bin/python3 /usr/local/bin/ccusage_importer.py"
+echo "   - View recent logs: tail -f $LOG_DIR/import.log"
+echo "   - View log history: ls -la $LOG_DIR/"
+echo "   - Test manual run: cd $PROJECT_DIR && uv run python ccusage_importer.py"
+echo "   - Remove cronjob: crontab -e (then delete the ccusage line)"
+echo ""
+echo "🎯 Next steps:"
+echo "   1. Verify cronjob: crontab -l | grep ccusage"
+echo "   2. Monitor first run: tail -f $LOG_DIR/import.log"
+echo "   3. Check ClickHouse data after import"

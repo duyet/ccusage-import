@@ -1006,6 +1006,192 @@ class ClickHouseImporter:
 
         print()  # Just a blank line
 
+    def save_import_statistics(self, stats: Dict[str, Any], import_duration_seconds: float, records_imported: int = 0):
+        """Save import statistics to history table for comparison tracking"""
+        try:
+            import json
+            statistics_json = json.dumps(stats, default=str, separators=(',', ':'))
+            
+            self.client.command(f"""
+                INSERT INTO ccusage_import_history 
+                (import_timestamp, machine_name, import_duration_seconds, statistics_json, records_imported)
+                VALUES (now(), '{MACHINE_NAME}', {import_duration_seconds}, '{statistics_json}', {records_imported})
+            """)
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not save import statistics: {e}")
+
+    def get_previous_statistics(self) -> Dict[str, Any]:
+        """Retrieve the most recent import statistics for comparison"""
+        try:
+            result = self.client.query(f"""
+                SELECT statistics_json 
+                FROM ccusage_import_history 
+                WHERE machine_name = '{MACHINE_NAME}' 
+                ORDER BY import_timestamp DESC 
+                LIMIT 1 OFFSET 1
+            """)
+            
+            if result.result_rows:
+                import json
+                return json.loads(result.result_rows[0][0])
+            return {}
+            
+        except Exception as e:
+            print(f"⚠️  Warning: Could not retrieve previous statistics: {e}")
+            return {}
+
+    def print_statistics_with_comparison(self, stats: Dict[str, Any]):
+        """Print statistics with comparison to previous import"""
+        previous_stats = self.get_previous_statistics()
+        
+        UIFormatter.print_header("📊 IMPORT SUMMARY & STATISTICS", 70)
+        
+        # Table counts with comparison
+        UIFormatter.print_section("📋 Database Records", 70)
+        for table, count in stats["table_counts"].items():
+            table_display = table.replace("ccusage_", "").replace("_", " ").title()
+            count_formatted = UIFormatter.format_number(count)
+            
+            # Calculate difference
+            diff_str = ""
+            if previous_stats.get("table_counts", {}).get(table):
+                prev_count = previous_stats["table_counts"][table]
+                diff = count - prev_count
+                if diff > 0:
+                    diff_str = f" (+{UIFormatter.format_number(diff)})"
+                elif diff < 0:
+                    diff_str = f" ({UIFormatter.format_number(diff)})"
+            
+            UIFormatter.print_metric(table_display, f"{count_formatted} records{diff_str}")
+
+        # Usage summary with comparison
+        usage = stats["usage_summary"]
+        prev_usage = previous_stats.get("usage_summary", {})
+        
+        UIFormatter.print_section("💰 Usage Analytics", 70)
+        
+        # Total Cost
+        cost_diff = ""
+        if prev_usage.get("total_cost"):
+            diff = usage["total_cost"] - prev_usage["total_cost"] 
+            if diff > 0:
+                cost_diff = f" (+${diff:,.2f})"
+            elif diff < 0:
+                cost_diff = f" (${diff:,.2f})"
+        UIFormatter.print_metric("Total Cost", f"${usage['total_cost']:,.2f}{cost_diff}")
+        
+        # Total Tokens
+        tokens_diff = ""
+        if prev_usage.get("total_tokens"):
+            diff = usage["total_tokens"] - prev_usage["total_tokens"]
+            if diff > 0:
+                tokens_diff = f" (+{UIFormatter.format_number(diff)})"
+            elif diff < 0:
+                tokens_diff = f" ({UIFormatter.format_number(diff)})"
+        UIFormatter.print_metric("Total Tokens", f"{UIFormatter.format_number(usage['total_tokens'])}{tokens_diff}")
+        
+        # Input Tokens
+        input_diff = ""
+        if prev_usage.get("total_input_tokens"):
+            diff = usage["total_input_tokens"] - prev_usage["total_input_tokens"]
+            if diff > 0:
+                input_diff = f" (+{UIFormatter.format_number(diff)})"
+            elif diff < 0:
+                input_diff = f" ({UIFormatter.format_number(diff)})"
+        UIFormatter.print_metric("Input Tokens", f"{UIFormatter.format_number(usage['total_input_tokens'])}{input_diff}")
+        
+        # Output Tokens
+        output_diff = ""
+        if prev_usage.get("total_output_tokens"):
+            diff = usage["total_output_tokens"] - prev_usage["total_output_tokens"]
+            if diff > 0:
+                output_diff = f" (+{UIFormatter.format_number(diff)})"
+            elif diff < 0:
+                output_diff = f" ({UIFormatter.format_number(diff)})"
+        UIFormatter.print_metric("Output Tokens", f"{UIFormatter.format_number(usage['total_output_tokens'])}{output_diff}")
+        
+        # Cache Creation Tokens
+        cache_create_diff = ""
+        if prev_usage.get("total_cache_creation_tokens"):
+            diff = usage["total_cache_creation_tokens"] - prev_usage["total_cache_creation_tokens"]
+            if diff > 0:
+                cache_create_diff = f" (+{UIFormatter.format_number(diff)})"
+            elif diff < 0:
+                cache_create_diff = f" ({UIFormatter.format_number(diff)})"
+        UIFormatter.print_metric("Cache Creation Tokens", f"{UIFormatter.format_number(usage['total_cache_creation_tokens'])}{cache_create_diff}")
+        
+        # Cache Read Tokens
+        cache_read_diff = ""
+        if prev_usage.get("total_cache_read_tokens"):
+            diff = usage["total_cache_read_tokens"] - prev_usage["total_cache_read_tokens"]
+            if diff > 0:
+                cache_read_diff = f" (+{UIFormatter.format_number(diff)})"
+            elif diff < 0:
+                cache_read_diff = f" ({UIFormatter.format_number(diff)})"
+        UIFormatter.print_metric("Cache Read Tokens", f"{UIFormatter.format_number(usage['total_cache_read_tokens'])}{cache_read_diff}")
+        
+        UIFormatter.print_metric("Date Range", f"{usage['earliest_date']} → {usage['latest_date']}")
+        UIFormatter.print_metric("Days with Usage", f"{usage['days_with_usage']:,} days")
+
+        # Model breakdown with cleaner formatting
+        UIFormatter.print_section("🤖 Top Models by Cost", 70)
+        for i, model in enumerate(stats["model_usage"][:5], 1):
+            model_name = (
+                model["model_name"].replace("claude-", "").replace("-20250514", "")
+            )
+            cost_str = f"${model['total_cost']:,.2f}"
+            tokens_str = UIFormatter.format_number(model["total_tokens"])
+            UIFormatter.print_metric(
+                f"{i}. {model_name}", f"{cost_str} ({tokens_str} tokens)"
+            )
+
+        # Session stats with comparison
+        session = stats["session_stats"]
+        prev_session = previous_stats.get("session_stats", {})
+        
+        UIFormatter.print_section("💼 Session Insights", 70)
+        
+        # Total Sessions
+        sessions_diff = ""
+        if prev_session.get("total_sessions"):
+            diff = session["total_sessions"] - prev_session["total_sessions"]
+            if diff > 0:
+                sessions_diff = f" (+{diff})"
+            elif diff < 0:
+                sessions_diff = f" ({diff})"
+        UIFormatter.print_metric("Total Sessions", f"{session['total_sessions']:,}{sessions_diff}")
+        
+        UIFormatter.print_metric("Avg Cost per Session", f"${session['avg_cost_per_session']:,.2f}")
+        UIFormatter.print_metric("Max Cost Session", f"${session['max_cost_session']:,.2f}")
+        UIFormatter.print_metric("Total Session Tokens", UIFormatter.format_number(session["total_session_tokens"]))
+
+        # Active blocks with comparison
+        if stats["active_blocks"] > 0:
+            UIFormatter.print_section("🧱 Active Blocks")
+            blocks_diff = ""
+            if previous_stats.get("active_blocks"):
+                diff = stats["active_blocks"] - previous_stats["active_blocks"]
+                if diff > 0:
+                    blocks_diff = f" (+{diff})"
+                elif diff < 0:
+                    blocks_diff = f" ({diff})"
+            UIFormatter.print_metric("Count", f"{stats['active_blocks']:,}{blocks_diff}")
+
+        # Machine info - compact
+        if stats.get("machine_stats"):
+            if len(stats["machine_stats"]) > 1:
+                UIFormatter.print_section("🖥️  Machines")
+                for i, machine in enumerate(stats["machine_stats"], 1):
+                    cost_str = f"${machine['total_cost']:,.2f}"
+                    UIFormatter.print_metric(f"{i}. {machine['machine_name']}", cost_str)
+            else:
+                machine = stats["machine_stats"][0]
+                UIFormatter.print_section("🖥️  Machine")
+                UIFormatter.print_metric("Name", machine["machine_name"])
+
+        print()  # Just a blank line
+
     def import_all_data(self):
         """Import all ccusage data into ClickHouse with enhanced UI and animations"""
         UIFormatter.print_header("CCUSAGE DATA IMPORTER")
@@ -1082,8 +1268,12 @@ class ClickHouseImporter:
                 f"\n✓ Import completed in {UIFormatter.format_duration(overall_duration)}"
             )
 
-            # Display beautiful statistics
-            self.print_statistics(stats)
+            # Display beautiful statistics with comparison to previous import
+            self.print_statistics_with_comparison(stats)
+            
+            # Save import statistics for future comparison
+            total_records = sum(stats.get("table_counts", {}).values())
+            self.save_import_statistics(stats, overall_duration, total_records)
 
         except Exception as e:
             print(f"\n❌ Import failed: {e}")

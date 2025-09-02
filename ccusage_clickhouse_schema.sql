@@ -347,6 +347,30 @@ ALTER TABLE ccusage_usage_sessions MODIFY TTL last_activity + INTERVAL 3 YEAR;
 -- =======================
 
 -- Add table comments
+-- ================================
+-- Import History and Statistics  
+-- ================================
+
+-- Store import statistics history for comparison and trending
+CREATE TABLE IF NOT EXISTS ccusage_import_history
+(
+    import_timestamp DateTime DEFAULT now(),
+    machine_name String,
+    import_duration_seconds Float32,
+    statistics_json String,  -- JSON blob containing all import statistics
+    import_status String DEFAULT 'completed',  -- 'completed', 'failed', 'partial'
+    records_imported UInt32 DEFAULT 0,
+    created_at DateTime DEFAULT now()
+)
+ENGINE = MergeTree()
+PARTITION BY toYYYYMM(import_timestamp)
+ORDER BY (import_timestamp, machine_name)
+SETTINGS index_granularity = 8192;
+
+-- =======================
+-- Table Comments
+-- =======================
+
 ALTER TABLE ccusage_usage_daily COMMENT 'Daily aggregated Claude Code usage data from ccusage daily command';
 ALTER TABLE ccusage_usage_monthly COMMENT 'Monthly aggregated Claude Code usage data from ccusage monthly command';
 ALTER TABLE ccusage_usage_sessions COMMENT 'Session-based Claude Code usage data from ccusage session command (grouped by project directory)';
@@ -354,3 +378,4 @@ ALTER TABLE ccusage_usage_blocks COMMENT '5-hour billing block Claude Code usage
 ALTER TABLE ccusage_usage_projects_daily COMMENT 'Daily usage data broken down by project from ccusage daily --instances command';
 ALTER TABLE ccusage_model_breakdowns COMMENT 'Detailed token and cost breakdown by AI model for each usage record';
 ALTER TABLE ccusage_models_used COMMENT 'List of AI models used in each usage record (many-to-many relationship)';
+ALTER TABLE ccusage_import_history COMMENT 'Historical record of import statistics for trending and comparison analysis';
