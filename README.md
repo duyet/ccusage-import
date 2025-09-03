@@ -366,7 +366,7 @@ tail -f /var/log/ccusage/import.log
 
 # Check table row counts
 clickhouse-client --query "
-SELECT 'ccusage_usage_daily' as table_name, count() as rows FROM duyet_analytics.ccusage_usage_daily
+SELECT 'ccusage_usage_daily' as table_name, count() as rows FROM your_database.ccusage_usage_daily
 "
 ```
 
@@ -383,7 +383,7 @@ python3 ccusage_importer.py
 ## Requirements
 
 - **ccusage**: `npm install -g ccusage` or `npx ccusage@latest`
-- **ClickHouse**: Server with duyet_analytics database
+- **ClickHouse**: Server with your_database
 - **Python 3.8+**: With dependencies managed by `uv`
 - **Environment file**: `.env` with ClickHouse credentials
 

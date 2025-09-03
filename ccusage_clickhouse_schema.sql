@@ -1,12 +1,12 @@
 -- ClickHouse Schema for ccusage Data
--- Database: duyet_analytics
+-- Database: your_database
 -- Author: Claude Code
 -- Purpose: Store and analyze Claude Code usage data with support for visualization
 
 -- Create database if not exists
-CREATE DATABASE IF NOT EXISTS duyet_analytics;
+CREATE DATABASE IF NOT EXISTS your_database;
 
-USE duyet_analytics;
+USE your_database;
 
 -- =======================
 -- Core Usage Data Tables

@@ -1,9 +1,9 @@
 -- ClickHouse SQL Queries for ccusage Data Visualization (Updated with ccusage_ prefix)
--- Database: duyet_analytics
+-- Database: your_database
 -- Use these queries for building dashboards and analytics
 -- Now includes multi-machine support for tracking usage across different machines
 
-USE duyet_analytics;
+USE your_database;
 
 -- ======================
 -- Daily Analysis Queries
