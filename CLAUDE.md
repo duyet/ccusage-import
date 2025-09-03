@@ -38,10 +38,10 @@ uv run --python 3.11 python ccusage_importer.py
 The project connects to ClickHouse with these settings (configured in `ccusage_importer.py`):
 
 ```python
-CH_HOST = 'duet-ubuntu'
-CH_USER = 'duyet'  
-CH_PASSWORD = 'ntmVKggOQa'
-CH_DATABASE = 'duyet_analytics'
+CH_HOST = 'your_clickhouse_host'
+CH_USER = 'your_username'  
+CH_PASSWORD = 'your_password'
+CH_DATABASE = 'your_database'
 ```
 
 ## Database Schema
@@ -85,35 +85,35 @@ The importer pulls data from these ccusage commands:
 ## ClickHouse Server Procedures
 
 ### Connection Details
-- **Host**: duet-ubuntu
+- **Host**: your_clickhouse_host
 - **Port**: 8124 (HTTP), 9000 (native)  
-- **User**: duyet
-- **Password**: ntmVKggOQa
-- **Database**: duyet_analytics
+- **User**: your_username
+- **Password**: your_password
+- **Database**: your_database
 
 ### SSH Commands for ClickHouse Operations
 
 #### Connect to ClickHouse server via SSH:
 ```bash
-ssh duyet@duet-ubuntu
+ssh user@your-host
 ```
 
 #### Execute ClickHouse queries from local machine:
 ```bash
 # Show tables
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --query=\"SHOW TABLES WHERE name LIKE 'ccusage%'\""
+ssh user@your-host "clickhouse-client --user=username --password=password --database=database --query=\"SHOW TABLES WHERE name LIKE 'ccusage%'\""
 
 # Check table row counts
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --query=\"SELECT 'usage_daily' as table, count() as rows FROM ccusage_usage_daily\""
+ssh user@your-host "clickhouse-client --user=username --password=password --database=database --query=\"SELECT 'usage_daily' as table, count() as rows FROM ccusage_usage_daily\""
 
 # Drop all ccusage tables (for recreation)
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --query=\"DROP TABLE IF EXISTS ccusage_usage_daily, ccusage_usage_monthly, ccusage_usage_sessions, ccusage_usage_blocks, ccusage_usage_projects_daily, ccusage_model_breakdowns, ccusage_models_used\""
+ssh user@your-host "clickhouse-client --user=username --password=password --database=database --query=\"DROP TABLE IF EXISTS ccusage_usage_daily, ccusage_usage_monthly, ccusage_usage_sessions, ccusage_usage_blocks, ccusage_usage_projects_daily, ccusage_model_breakdowns, ccusage_models_used\""
 ```
 
 #### Create tables individually (needed when bulk schema application fails):
 ```bash
 # Create tables one by one to avoid syntax errors
-ssh duyet@duyet-ubuntu 'clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --multiquery' << 'EOF'
+ssh user@your-host 'clickhouse-client --user=username --password=password --database=database --multiquery' << 'EOF'
 CREATE TABLE IF NOT EXISTS ccusage_usage_daily (
     date Date, machine_name String, input_tokens UInt64, output_tokens UInt64,
     cache_creation_tokens UInt64, cache_read_tokens UInt64, total_tokens UInt64,
@@ -138,12 +138,12 @@ EOF
 ### Schema Recreation Process
 1. **Backup existing data** (if needed):
    ```bash
-   ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --query=\"CREATE TABLE backup_ccusage_usage_daily AS SELECT * FROM ccusage_usage_daily\""
+   ssh user@your-host "clickhouse-client --user=username --password=password --database=database --query=\"CREATE TABLE backup_ccusage_usage_daily AS SELECT * FROM ccusage_usage_daily\""
    ```
 
 2. **Drop existing tables**:
    ```bash
-   ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password=ntmVKggOQa --database=duyet_analytics --multiquery" < /dev/stdin << 'EOF'
+   ssh user@your-host "clickhouse-client --user=username --password=password --database=database --multiquery" < /dev/stdin << 'EOF'
    DROP TABLE IF EXISTS ccusage_usage_daily;
    DROP TABLE IF EXISTS ccusage_usage_monthly;
    DROP TABLE IF EXISTS ccusage_usage_sessions;
@@ -175,7 +175,7 @@ chmod +x verify_setup.sh
 ./verify_setup.sh
 
 # Check ClickHouse tables manually
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --database=duyet_analytics --query='SHOW TABLES WHERE name LIKE \"ccusage%\"'"
+ssh user@your-host "clickhouse-client --user=username --password='password' --database=database --query='SHOW TABLES WHERE name LIKE \"ccusage%\"'"
 ```
 
 ### System Check Features (`--check`)
@@ -320,8 +320,8 @@ The enhanced importer follows this optimized workflow with beautiful UI:
 ## Troubleshooting
 
 **Connection issues:**
-- Verify ClickHouse server is running on duet-ubuntu
-- Check network connectivity: `ssh duyet@duet-ubuntu`
+- Verify ClickHouse server is running on your host
+- Check network connectivity: `ssh user@your-host`
 - Test ClickHouse connection manually
 
 **Import failures:**

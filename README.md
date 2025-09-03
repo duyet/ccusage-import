@@ -88,12 +88,12 @@ This sets up an hourly cronjob to keep your data synchronized.
 The enhanced importer provides a beautiful, interactive experience:
 
 ```
-✓ Connected to ClickHouse at duet-ubuntu:8124
+✓ Connected to ClickHouse at your-host:8124
 
 ══════════════════════════════════════════════════════════════════════
   🚀 CCUSAGE DATA IMPORTER
 ══════════════════════════════════════════════════════════════════════
-   Target: duyet_analytics at duet-ubuntu:8124
+   Target: your_database at your-host:8124
    Machine: duyet.local
    Started: 2025-09-01 16:34:38
 

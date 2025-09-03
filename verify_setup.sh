@@ -5,13 +5,13 @@ echo "=== ClickHouse ccusage Setup Verification ==="
 
 # Check if tables exist
 echo "1. Checking if tables exist..."
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --database=duyet_analytics --query='SHOW TABLES'"
+ssh user@your-host "clickhouse-client --user=username --password='password' --database=database --query='SHOW TABLES'"
 
 echo -e "\n2. Checking table structures..."
 
 # Check table row counts
 echo "3. Checking table row counts..."
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --database=duyet_analytics --query='
+ssh user@your-host "clickhouse-client --user=username --password='password' --database=database --query='
 SELECT 
     \"usage_daily\" as table_name, count() as rows FROM usage_daily
 UNION ALL
@@ -36,7 +36,7 @@ ORDER BY table_name
 '"
 
 echo -e "\n4. Testing views..."
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --database=duyet_analytics --query='SELECT * FROM v_daily_summary LIMIT 3'"
+ssh user@your-host "clickhouse-client --user=username --password='password' --database=database --query='SELECT * FROM v_daily_summary LIMIT 3'"
 
 echo -e "\n5. Checking if ccusage command works..."
 npx ccusage@latest --help > /dev/null 2>&1
@@ -47,12 +47,12 @@ else
 fi
 
 echo -e "\n6. Testing a sample query..."
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --database=duyet_analytics --query='
+ssh user@your-host "clickhouse-client --user=username --password='password' --database=database --query='
 SELECT 
     \"Total Tables\" as metric, 
     toString(count()) as value 
 FROM system.tables 
-WHERE database = \"duyet_analytics\"
+WHERE database = \"database\"
 '"
 
 echo -e "\nSetup verification completed!"
