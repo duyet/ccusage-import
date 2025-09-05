@@ -161,13 +161,17 @@ class ClickHouseImporter:
     def __init__(self):
         """Initialize ClickHouse client with environment-based configuration"""
         try:
+            # Determine if we should use HTTPS based on port
+            use_https = CH_PORT in [443, 8443, 9440]
+            
             self.client = clickhouse_connect.get_client(
                 host=CH_HOST,
                 port=CH_PORT,
                 username=CH_USER,
                 password=CH_PASSWORD,
                 database=CH_DATABASE,
-                interface="http",
+                interface="https" if use_https else "http",
+                secure=use_https,
             )
             # Test connection
             self.client.command("SELECT 1")
@@ -1483,6 +1487,9 @@ def system_check():
     # 2. Enhanced ClickHouse connection check
     print("\n🗄️  Checking ClickHouse connection...")
     try:
+        # Determine if we should use HTTPS based on port
+        use_https = CH_PORT in [443, 8443, 9440]
+        
         # Test basic connection
         client = clickhouse_connect.get_client(
             host=CH_HOST,
@@ -1490,6 +1497,8 @@ def system_check():
             username=CH_USER,
             password=CH_PASSWORD,
             database=CH_DATABASE,
+            interface="https" if use_https else "http",
+            secure=use_https,
         )
 
         # Get version and server info
