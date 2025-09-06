@@ -4,6 +4,13 @@
 PROJECT_DIR="/Users/duet/project/ccusage-import"
 SCRIPT_PATH="$PROJECT_DIR/ccusage_importer.py"
 
+# Detect uv path dynamically
+UV_PATH=$(which uv)
+if [ -z "$UV_PATH" ]; then
+    echo "❌ uv not found in PATH. Please install uv first."
+    exit 1
+fi
+
 # Check if project directory exists
 if [ ! -d "$PROJECT_DIR" ]; then
     echo "❌ Project directory not found: $PROJECT_DIR"
@@ -24,10 +31,11 @@ echo "🔧 Setting up ccusage cronjob..."
 echo "📁 Project: $PROJECT_DIR"  
 echo "📜 Script: $SCRIPT_PATH"
 echo "📋 Logs: $LOG_DIR"
+echo "🔗 UV Path: $UV_PATH"
 
 # Add cronjob to run every hour with enhanced logging
 echo "⏰ Setting up cronjob to run every hour with timestamp logging..."
-(crontab -l 2>/dev/null; echo "0 * * * * cd $PROJECT_DIR && echo \"\$(date): Starting ccusage import\" >> $LOG_DIR/import.log && /usr/local/bin/uv run python ccusage_importer.py >> $LOG_DIR/import.log 2>&1 && echo \"\$(date): ccusage import completed\" >> $LOG_DIR/import.log") | crontab -
+(crontab -l 2>/dev/null; echo "0 * * * * cd $PROJECT_DIR && echo \"\$(date): Starting ccusage import\" >> $LOG_DIR/import.log && $UV_PATH run python ccusage_importer.py >> $LOG_DIR/import.log 2>&1 && echo \"\$(date): ccusage import completed\" >> $LOG_DIR/import.log") | crontab -
 
 # Run initial import
 echo "🚀 Running initial import..."
