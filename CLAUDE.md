@@ -25,7 +25,7 @@ uv run --python 3.11 python ccusage_importer.py
 - `ccusage_clickhouse_schema.sql` - Complete ClickHouse database schema
 - `queries.sql` - 27 ready-to-use SQL queries for analytics
 - `setup_cronjob.sh` - Script to setup automated hourly imports
-- `verify_setup.sh` - Script to verify the setup is working
+- `verify_setup.sh` - HTTP-based verification script (no clickhouse-client required)
 - `README.md` - Complete project documentation
 
 ## Dependencies
@@ -35,14 +35,21 @@ uv run --python 3.11 python ccusage_importer.py
 
 ## ClickHouse Configuration
 
-The project connects to ClickHouse with these settings (configured in `ccusage_importer.py`):
+The project connects to ClickHouse using environment variables:
 
-```python
-CH_HOST = 'your_clickhouse_host'
-CH_USER = 'your_username'  
-CH_PASSWORD = 'your_password'
-CH_DATABASE = 'your_database'
+```bash
+# Required environment variables
+export CH_HOST="your_clickhouse_host"
+export CH_PORT="8123"  # HTTP port (8443 for HTTPS)
+export CH_USER="your_username"
+export CH_PASSWORD="your_password"
+export CH_DATABASE="your_database"
+
+# Optional: Protocol auto-detected based on port
+export CH_PROTOCOL="https"  # or "http" (auto-detected for ports 443, 8443, 9440)
 ```
+
+**HTTPS Support**: Automatically detects HTTPS for ports 443, 8443, 9440
 
 ## Database Schema
 
@@ -86,10 +93,11 @@ The importer pulls data from these ccusage commands:
 
 ### Connection Details
 - **Host**: your_clickhouse_host
-- **Port**: 8124 (HTTP), 9000 (native)  
+- **Port**: 8123 (HTTP), 8443 (HTTPS), 9000 (native)
 - **User**: your_username
 - **Password**: your_password
 - **Database**: your_database
+- **Protocol**: Auto-detected based on port (HTTPS for 443, 8443, 9440)
 
 ### SSH Commands for ClickHouse Operations
 
@@ -170,12 +178,15 @@ uv run python ccusage_importer.py --check
 # Run a single import (includes parallel fetching and statistics)
 uv run python ccusage_importer.py
 
-# Verify the setup (legacy script)
+# Verify the setup (HTTP-based, no dependencies)
 chmod +x verify_setup.sh
 ./verify_setup.sh
 
-# Check ClickHouse tables manually
-ssh user@your-host "clickhouse-client --user=username --password='password' --database=database --query='SHOW TABLES WHERE name LIKE \"ccusage%\"'"
+# Check ClickHouse tables manually via HTTP
+curl -s --user "$CH_USER:$CH_PASSWORD" \
+     -H "Content-Type: text/plain" \
+     -d "SHOW TABLES WHERE name LIKE 'ccusage%'" \
+     "http://$CH_HOST:$CH_PORT/?database=$CH_DATABASE"
 ```
 
 ### System Check Features (`--check`)
@@ -380,7 +391,7 @@ The enhanced importer follows this optimized workflow with beautiful UI:
 
 ### Recent Changes Summary
 - ✅ Added machine_name columns to all 7 tables for multi-machine support
-- ✅ Simplified CLI output removing verbose headers and borders  
+- ✅ Simplified CLI output removing verbose headers and borders
 - ✅ Updated schema recreation procedures with individual table commands
 - ✅ Fixed models_used table column mismatch issue (missing machine_name in daily data)
 - ✅ Fixed blocks table column ordering issue (actual_end_time position)
@@ -389,4 +400,7 @@ The enhanced importer follows this optimized workflow with beautiful UI:
 - ✅ Added comprehensive --check argument for system validation
 - ✅ Implemented project privacy protection with SHA-256 hashing (enabled by default)
 - ✅ Added --no-hash-projects toggle to disable privacy protection
-- 📝 Enhanced documentation with ClickHouse procedures and SSH commands
+- ✅ Updated verify_setup.sh to use HTTP interface instead of clickhouse-client
+- ✅ Added automatic HTTPS detection for ports 443, 8443, 9440
+- ✅ Enhanced cronjob setup with automatic PATH and environment variable detection
+- 📝 Enhanced documentation with ClickHouse HTTP procedures and curl commands

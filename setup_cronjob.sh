@@ -11,6 +11,30 @@ if [ -z "$UV_PATH" ]; then
     exit 1
 fi
 
+# Detect package runner paths (npx and bunx)
+NPX_PATH=$(which npx 2>/dev/null || echo "")
+BUNX_PATH=$(which bunx 2>/dev/null || echo "")
+
+if [ -z "$NPX_PATH" ] && [ -z "$BUNX_PATH" ]; then
+    echo "❌ Neither npx nor bunx found in PATH. Please install Node.js/npm or Bun first."
+    exit 1
+fi
+
+# Build the PATH additions
+BIN_PATHS=""
+if [ -n "$NPX_PATH" ]; then
+    NPX_DIR=$(dirname "$NPX_PATH")
+    BIN_PATHS="$NPX_DIR"
+fi
+if [ -n "$BUNX_PATH" ]; then
+    BUNX_DIR=$(dirname "$BUNX_PATH")
+    if [ -n "$BIN_PATHS" ]; then
+        BIN_PATHS="$BIN_PATHS:$BUNX_DIR"
+    else
+        BIN_PATHS="$BUNX_DIR"
+    fi
+fi
+
 # Check if project directory exists
 if [ ! -d "$PROJECT_DIR" ]; then
     echo "❌ Project directory not found: $PROJECT_DIR"
@@ -28,14 +52,50 @@ mkdir -p "$HOME/.local/log/ccusage"
 LOG_DIR="$HOME/.local/log/ccusage"
 
 echo "🔧 Setting up ccusage cronjob..."
-echo "📁 Project: $PROJECT_DIR"  
+echo "📁 Project: $PROJECT_DIR"
 echo "📜 Script: $SCRIPT_PATH"
 echo "📋 Logs: $LOG_DIR"
 echo "🔗 UV Path: $UV_PATH"
+echo "📦 Package runners:"
+if [ -n "$NPX_PATH" ]; then
+    echo "   - NPX: $NPX_PATH"
+fi
+if [ -n "$BUNX_PATH" ]; then
+    echo "   - BUNX: $BUNX_PATH"
+fi
+echo "🛤️  Cron PATH: $BIN_PATHS"
 
-# Add cronjob to run every hour with enhanced logging
+# Check and display current environment variables
+echo "🔧 Environment variables:"
+echo "   - CH_HOST: ${CH_HOST:-'(not set)'}"
+echo "   - CH_PORT: ${CH_PORT:-'(not set)'}"
+echo "   - CH_USER: ${CH_USER:-'(not set)'}"
+echo "   - CH_DATABASE: ${CH_DATABASE:-'(not set)'}"
+echo "   - CH_PASSWORD: ${CH_PASSWORD:+'***set***'}"
+
+# Add cronjob to run every hour with enhanced logging and environment variables
 echo "⏰ Setting up cronjob to run every hour with timestamp logging..."
-(crontab -l 2>/dev/null; echo "0 * * * * cd $PROJECT_DIR && echo \"\$(date): Starting ccusage import\" >> $LOG_DIR/import.log && $UV_PATH run python ccusage_importer.py >> $LOG_DIR/import.log 2>&1 && echo \"\$(date): ccusage import completed\" >> $LOG_DIR/import.log") | crontab -
+
+# Build environment variable exports for crontab
+ENV_VARS=""
+if [ -n "$CH_HOST" ]; then
+    ENV_VARS="$ENV_VARS CH_HOST=$CH_HOST"
+fi
+if [ -n "$CH_PORT" ]; then
+    ENV_VARS="$ENV_VARS CH_PORT=$CH_PORT"
+fi
+if [ -n "$CH_USER" ]; then
+    ENV_VARS="$ENV_VARS CH_USER=$CH_USER"
+fi
+if [ -n "$CH_PASSWORD" ]; then
+    ENV_VARS="$ENV_VARS CH_PASSWORD='$CH_PASSWORD'"
+fi
+if [ -n "$CH_DATABASE" ]; then
+    ENV_VARS="$ENV_VARS CH_DATABASE=$CH_DATABASE"
+fi
+
+# Create the crontab entry with environment variables and PATH
+(crontab -l 2>/dev/null; echo "0 * * * * cd $PROJECT_DIR && PATH=$BIN_PATHS:\$PATH $ENV_VARS echo \"\$(date): Starting ccusage import\" >> $LOG_DIR/import.log && PATH=$BIN_PATHS:\$PATH $ENV_VARS $UV_PATH run python ccusage_importer.py >> $LOG_DIR/import.log 2>&1 && echo \"\$(date): ccusage import completed\" >> $LOG_DIR/import.log") | crontab -
 
 # Run initial import
 echo "🚀 Running initial import..."
