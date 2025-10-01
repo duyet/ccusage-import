@@ -1,28 +1,123 @@
 #!/bin/bash
 # Setup cronjob for ccusage data import to ClickHouse
 
-# Install required Python packages
-echo "Installing required Python packages..."
-pip3 install clickhouse-connect
+PROJECT_DIR="/Users/duet/project/ccusage-import"
+SCRIPT_PATH="$PROJECT_DIR/ccusage_importer.py"
 
-# Make the importer script executable
-chmod +x /tmp/ccusage_importer.py
+# Detect uv path dynamically
+UV_PATH=$(which uv)
+if [ -z "$UV_PATH" ]; then
+    echo "❌ uv not found in PATH. Please install uv first."
+    exit 1
+fi
 
-# Copy script to a permanent location
-sudo cp /tmp/ccusage_importer.py /usr/local/bin/ccusage_importer.py
+# Detect package runner paths (npx and bunx)
+NPX_PATH=$(which npx 2>/dev/null || echo "")
+BUNX_PATH=$(which bunx 2>/dev/null || echo "")
 
-# Create log directory
-sudo mkdir -p /var/log/ccusage
+if [ -z "$NPX_PATH" ] && [ -z "$BUNX_PATH" ]; then
+    echo "❌ Neither npx nor bunx found in PATH. Please install Node.js/npm or Bun first."
+    exit 1
+fi
 
-# Add cronjob to run every hour
-echo "Setting up cronjob to run every hour..."
-(crontab -l 2>/dev/null; echo "0 * * * * /usr/bin/python3 /usr/local/bin/ccusage_importer.py >> /var/log/ccusage/import.log 2>&1") | crontab -
+# Build the PATH additions
+BIN_PATHS=""
+if [ -n "$NPX_PATH" ]; then
+    NPX_DIR=$(dirname "$NPX_PATH")
+    BIN_PATHS="$NPX_DIR"
+fi
+if [ -n "$BUNX_PATH" ]; then
+    BUNX_DIR=$(dirname "$BUNX_PATH")
+    if [ -n "$BIN_PATHS" ]; then
+        BIN_PATHS="$BIN_PATHS:$BUNX_DIR"
+    else
+        BIN_PATHS="$BUNX_DIR"
+    fi
+fi
+
+# Check if project directory exists
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "❌ Project directory not found: $PROJECT_DIR"
+    exit 1
+fi
+
+# Check if script exists
+if [ ! -f "$SCRIPT_PATH" ]; then
+    echo "❌ Script not found: $SCRIPT_PATH"
+    exit 1
+fi
+
+# Create log directory and set permissions
+mkdir -p "$HOME/.local/log/ccusage"
+LOG_DIR="$HOME/.local/log/ccusage"
+
+echo "🔧 Setting up ccusage cronjob..."
+echo "📁 Project: $PROJECT_DIR"
+echo "📜 Script: $SCRIPT_PATH"
+echo "📋 Logs: $LOG_DIR"
+echo "🔗 UV Path: $UV_PATH"
+echo "📦 Package runners:"
+if [ -n "$NPX_PATH" ]; then
+    echo "   - NPX: $NPX_PATH"
+fi
+if [ -n "$BUNX_PATH" ]; then
+    echo "   - BUNX: $BUNX_PATH"
+fi
+echo "🛤️  Cron PATH: $BIN_PATHS"
+
+# Check and display current environment variables
+echo "🔧 Environment variables:"
+echo "   - CH_HOST: ${CH_HOST:-'(not set)'}"
+echo "   - CH_PORT: ${CH_PORT:-'(not set)'}"
+echo "   - CH_USER: ${CH_USER:-'(not set)'}"
+echo "   - CH_DATABASE: ${CH_DATABASE:-'(not set)'}"
+echo "   - CH_PASSWORD: ${CH_PASSWORD:+'***set***'}"
+
+# Add cronjob to run every hour with enhanced logging and environment variables
+echo "⏰ Setting up cronjob to run every hour with timestamp logging..."
+
+# Build environment variable exports for crontab
+ENV_VARS=""
+if [ -n "$CH_HOST" ]; then
+    ENV_VARS="$ENV_VARS CH_HOST=$CH_HOST"
+fi
+if [ -n "$CH_PORT" ]; then
+    ENV_VARS="$ENV_VARS CH_PORT=$CH_PORT"
+fi
+if [ -n "$CH_USER" ]; then
+    ENV_VARS="$ENV_VARS CH_USER=$CH_USER"
+fi
+if [ -n "$CH_PASSWORD" ]; then
+    ENV_VARS="$ENV_VARS CH_PASSWORD='$CH_PASSWORD'"
+fi
+if [ -n "$CH_DATABASE" ]; then
+    ENV_VARS="$ENV_VARS CH_DATABASE=$CH_DATABASE"
+fi
+
+# Create the crontab entry with environment variables and PATH
+(crontab -l 2>/dev/null; echo "0 * * * * cd $PROJECT_DIR && PATH=$BIN_PATHS:\$PATH $ENV_VARS echo \"\$(date): Starting ccusage import\" >> $LOG_DIR/import.log && PATH=$BIN_PATHS:\$PATH $ENV_VARS $UV_PATH run python ccusage_importer.py >> $LOG_DIR/import.log 2>&1 && echo \"\$(date): ccusage import completed\" >> $LOG_DIR/import.log") | crontab -
 
 # Run initial import
-echo "Running initial import..."
-python3 /usr/local/bin/ccusage_importer.py
+echo "🚀 Running initial import..."
+cd "$PROJECT_DIR" && uv run python ccusage_importer.py
 
-echo "Setup completed!"
-echo "Cronjob will run every hour at minute 0"
-echo "Check logs at: /var/log/ccusage/import.log"
-echo "To view current crontab: crontab -l"
+echo ""
+echo "✅ Setup completed!"
+echo "⏰ Cronjob will run every hour at minute 0"
+echo "📝 Enhanced logging with timestamps enabled"
+echo ""
+echo "📁 Log files:"
+echo "   - Main log: $LOG_DIR/import.log"
+echo "   - Location: $LOG_DIR/"
+echo ""
+echo "🔧 Management commands:"
+echo "   - View current crontab: crontab -l"
+echo "   - View recent logs: tail -f $LOG_DIR/import.log"
+echo "   - View log history: ls -la $LOG_DIR/"
+echo "   - Test manual run: cd $PROJECT_DIR && uv run python ccusage_importer.py"
+echo "   - Remove cronjob: crontab -e (then delete the ccusage line)"
+echo ""
+echo "🎯 Next steps:"
+echo "   1. Verify cronjob: crontab -l | grep ccusage"
+echo "   2. Monitor first run: tail -f $LOG_DIR/import.log"
+echo "   3. Check ClickHouse data after import"

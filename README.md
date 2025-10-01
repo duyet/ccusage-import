@@ -8,11 +8,33 @@ ccusage is a CLI tool that analyzes Claude Code usage data from local JSONL file
 
 ## Features
 
-- **Complete ClickHouse Schema**: Optimized tables for all ccusage data types
-- **Automated Data Import**: Python script with idempotent inserts 
-- **Ready-to-Use Queries**: 27+ SQL queries for dashboards and analytics
-- **Cronjob Integration**: Hourly automated data sync
-- **Performance Optimized**: Proper indexing and partitioning
+- **🎬 Interactive UI with Animations**: Beautiful loading spinners and progress indicators
+- **⚡ Parallel Data Fetching**: Concurrent processing of all 5 ccusage data sources  
+- **📊 Enhanced Statistics Display**: Professional analytics with smart number formatting
+- **🔁 Complete ClickHouse Schema**: Optimized tables for all ccusage data types
+- **🛡️ Automated Data Import**: Python script with idempotent inserts and retry logic
+- **📈 Ready-to-Use Queries**: 40+ SQL queries for dashboards and analytics
+- **⏰ Cronjob Integration**: Hourly automated data sync
+- **🗃️ Performance Optimized**: Proper indexing, partitioning, and parallel processing
+- **🖥️ Multi-Machine Support**: Track Claude usage across different machines with automatic merging
+
+## Multi-Machine Support 🆕
+
+Track Claude Code usage across multiple machines seamlessly:
+
+- **Automatic Machine Detection**: Uses hostname to identify each machine automatically
+- **Data Isolation**: Each machine's data is stored separately with `machine_name` field
+- **Cross-Machine Analytics**: 13 new SQL queries for comparing usage across machines
+- **Unified Dashboard**: View combined statistics from all your machines
+- **Machine-Specific Filtering**: Filter reports by specific machines when needed
+- **Zero Configuration**: Works out of the box, or customize machine names via environment variables
+
+### Multi-Machine Analytics Included:
+- Machine cost rankings and comparisons
+- Cross-machine project analysis (projects used on multiple machines)
+- Machine efficiency metrics (tokens per dollar)
+- Machine utilization trends over time
+- Data freshness monitoring per machine
 
 ## Data Sources Supported
 
@@ -29,8 +51,8 @@ ccusage is a CLI tool that analyzes Claude Code usage data from local JSONL file
 ### 1. Setup ClickHouse Schema
 
 ```bash
-# Create database and tables
-ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --database=duyet_analytics" < ccusage_clickhouse_schema.sql
+# Create database and tables on your ClickHouse server
+clickhouse-client --host YOUR_HOST --user YOUR_USER --password YOUR_PASSWORD --database YOUR_DATABASE < ccusage_clickhouse_schema.sql
 ```
 
 ### 2. Setup Environment and Dependencies
@@ -40,7 +62,7 @@ ssh duyet@duet-ubuntu "clickhouse-client --user=duyet --password='ntmVKggOQa' --
 cp .env.example .env
 
 # Edit .env with your ClickHouse credentials
-nano .env
+vi .env
 
 # Install dependencies with uv
 uv sync
@@ -61,6 +83,109 @@ chmod +x setup_cronjob.sh
 
 This sets up an hourly cronjob to keep your data synchronized.
 
+## Example Script Output
+
+The enhanced importer provides a beautiful, interactive experience:
+
+```
+✓ Connected to ClickHouse at your-host:8124
+
+══════════════════════════════════════════════════════════════════════
+  🚀 CCUSAGE DATA IMPORTER
+══════════════════════════════════════════════════════════════════════
+   Target: your_database at your-host:8124
+   Machine: duyet.local
+   Started: 2025-09-01 16:34:38
+
+1️⃣  Fetching ccusage data
+   Executing 5 ccusage commands concurrently...
+⠋ Fetching data from ccusage...
+✅ session data fetched (1/5)
+✅ daily data fetched (2/5)  
+✅ monthly data fetched (3/5)
+✅ blocks data fetched (4/5)
+✅ projects data fetched (5/5)
+
+✅ All data sources fetched in 22.4s
+
+2️⃣  Processing and importing data
+   Converting data types and inserting into ClickHouse...
+✅ Daily data processed
+✅ Monthly data processed
+✅ Session data processed
+✅ Blocks data processed
+✅ Projects data processed
+
+3️⃣  Generating analytics
+   Computing usage statistics and insights...
+✅ Statistics generated
+
+✅ Import completed successfully!
+   Processing time: 13.2s
+   Total time: 35.6s
+
+══════════════════════════════════════════════════════════════════════
+  📊 IMPORT SUMMARY & STATISTICS
+══════════════════════════════════════════════════════════════════════
+
+──────────────────────────────────────────────────────────────────────
+  📋 Database Records
+──────────────────────────────────────────────────────────────────────
+  • Usage Daily                              60 records
+  • Usage Monthly                             2 records
+  • Usage Sessions                           13 records
+  • Usage Blocks                            126 records
+  • Usage Projects Daily                     67 records
+  • Model Breakdowns                        846 records
+  • Models Used                             985 records
+
+──────────────────────────────────────────────────────────────────────
+  💰 Usage Analytics
+──────────────────────────────────────────────────────────────────────
+  • Total Cost                                $4,262.55
+  • Total Tokens                                   5.6B
+  • Input Tokens                                 560.0K
+  • Output Tokens                                  8.5M
+  • Cache Creation Tokens                        243.1M
+  • Cache Read Tokens                              5.4B
+  • Date Range                          2025-08-02 → 2025-09-01
+  • Days with Usage                             30 days
+
+──────────────────────────────────────────────────────────────────────
+  🤖 Top Models by Cost
+──────────────────────────────────────────────────────────────────────
+  • 1. sonnet-4                         $1,127.75 (2.4B tokens)
+  • 2. opus-4-1-20250805                $925.83 (410.7M tokens)
+  • 3. opus-4                           $77.70 (43.5M tokens)
+
+──────────────────────────────────────────────────────────────────────
+  💼 Session Insights
+──────────────────────────────────────────────────────────────────────
+  • Total Sessions                                   13
+  • Avg Cost per Session                        $163.94
+  • Max Cost Session                          $1,615.97
+  • Total Session Tokens                           2.8B
+
+──────────────────────────────────────────────────────────────────────
+  🧱 Real-time Status
+──────────────────────────────────────────────────────────────────────
+  • Active Blocks                                     1
+
+──────────────────────────────────────────────────────────────────────
+  🖥️  Machine Info
+──────────────────────────────────────────────────────────────────────
+  • Current Machine                              duyet.local
+══════════════════════════════════════════════════════════════════════
+```
+
+### Key Features Demonstrated:
+- **🎬 Animated Progress**: Spinners show real-time fetching progress 
+- **⚡ Parallel Processing**: All 5 data sources fetched concurrently in ~22 seconds
+- **📊 Beautiful Analytics**: Clean sectioned display with smart number formatting (5.6B, 560.0K)
+- **🎯 Performance Metrics**: Clear timing breakdown and completion status
+- **📈 Comprehensive Stats**: Usage patterns, model costs, and operational insights
+- **🖥️ Multi-Machine Display**: Shows current machine and will display breakdown when multiple machines detected
+
 ## Database Schema
 
 ### Core Tables
@@ -80,7 +205,7 @@ This sets up an hourly cronjob to keep your data synchronized.
 
 ## Usage Analytics Queries
 
-The `queries.sql` file contains 27 pre-built queries organized by category:
+The `queries.sql` file contains 40+ pre-built queries organized by category:
 
 ### Daily Analysis
 - Cost trends and percentage changes
@@ -111,6 +236,17 @@ The `queries.sql` file contains 27 pre-built queries organized by category:
 - Active billing blocks
 - Recent high-cost operations
 - Data freshness checks
+
+### Multi-Machine Analytics 🆕
+- Machine cost rankings and efficiency comparisons
+- Daily usage comparison across machines
+- Cross-machine project analysis (projects used on multiple machines)
+- Machine utilization trends over time
+- Active blocks monitoring by machine
+- Monthly trends with machine breakdowns
+- Data freshness monitoring per machine
+- Top models by machine
+- Machine-specific session analytics
 
 ## Example Queries
 
@@ -194,19 +330,26 @@ Create a `.env` file in the project root (copy from `.env.example`):
 
 ```bash
 # ClickHouse Configuration
-CH_HOST=duet-ubuntu
+CH_HOST=your_clickhouse_host
 CH_PORT=8123
-CH_USER=duyet
+CH_USER=your_username
 CH_PASSWORD=your_password_here
-CH_DATABASE=duyet_analytics
+CH_DATABASE=your_database
+
+# Multi-Machine Configuration (Optional)
+# Override machine name for identification across different machines
+# Default: Uses hostname automatically (socket.gethostname())
+MACHINE_NAME=my-custom-machine-name
 ```
 
 ### Cronjob Schedule
 
-Default: Every hour at minute 0
+Default: Every hour at minute 0 with automatic PATH and environment setup
 ```bash
-0 * * * * /usr/bin/python3 /usr/local/bin/ccusage_importer.py
+# Example crontab entry (auto-generated by setup_cronjob.sh)
+0 * * * * cd /Users/duet/project/ccusage-import && PATH=/Users/duet/.nvm/versions/node/v22.11.0/bin:$PATH CH_HOST=duet-ubuntu CH_PORT=8124 CH_USER=duyet CH_DATABASE=duyet_analytics /opt/homebrew/bin/uv run python ccusage_importer.py >> ~/.local/log/ccusage/import.log 2>&1
 ```
+
 
 ## Performance Considerations
 
@@ -225,12 +368,13 @@ tail -f /var/log/ccusage/import.log
 
 # Check table row counts
 clickhouse-client --query "
-SELECT 'ccusage_usage_daily' as table_name, count() as rows FROM duyet_analytics.ccusage_usage_daily
+SELECT 'ccusage_usage_daily' as table_name, count() as rows FROM your_database.ccusage_usage_daily
 "
 ```
 
-### Verify Schema
+### Verify Setup
 ```bash
+# HTTP-based verification (no clickhouse-client required)
 ./verify_setup.sh
 ```
 
@@ -242,7 +386,7 @@ python3 ccusage_importer.py
 ## Requirements
 
 - **ccusage**: `npm install -g ccusage` or `npx ccusage@latest`
-- **ClickHouse**: Server with duyet_analytics database
+- **ClickHouse**: Server with your_database
 - **Python 3.8+**: With dependencies managed by `uv`
 - **Environment file**: `.env` with ClickHouse credentials
 

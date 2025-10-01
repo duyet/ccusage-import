@@ -1,8 +1,9 @@
 -- ClickHouse SQL Queries for ccusage Data Visualization (Updated with ccusage_ prefix)
--- Database: duyet_analytics
+-- Database: your_database
 -- Use these queries for building dashboards and analytics
+-- Now includes multi-machine support for tracking usage across different machines
 
-USE duyet_analytics;
+USE your_database;
 
 -- ======================
 -- Daily Analysis Queries
@@ -403,3 +404,149 @@ SELECT
     max(toDate(start_time)) as latest_date,
     max(created_at) as last_imported
 FROM ccusage_usage_blocks;
+
+-- ============================
+-- MULTI-MACHINE ANALYSIS QUERIES
+-- ============================
+
+-- Machine overview - total usage across all machines
+SELECT 
+    machine_name,
+    sum(total_cost) as total_cost,
+    sum(total_tokens) as total_tokens,
+    count(DISTINCT date) as active_days,
+    sum(total_cost) / sum(total_tokens) * 1000000 as cost_per_million_tokens,
+    max(date) as last_activity
+FROM ccusage_usage_daily
+GROUP BY machine_name
+ORDER BY total_cost DESC;
+
+-- Daily usage comparison across machines
+SELECT 
+    date,
+    machine_name,
+    total_cost,
+    total_tokens,
+    total_cost / total_tokens * 1000000 as cost_per_million_tokens
+FROM ccusage_usage_daily
+WHERE date >= today() - INTERVAL 7 DAY
+ORDER BY date DESC, total_cost DESC;
+
+-- Machine cost ranking by day
+SELECT 
+    date,
+    machine_name,
+    total_cost,
+    rank() OVER (PARTITION BY date ORDER BY total_cost DESC) as cost_rank
+FROM ccusage_usage_daily
+WHERE date >= today() - INTERVAL 30 DAY
+ORDER BY date DESC, cost_rank;
+
+-- Top models by machine
+SELECT 
+    machine_name,
+    model_name,
+    sum(cost) as total_cost,
+    sum(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) as total_tokens,
+    count() as usage_count
+FROM ccusage_model_breakdowns
+GROUP BY machine_name, model_name
+ORDER BY machine_name, total_cost DESC;
+
+-- Machine efficiency comparison (tokens per dollar)
+SELECT 
+    machine_name,
+    sum(total_tokens) / sum(total_cost) as tokens_per_dollar,
+    sum(total_cost) as total_cost,
+    sum(total_tokens) as total_tokens,
+    avg(total_cost) as avg_daily_cost
+FROM ccusage_usage_daily
+GROUP BY machine_name
+ORDER BY tokens_per_dollar DESC;
+
+-- Session analysis by machine
+SELECT 
+    machine_name,
+    count() as session_count,
+    sum(total_cost) as total_cost,
+    avg(total_cost) as avg_cost_per_session,
+    sum(total_tokens) as total_tokens
+FROM ccusage_usage_sessions
+GROUP BY machine_name
+ORDER BY total_cost DESC;
+
+-- Active blocks by machine (current usage monitoring)
+SELECT 
+    machine_name,
+    count() as total_blocks,
+    sum(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_blocks,
+    sum(cost_usd) as total_cost,
+    avg(cost_usd) as avg_block_cost
+FROM ccusage_usage_blocks
+WHERE is_gap = 0
+GROUP BY machine_name
+ORDER BY active_blocks DESC, total_cost DESC;
+
+-- Monthly trends by machine
+SELECT 
+    machine_name,
+    month,
+    total_cost,
+    total_tokens,
+    total_cost / total_tokens * 1000000 as cost_per_million_tokens,
+    total_cost - LAG(total_cost) OVER (PARTITION BY machine_name ORDER BY year, month_num) as cost_change
+FROM ccusage_usage_monthly
+ORDER BY machine_name, year, month_num;
+
+-- Cross-machine project analysis (projects that exist on multiple machines)
+SELECT 
+    regexp_replace(session_id, '.*-Users-duet-project-', '') as project_name,
+    count(DISTINCT machine_name) as machine_count,
+    sum(total_cost) as total_cost_all_machines,
+    array_join(groupArray(DISTINCT machine_name), ', ') as machines
+FROM ccusage_usage_sessions
+GROUP BY project_name
+HAVING machine_count > 1
+ORDER BY total_cost_all_machines DESC;
+
+-- Machine utilization over time (last 30 days)
+SELECT 
+    date,
+    count(DISTINCT machine_name) as active_machines,
+    sum(total_cost) as combined_cost,
+    sum(total_tokens) as combined_tokens,
+    avg(total_cost) as avg_cost_per_machine
+FROM ccusage_usage_daily
+WHERE date >= today() - INTERVAL 30 DAY
+GROUP BY date
+ORDER BY date DESC;
+
+-- Most expensive day per machine
+SELECT 
+    machine_name,
+    argMax(date, total_cost) as most_expensive_date,
+    max(total_cost) as highest_daily_cost,
+    argMax(total_tokens, total_cost) as tokens_on_expensive_day
+FROM ccusage_usage_daily
+GROUP BY machine_name
+ORDER BY highest_daily_cost DESC;
+
+-- Machine data freshness check
+SELECT 
+    machine_name,
+    'Daily Data' as data_type,
+    max(date) as latest_date,
+    max(updated_at) as last_updated,
+    toRelativeSecondNum(now() - max(updated_at)) / 3600 as hours_since_update
+FROM ccusage_usage_daily
+GROUP BY machine_name
+UNION ALL
+SELECT 
+    machine_name,
+    'Session Data' as data_type,
+    max(last_activity) as latest_date,
+    max(updated_at) as last_updated,
+    toRelativeSecondNum(now() - max(updated_at)) / 3600 as hours_since_update
+FROM ccusage_usage_sessions
+GROUP BY machine_name
+ORDER BY machine_name, data_type;
