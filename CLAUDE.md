@@ -376,6 +376,14 @@ The enhanced importer follows this optimized workflow with beautiful UI:
 
 ## Known Issues & Troubleshooting
 
+### Data Synchronization
+**Dashboard Data vs ccusage CLI Mismatch**:
+- **Cause**: ClickHouse dashboard shows last imported data snapshot
+- **ccusage CLI**: Always shows real-time current usage data
+- **Solution**: Run `uv run python ccusage_importer.py` to sync latest data
+- **Detection**: Importer now checks data freshness and warns if stale
+- **Recommendation**: Set up cronjob for hourly automatic imports
+
 ### Current Issues
 1. **CLI animations still visible**:
    - Spinners still show during fetch/processing phases

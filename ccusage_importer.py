@@ -1317,6 +1317,50 @@ class ClickHouseImporter:
 
         print()  # Just a blank line
 
+    def _check_data_freshness(self) -> Dict[str, Any]:
+        """Check if ClickHouse data is stale compared to ccusage current state"""
+        try:
+            # Get last import time from history
+            result = self.client.query(f"""
+                SELECT
+                    import_timestamp,
+                    dateDiff('second', import_timestamp, now()) as seconds_since_import
+                FROM ccusage_import_history
+                WHERE machine_name = '{MACHINE_NAME}'
+                ORDER BY import_timestamp DESC
+                LIMIT 1
+            """)
+
+            if result.result_rows:
+                last_import_time = result.result_rows[0][0]
+                seconds_since_import = int(result.result_rows[0][1])
+
+                # Get latest date in ClickHouse
+                ch_result = self.client.query("""
+                    SELECT max(date) as latest_date
+                    FROM ccusage_usage_daily
+                """)
+                latest_ch_date = str(ch_result.result_rows[0][0]) if ch_result.result_rows else None
+
+                # Get latest date from ccusage
+                ccusage_data = self.run_ccusage_command("daily", verbose=False)
+                latest_ccusage_date = None
+                if ccusage_data.get("daily"):
+                    latest_ccusage_date = ccusage_data["daily"][-1]["date"]
+
+                return {
+                    "last_import_time": last_import_time,
+                    "seconds_since_import": seconds_since_import,
+                    "latest_ch_date": latest_ch_date,
+                    "latest_ccusage_date": latest_ccusage_date,
+                    "is_stale": latest_ch_date != latest_ccusage_date if latest_ch_date and latest_ccusage_date else False,
+                }
+
+            return {"is_stale": False}
+
+        except Exception:
+            return {"is_stale": False}
+
     def import_all_data(self):
         """Import all ccusage data into ClickHouse with enhanced UI and animations"""
         UIFormatter.print_header("CCUSAGE DATA IMPORTER")
@@ -1325,6 +1369,14 @@ class ClickHouseImporter:
             f"Database: {CH_DATABASE} at {CH_HOST}:{CH_PORT} | Machine: {MACHINE_NAME}"
         )
         print(f"Project Privacy: {privacy_status}")
+
+        # Check data freshness before import
+        freshness = self._check_data_freshness()
+        if freshness.get("is_stale"):
+            hours_old = freshness.get("seconds_since_import", 0) // 3600
+            print(f"⚠️  Data is stale: ClickHouse has data up to {freshness['latest_ch_date']}, ccusage has {freshness['latest_ccusage_date']}")
+            print(f"   Last import was {hours_old} hours ago")
+
         print()
 
         overall_start = datetime.now()
