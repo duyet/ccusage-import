@@ -65,7 +65,7 @@ All tables use the `ccusage_` prefix and include `machine_name` column for multi
 
 ### Schema Migration Notes
 - All tables now include `machine_name String` column for tracking usage across different machines
-- Machine names are auto-detected using `socket.gethostname()` (e.g., "duyet.local")
+- Machine names are auto-detected using `socket.gethostname()` (e.g., "my-machine.local")
 - Tables are partitioned appropriately for time-series data performance
 
 ## Data Sources
@@ -247,12 +247,12 @@ uv run python ccusage_importer.py
 uv run python ccusage_importer.py --no-hash-projects  
 
 # Shows: Project Privacy: Disabled
-# Result: session_id="/Users/duet/project/ccusage-import", project_path="/Users/duet/project/ccusage-import"
+# Result: session_id="/home/user/project/ccusage-import", project_path="/home/user/project/ccusage-import"
 ```
 
 #### **Hash Properties**
 - **Stable**: Same project → same hash every time
-- **Short**: 8 characters (vs full paths like `/Users/duet/project/very-long-project-name`)
+- **Short**: 8 characters (vs full paths like `/home/user/project/very-long-project-name`)
 - **Collision-resistant**: SHA-256 based (~4 billion possible values)
 - **Privacy-preserving**: Original paths cannot be reverse-engineered
 

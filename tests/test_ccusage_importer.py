@@ -584,8 +584,8 @@ class TestClickHouseImporter:
         # Should not raise exception
         importer_with_mock_client.import_all_data()
 
-        # Verify all commands were attempted
-        assert mock_run_command.call_count == 5
+        # Verify all commands were attempted (5 data sources + 1 freshness check)
+        assert mock_run_command.call_count == 6
 
     @patch("ccusage_importer.ClickHouseImporter.get_import_statistics")
     @patch("ccusage_importer.ClickHouseImporter.run_ccusage_command")
