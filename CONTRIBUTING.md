@@ -61,6 +61,30 @@ cp .env.example .env
 vi .env
 ```
 
+### Pre-commit Hooks (Recommended)
+
+We use pre-commit hooks to automatically check code quality before commits:
+
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Install the git hooks
+pre-commit install
+
+# Run manually on all files
+pre-commit run --all-files
+```
+
+Pre-commit will automatically:
+- Format code with ruff
+- Check for linting issues
+- Verify YAML, JSON, and TOML files
+- Detect private keys and secrets
+- Check for merge conflicts
+- Run type checking with mypy
+- Run security scans with bandit
+
 ## Making Changes
 
 ### Branch Naming Convention
@@ -191,6 +215,55 @@ def import_data(date: str, retry: int = 3) -> Dict[str, Any]:
         raise ValueError(f"Import failed: {e}")
 ```
 
+## Continuous Integration
+
+Our CI/CD pipeline runs automatically on every push and pull request:
+
+### GitHub Actions Workflows
+
+**Lint Job** (runs in parallel):
+- Checks code formatting with ruff
+- Runs linting checks
+- Performs type checking with mypy
+
+**Test Job** (matrix strategy):
+- Runs tests on Python 3.8, 3.9, 3.10, 3.11, and 3.12
+- Generates coverage reports
+- Uploads results to Codecov
+- Creates test artifacts
+
+**Security Job** (runs in parallel):
+- Runs safety check for vulnerable dependencies
+- Performs bandit security scanning
+- Continues even if issues found (informational)
+
+**Status Check Job**:
+- Ensures all required jobs passed
+- Blocks merge if critical checks fail
+
+### Viewing CI Results
+
+After pushing your branch or creating a PR:
+1. Navigate to the "Actions" tab in GitHub
+2. Find your workflow run
+3. Review logs for any failures
+4. Download artifacts (test results, coverage reports)
+
+### Local CI Simulation
+
+Run the same checks locally before pushing:
+
+```bash
+# Run all checks in sequence
+uv run ruff format .
+uv run ruff check --fix .
+uv run mypy ccusage_importer.py --ignore-missing-imports
+uv run pytest tests/ -v --cov=.
+
+# Or use pre-commit hooks to run automatically
+pre-commit run --all-files
+```
+
 ## Submitting Changes
 
 ### Before Submitting
@@ -212,6 +285,11 @@ def import_data(date: str, retry: int = 3) -> Dict[str, Any]:
    ```
 
 4. Update documentation if needed
+
+5. Verify CI will pass (optional):
+   ```bash
+   pre-commit run --all-files
+   ```
 
 ### Pull Request Process
 

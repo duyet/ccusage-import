@@ -1,8 +1,11 @@
 # ccusage ClickHouse Data Pipeline
 
 [![CI](https://github.com/duyet/ccusage-import/actions/workflows/ci.yml/badge.svg)](https://github.com/duyet/ccusage-import/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/duyet/ccusage-import/branch/main/graph/badge.svg)](https://codecov.io/gh/duyet/ccusage-import)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
 
 This project provides a complete data pipeline to import [ccusage](https://github.com/duyet/ccusage) (Claude Code usage analytics) data into ClickHouse for visualization and analysis.
 
@@ -419,6 +422,10 @@ cd ccusage-import
 # Install dependencies
 uv sync
 
+# Install pre-commit hooks (optional but recommended)
+pip install pre-commit
+pre-commit install
+
 # Run tests
 uv run pytest tests/ -v
 
@@ -426,6 +433,15 @@ uv run pytest tests/ -v
 uv run ruff format .
 uv run ruff check --fix .
 ```
+
+### Continuous Integration
+
+We use GitHub Actions for CI/CD with:
+- **Automated Linting**: Ruff checks on every push/PR
+- **Multi-Python Testing**: Tests run on Python 3.8, 3.9, 3.10, 3.11, and 3.12
+- **Code Coverage**: Coverage reports uploaded to Codecov
+- **Security Scanning**: Automated security checks with bandit and safety
+- **Pre-commit Hooks**: Optional local validation before commits
 
 ## 🔒 Security
 

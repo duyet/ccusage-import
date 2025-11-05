@@ -72,3 +72,8 @@ Thumbs.db
 # Logs
 *.log
 /logs/
+
+# Test outputs
+junit/
+htmlcov/
+.pytest_cache/
