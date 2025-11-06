@@ -163,7 +163,7 @@ class ClickHouseImporter:
         try:
             # Determine if we should use HTTPS based on port
             use_https = CH_PORT in [443, 8443, 9440]
-            
+
             self.client = clickhouse_connect.get_client(
                 host=CH_HOST,
                 port=CH_PORT,
@@ -182,7 +182,7 @@ class ClickHouseImporter:
 
         # Detect available package runner (bunx or npx)
         self.package_runner = self._detect_package_runner()
-        
+
         # Check and prompt for missing tables
         self._check_and_create_tables_if_needed()
 
@@ -205,71 +205,82 @@ class ClickHouseImporter:
         """Check if required tables exist and prompt to create them if missing"""
         required_tables = [
             "ccusage_usage_daily",
-            "ccusage_usage_monthly", 
+            "ccusage_usage_monthly",
             "ccusage_usage_sessions",
             "ccusage_usage_blocks",
             "ccusage_usage_projects_daily",
             "ccusage_model_breakdowns",
             "ccusage_models_used",
-            "ccusage_import_history"
+            "ccusage_import_history",
         ]
-        
+
         missing_tables = []
-        
+
         try:
             # Check which tables exist
             result = self.client.query("SHOW TABLES")
             existing_tables = {row[0] for row in result.result_rows}
-            
+
             # Find missing required tables
             for table in required_tables:
                 if table not in existing_tables:
                     missing_tables.append(table)
-            
+
             if missing_tables:
-                print(f"\n⚠️  Missing ClickHouse tables detected:")
+                print("\n⚠️  Missing ClickHouse tables detected:")
                 for table in missing_tables:
-                    table_display = table.replace("ccusage_", "").replace("_", " ").title()
+                    table_display = (
+                        table.replace("ccusage_", "").replace("_", " ").title()
+                    )
                     print(f"   - {table_display} ({table})")
-                
+
                 print(f"\n🔧 Required tables: {len(required_tables)}")
                 print(f"📋 Found: {len(existing_tables & set(required_tables))}")
                 print(f"❌ Missing: {len(missing_tables)}")
-                
-                response = input(f"\n❓ Create {len(missing_tables)} missing tables? [Y/n]: ").strip().lower()
-                
-                if response in ['', 'y', 'yes']:
+
+                response = (
+                    input(f"\n❓ Create {len(missing_tables)} missing tables? [Y/n]: ")
+                    .strip()
+                    .lower()
+                )
+
+                if response in ["", "y", "yes"]:
                     self._create_missing_tables()
                     print("✅ Tables created successfully!")
                 else:
                     print("⚠️  Warning: Missing tables may cause import errors")
-                    
+
         except Exception as e:
             print(f"⚠️  Warning: Could not check table existence: {e}")
 
     def _create_missing_tables(self):
         """Execute the ClickHouse schema to create missing tables"""
         import os
-        schema_file = os.path.join(os.path.dirname(__file__), "ccusage_clickhouse_schema.sql")
-        
+
+        schema_file = os.path.join(
+            os.path.dirname(__file__), "ccusage_clickhouse_schema.sql"
+        )
+
         if not os.path.exists(schema_file):
             print(f"❌ Schema file not found: {schema_file}")
             return
-            
+
         try:
             # Read and execute the schema file
-            with open(schema_file, 'r') as f:
+            with open(schema_file) as f:
                 schema_sql = f.read()
-            
+
             # Split into individual statements and execute
-            statements = [stmt.strip() for stmt in schema_sql.split(';') if stmt.strip()]
-            
+            statements = [
+                stmt.strip() for stmt in schema_sql.split(";") if stmt.strip()
+            ]
+
             print("🔧 Creating tables...")
             loader = LoadingAnimation("Creating database tables")
             loader.start()
-            
+
             for statement in statements:
-                if statement.upper().startswith(('CREATE TABLE', 'CREATE DATABASE')):
+                if statement.upper().startswith(("CREATE TABLE", "CREATE DATABASE")):
                     try:
                         self.client.command(statement)
                     except Exception as e:
@@ -277,9 +288,9 @@ class ClickHouseImporter:
                         if "already exists" not in str(e).lower():
                             loader.stop(f"Error creating table: {e}")
                             raise
-            
+
             loader.stop("Database tables created")
-            
+
         except Exception as e:
             print(f"❌ Error creating tables: {e}")
             raise
@@ -1096,19 +1107,26 @@ class ClickHouseImporter:
 
         print()  # Just a blank line
 
-    def save_import_statistics(self, stats: Dict[str, Any], import_duration_seconds: float, records_imported: int = 0, data_hash: str = ""):
+    def save_import_statistics(
+        self,
+        stats: Dict[str, Any],
+        import_duration_seconds: float,
+        records_imported: int = 0,
+        data_hash: str = "",
+    ):
         """Save import statistics to history table for comparison tracking"""
         try:
             import json
-            statistics_json = json.dumps(stats, default=str, separators=(',', ':'))
-            
+
+            statistics_json = json.dumps(stats, default=str, separators=(",", ":"))
+
             # Include data hash to detect identical imports
             self.client.command(f"""
-                INSERT INTO ccusage_import_history 
+                INSERT INTO ccusage_import_history
                 (import_timestamp, machine_name, import_duration_seconds, statistics_json, records_imported, import_status, data_hash)
                 VALUES (now(), '{MACHINE_NAME}', {import_duration_seconds}, '{statistics_json}', {records_imported}, 'completed', '{data_hash}')
             """)
-            
+
         except Exception as e:
             print(f"⚠️  Warning: Could not save import statistics: {e}")
 
@@ -1116,27 +1134,28 @@ class ClickHouseImporter:
         """Retrieve the most recent import statistics for comparison"""
         try:
             result = self.client.query(f"""
-                SELECT statistics_json 
-                FROM ccusage_import_history 
-                WHERE machine_name = '{MACHINE_NAME}' 
-                ORDER BY import_timestamp DESC 
+                SELECT statistics_json
+                FROM ccusage_import_history
+                WHERE machine_name = '{MACHINE_NAME}'
+                ORDER BY import_timestamp DESC
                 LIMIT 1 OFFSET 1
             """)
-            
+
             if result.result_rows:
                 import json
+
                 return json.loads(result.result_rows[0][0])
             return {}
-            
+
         except Exception as e:
             print(f"⚠️  Warning: Could not retrieve previous statistics: {e}")
             return {}
 
     def _calculate_data_hash(self, all_data: Dict[str, Any]) -> str:
         """Calculate a hash of the imported data to detect identical imports"""
-        import json
         import hashlib
-        
+        import json
+
         try:
             # Create a stable hash of the data content
             data_str = json.dumps(all_data, sort_keys=True, default=str)
@@ -1148,36 +1167,36 @@ class ClickHouseImporter:
         """Check if this data is identical to the previous import"""
         try:
             current_hash = self._calculate_data_hash(all_data)
-            
+
             result = self.client.query(f"""
                 SELECT data_hash
-                FROM ccusage_import_history 
-                WHERE machine_name = '{MACHINE_NAME}' 
-                ORDER BY import_timestamp DESC 
+                FROM ccusage_import_history
+                WHERE machine_name = '{MACHINE_NAME}'
+                ORDER BY import_timestamp DESC
                 LIMIT 1
             """)
-            
+
             if result.result_rows:
                 last_hash = result.result_rows[0][0]
                 return last_hash == current_hash
-                
+
             return False
-            
+
         except Exception:
             return False
 
     def print_statistics_with_comparison(self, stats: Dict[str, Any]):
         """Print statistics with comparison to previous import"""
         previous_stats = self.get_previous_statistics()
-        
+
         UIFormatter.print_header("📊 IMPORT SUMMARY & STATISTICS", 70)
-        
+
         # Table counts with comparison
         UIFormatter.print_section("📋 Database Records", 70)
         for table, count in stats["table_counts"].items():
             table_display = table.replace("ccusage_", "").replace("_", " ").title()
             count_formatted = UIFormatter.format_number(count)
-            
+
             # Calculate difference
             diff_str = ""
             if previous_stats.get("table_counts", {}).get(table):
@@ -1187,25 +1206,29 @@ class ClickHouseImporter:
                     diff_str = f" (+{UIFormatter.format_number(diff)})"
                 elif diff < 0:
                     diff_str = f" ({UIFormatter.format_number(diff)})"
-            
-            UIFormatter.print_metric(table_display, f"{count_formatted} records{diff_str}")
+
+            UIFormatter.print_metric(
+                table_display, f"{count_formatted} records{diff_str}"
+            )
 
         # Usage summary with comparison
         usage = stats["usage_summary"]
         prev_usage = previous_stats.get("usage_summary", {})
-        
+
         UIFormatter.print_section("💰 Usage Analytics", 70)
-        
+
         # Total Cost
         cost_diff = ""
         if prev_usage.get("total_cost"):
-            diff = usage["total_cost"] - prev_usage["total_cost"] 
+            diff = usage["total_cost"] - prev_usage["total_cost"]
             if diff > 0:
                 cost_diff = f" (+${diff:,.2f})"
             elif diff < 0:
                 cost_diff = f" (${diff:,.2f})"
-        UIFormatter.print_metric("Total Cost", f"${usage['total_cost']:,.2f}{cost_diff}")
-        
+        UIFormatter.print_metric(
+            "Total Cost", f"${usage['total_cost']:,.2f}{cost_diff}"
+        )
+
         # Total Tokens
         tokens_diff = ""
         if prev_usage.get("total_tokens"):
@@ -1214,8 +1237,11 @@ class ClickHouseImporter:
                 tokens_diff = f" (+{UIFormatter.format_number(diff)})"
             elif diff < 0:
                 tokens_diff = f" ({UIFormatter.format_number(diff)})"
-        UIFormatter.print_metric("Total Tokens", f"{UIFormatter.format_number(usage['total_tokens'])}{tokens_diff}")
-        
+        UIFormatter.print_metric(
+            "Total Tokens",
+            f"{UIFormatter.format_number(usage['total_tokens'])}{tokens_diff}",
+        )
+
         # Input Tokens
         input_diff = ""
         if prev_usage.get("total_input_tokens"):
@@ -1224,8 +1250,11 @@ class ClickHouseImporter:
                 input_diff = f" (+{UIFormatter.format_number(diff)})"
             elif diff < 0:
                 input_diff = f" ({UIFormatter.format_number(diff)})"
-        UIFormatter.print_metric("Input Tokens", f"{UIFormatter.format_number(usage['total_input_tokens'])}{input_diff}")
-        
+        UIFormatter.print_metric(
+            "Input Tokens",
+            f"{UIFormatter.format_number(usage['total_input_tokens'])}{input_diff}",
+        )
+
         # Output Tokens
         output_diff = ""
         if prev_usage.get("total_output_tokens"):
@@ -1234,30 +1263,48 @@ class ClickHouseImporter:
                 output_diff = f" (+{UIFormatter.format_number(diff)})"
             elif diff < 0:
                 output_diff = f" ({UIFormatter.format_number(diff)})"
-        UIFormatter.print_metric("Output Tokens", f"{UIFormatter.format_number(usage['total_output_tokens'])}{output_diff}")
-        
+        UIFormatter.print_metric(
+            "Output Tokens",
+            f"{UIFormatter.format_number(usage['total_output_tokens'])}{output_diff}",
+        )
+
         # Cache Creation Tokens
         cache_create_diff = ""
         if prev_usage.get("total_cache_creation_tokens"):
-            diff = usage["total_cache_creation_tokens"] - prev_usage["total_cache_creation_tokens"]
+            diff = (
+                usage["total_cache_creation_tokens"]
+                - prev_usage["total_cache_creation_tokens"]
+            )
             if diff > 0:
                 cache_create_diff = f" (+{UIFormatter.format_number(diff)})"
             elif diff < 0:
                 cache_create_diff = f" ({UIFormatter.format_number(diff)})"
-        UIFormatter.print_metric("Cache Creation Tokens", f"{UIFormatter.format_number(usage['total_cache_creation_tokens'])}{cache_create_diff}")
-        
+        UIFormatter.print_metric(
+            "Cache Creation Tokens",
+            f"{UIFormatter.format_number(usage['total_cache_creation_tokens'])}{cache_create_diff}",
+        )
+
         # Cache Read Tokens
         cache_read_diff = ""
         if prev_usage.get("total_cache_read_tokens"):
-            diff = usage["total_cache_read_tokens"] - prev_usage["total_cache_read_tokens"]
+            diff = (
+                usage["total_cache_read_tokens"] - prev_usage["total_cache_read_tokens"]
+            )
             if diff > 0:
                 cache_read_diff = f" (+{UIFormatter.format_number(diff)})"
             elif diff < 0:
                 cache_read_diff = f" ({UIFormatter.format_number(diff)})"
-        UIFormatter.print_metric("Cache Read Tokens", f"{UIFormatter.format_number(usage['total_cache_read_tokens'])}{cache_read_diff}")
-        
-        UIFormatter.print_metric("Date Range", f"{usage['earliest_date']} → {usage['latest_date']}")
-        UIFormatter.print_metric("Days with Usage", f"{usage['days_with_usage']:,} days")
+        UIFormatter.print_metric(
+            "Cache Read Tokens",
+            f"{UIFormatter.format_number(usage['total_cache_read_tokens'])}{cache_read_diff}",
+        )
+
+        UIFormatter.print_metric(
+            "Date Range", f"{usage['earliest_date']} → {usage['latest_date']}"
+        )
+        UIFormatter.print_metric(
+            "Days with Usage", f"{usage['days_with_usage']:,} days"
+        )
 
         # Model breakdown with cleaner formatting
         UIFormatter.print_section("🤖 Top Models by Cost", 70)
@@ -1274,9 +1321,9 @@ class ClickHouseImporter:
         # Session stats with comparison
         session = stats["session_stats"]
         prev_session = previous_stats.get("session_stats", {})
-        
+
         UIFormatter.print_section("💼 Session Insights", 70)
-        
+
         # Total Sessions
         sessions_diff = ""
         if prev_session.get("total_sessions"):
@@ -1285,11 +1332,20 @@ class ClickHouseImporter:
                 sessions_diff = f" (+{diff})"
             elif diff < 0:
                 sessions_diff = f" ({diff})"
-        UIFormatter.print_metric("Total Sessions", f"{session['total_sessions']:,}{sessions_diff}")
-        
-        UIFormatter.print_metric("Avg Cost per Session", f"${session['avg_cost_per_session']:,.2f}")
-        UIFormatter.print_metric("Max Cost Session", f"${session['max_cost_session']:,.2f}")
-        UIFormatter.print_metric("Total Session Tokens", UIFormatter.format_number(session["total_session_tokens"]))
+        UIFormatter.print_metric(
+            "Total Sessions", f"{session['total_sessions']:,}{sessions_diff}"
+        )
+
+        UIFormatter.print_metric(
+            "Avg Cost per Session", f"${session['avg_cost_per_session']:,.2f}"
+        )
+        UIFormatter.print_metric(
+            "Max Cost Session", f"${session['max_cost_session']:,.2f}"
+        )
+        UIFormatter.print_metric(
+            "Total Session Tokens",
+            UIFormatter.format_number(session["total_session_tokens"]),
+        )
 
         # Active blocks with comparison
         if stats["active_blocks"] > 0:
@@ -1301,7 +1357,9 @@ class ClickHouseImporter:
                     blocks_diff = f" (+{diff})"
                 elif diff < 0:
                     blocks_diff = f" ({diff})"
-            UIFormatter.print_metric("Count", f"{stats['active_blocks']:,}{blocks_diff}")
+            UIFormatter.print_metric(
+                "Count", f"{stats['active_blocks']:,}{blocks_diff}"
+            )
 
         # Machine info - compact
         if stats.get("machine_stats"):
@@ -1309,7 +1367,9 @@ class ClickHouseImporter:
                 UIFormatter.print_section("🖥️  Machines")
                 for i, machine in enumerate(stats["machine_stats"], 1):
                     cost_str = f"${machine['total_cost']:,.2f}"
-                    UIFormatter.print_metric(f"{i}. {machine['machine_name']}", cost_str)
+                    UIFormatter.print_metric(
+                        f"{i}. {machine['machine_name']}", cost_str
+                    )
             else:
                 machine = stats["machine_stats"][0]
                 UIFormatter.print_section("🖥️  Machine")
@@ -1340,7 +1400,9 @@ class ClickHouseImporter:
                     SELECT max(date) as latest_date
                     FROM ccusage_usage_daily
                 """)
-                latest_ch_date = str(ch_result.result_rows[0][0]) if ch_result.result_rows else None
+                latest_ch_date = (
+                    str(ch_result.result_rows[0][0]) if ch_result.result_rows else None
+                )
 
                 # Get latest date from ccusage
                 ccusage_data = self.run_ccusage_command("daily", verbose=False)
@@ -1353,7 +1415,9 @@ class ClickHouseImporter:
                     "seconds_since_import": seconds_since_import,
                     "latest_ch_date": latest_ch_date,
                     "latest_ccusage_date": latest_ccusage_date,
-                    "is_stale": latest_ch_date != latest_ccusage_date if latest_ch_date and latest_ccusage_date else False,
+                    "is_stale": latest_ch_date != latest_ccusage_date
+                    if latest_ch_date and latest_ccusage_date
+                    else False,
                 }
 
             return {"is_stale": False}
@@ -1374,7 +1438,9 @@ class ClickHouseImporter:
         freshness = self._check_data_freshness()
         if freshness.get("is_stale"):
             hours_old = freshness.get("seconds_since_import", 0) // 3600
-            print(f"⚠️  Data is stale: ClickHouse has data up to {freshness['latest_ch_date']}, ccusage has {freshness['latest_ccusage_date']}")
+            print(
+                f"⚠️  Data is stale: ClickHouse has data up to {freshness['latest_ch_date']}, ccusage has {freshness['latest_ccusage_date']}"
+            )
             print(f"   Last import was {hours_old} hours ago")
 
         print()
@@ -1384,7 +1450,7 @@ class ClickHouseImporter:
         try:
             # Fetch all data in parallel
             all_data = self.fetch_ccusage_data_parallel()
-            
+
             # Check if this data is identical to the previous import
             is_identical = self._is_identical_import(all_data)
             if is_identical:
@@ -1457,11 +1523,13 @@ class ClickHouseImporter:
 
             # Display beautiful statistics with comparison to previous import
             self.print_statistics_with_comparison(stats)
-            
+
             # Save import statistics for future comparison with data hash
             total_records = sum(stats.get("table_counts", {}).values())
             current_hash = self._calculate_data_hash(all_data)
-            self.save_import_statistics(stats, overall_duration, total_records, current_hash)
+            self.save_import_statistics(
+                stats, overall_duration, total_records, current_hash
+            )
 
         except Exception as e:
             print(f"\n❌ Import failed: {e}")
@@ -1541,7 +1609,7 @@ def system_check():
     try:
         # Determine if we should use HTTPS based on port
         use_https = CH_PORT in [443, 8443, 9440]
-        
+
         # Test basic connection
         client = clickhouse_connect.get_client(
             host=CH_HOST,
