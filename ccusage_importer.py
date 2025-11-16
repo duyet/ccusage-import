@@ -6,6 +6,10 @@ This module provides backwards compatibility by re-exporting all classes
 and functions from the refactored ccusage_import package.
 """
 
+# Re-export external dependencies for test mocking compatibility
+import clickhouse_connect  # noqa: F401
+import subprocess  # noqa: F401
+
 # Re-export everything from the new package for backwards compatibility
 from ccusage_import import *  # noqa: F401, F403
 from ccusage_import import (
@@ -32,12 +36,15 @@ from ccusage_import import (
 
 # Export everything for backwards compatibility
 __all__ = [
+    # Core functions
     "main",
     "system_check",
+    # Classes
     "ClickHouseImporter",
     "ClickHouseClient",
     "LoadingAnimation",
     "UIFormatter",
+    # Configuration
     "CH_HOST",
     "CH_PORT",
     "CH_USER",
@@ -47,10 +54,14 @@ __all__ = [
     "HASH_PROJECT_NAMES",
     "hash_project_name",
     "set_hash_project_names",
+    # Data parsing
     "parse_date",
     "parse_datetime",
     "extract_burn_rate",
     "extract_projection",
+    # External dependencies (for test mocking)
+    "clickhouse_connect",
+    "subprocess",
 ]
 
 if __name__ == "__main__":

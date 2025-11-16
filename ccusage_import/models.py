@@ -38,11 +38,11 @@ class ModelBreakdown(BaseModel):
 class DailyUsage(BaseModel):
     """Daily usage data from ccusage"""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, populate_by_name=True)
 
     date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$", description="Date (YYYY-MM-DD)")
-    input_tokens: int = Field(..., ge=0)
-    output_tokens: int = Field(..., ge=0)
+    input_tokens: int = Field(..., ge=0, alias="inputTokens")
+    output_tokens: int = Field(..., ge=0, alias="outputTokens")
     cache_creation_tokens: int = Field(..., ge=0, alias="cacheCreationTokens")
     cache_read_tokens: int = Field(..., ge=0, alias="cacheReadTokens")
     total_tokens: int = Field(..., ge=0, alias="totalTokens")
@@ -64,7 +64,7 @@ class DailyUsage(BaseModel):
 class MonthlyUsage(BaseModel):
     """Monthly usage data from ccusage"""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, populate_by_name=True)
 
     month: str = Field(..., pattern=r"^\d{4}-\d{2}$", description="Month (YYYY-MM)")
     input_tokens: int = Field(..., ge=0, alias="inputTokens")
@@ -80,7 +80,7 @@ class MonthlyUsage(BaseModel):
 class SessionUsage(BaseModel):
     """Session usage data from ccusage"""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, populate_by_name=True)
 
     session_id: str = Field(..., min_length=1, alias="sessionId")
     project_path: str = Field(..., min_length=1, alias="projectPath")
@@ -98,7 +98,7 @@ class SessionUsage(BaseModel):
 class TokenCounts(BaseModel):
     """Token counts for billing blocks"""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, populate_by_name=True)
 
     input_tokens: int = Field(..., ge=0, alias="inputTokens")
     output_tokens: int = Field(..., ge=0, alias="outputTokens")
@@ -111,7 +111,7 @@ class TokenCounts(BaseModel):
 class BlockUsage(BaseModel):
     """Billing block usage data from ccusage"""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, populate_by_name=True)
 
     id: str = Field(..., min_length=1)
     start_time: str = Field(..., alias="startTime")
@@ -138,7 +138,7 @@ class ProjectDailyUsage(DailyUsage):
 class CCUsageData(BaseModel):
     """Complete ccusage data structure"""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, populate_by_name=True)
 
     daily: Optional[List[DailyUsage]] = None
     monthly: Optional[List[MonthlyUsage]] = None
@@ -169,7 +169,7 @@ class ClickHouseConfig(BaseModel):
 class ImportStatistics(BaseModel):
     """Statistics from an import operation"""
 
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, populate_by_name=True)
 
     table_counts: Dict[str, int]
     usage_summary: Dict[str, Any]

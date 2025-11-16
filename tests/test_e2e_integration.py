@@ -23,7 +23,7 @@ class TestEndToEndIntegration:
     def test_project_hashing_functionality(self):
         """Test project name hashing works correctly"""
         # Test hashing enabled
-        with patch("ccusage_importer.HASH_PROJECT_NAMES", True):
+        with patch("ccusage_import.config.HASH_PROJECT_NAMES", True):
             test_path = "/Users/test/project/my-secret-project"
             hashed = hash_project_name(test_path)
 
@@ -38,7 +38,7 @@ class TestEndToEndIntegration:
             assert hash_project_name("/different/path") != hashed
 
         # Test hashing disabled
-        with patch("ccusage_importer.HASH_PROJECT_NAMES", False):
+        with patch("ccusage_import.config.HASH_PROJECT_NAMES", False):
             test_path = "/Users/test/project/my-secret-project"
             result = hash_project_name(test_path)
 
@@ -195,10 +195,10 @@ class TestEndToEndIntegration:
         # Test argument parsing and global variable modification
 
         # First, reset the global variable to default state
-        import ccusage_importer
+        from ccusage_import import config
 
-        original_hash_setting = ccusage_importer.HASH_PROJECT_NAMES
-        ccusage_importer.HASH_PROJECT_NAMES = True  # Reset to default
+        original_hash_setting = config.HASH_PROJECT_NAMES
+        config.HASH_PROJECT_NAMES = True  # Reset to default
 
         try:
             with patch("ccusage_importer.ClickHouseImporter") as mock_importer:
@@ -215,10 +215,10 @@ class TestEndToEndIntegration:
                         pass  # May fail due to mocked ClickHouse, but that's ok
 
                     # Check that privacy was disabled in the global variable
-                    assert not ccusage_importer.HASH_PROJECT_NAMES
+                    assert not config.HASH_PROJECT_NAMES
         finally:
             # Restore original setting
-            ccusage_importer.HASH_PROJECT_NAMES = original_hash_setting
+            config.HASH_PROJECT_NAMES = original_hash_setting
 
         # Also test that the help text includes the flag
         help_result = subprocess.run(
@@ -267,7 +267,7 @@ class TestEndToEndIntegration:
             "/Users/test/project-with-special-chars!@#$%^&*()",
         ]
 
-        with patch("ccusage_importer.HASH_PROJECT_NAMES", True):
+        with patch("ccusage_import.config.HASH_PROJECT_NAMES", True):
             hashes = []
             for path in test_paths:
                 hash_val = hash_project_name(path)
@@ -386,7 +386,7 @@ class TestProjectPrivacyIntegration:
             "modelBreakdowns": [],
         }
 
-        with patch("ccusage_importer.HASH_PROJECT_NAMES", True):
+        with patch("ccusage_import.config.HASH_PROJECT_NAMES", True):
             hashed_session = hash_project_name(test_session_data["sessionId"])
             hashed_project = hash_project_name(test_session_data["projectPath"])
 
@@ -402,7 +402,7 @@ class TestProjectPrivacyIntegration:
         """Test workflow with privacy disabled"""
         test_path = "/Users/test/my-project"
 
-        with patch("ccusage_importer.HASH_PROJECT_NAMES", False):
+        with patch("ccusage_import.config.HASH_PROJECT_NAMES", False):
             result = hash_project_name(test_path)
             assert result == test_path
 
