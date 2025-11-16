@@ -50,7 +50,9 @@ jobs:
 
     - name: Type check with mypy
       continue-on-error: true
-      run: uv run mypy ccusage_importer.py --ignore-missing-imports
+      run: |
+        uv run mypy ccusage_importer.py --ignore-missing-imports
+        uv run mypy ccusage_import/ --ignore-missing-imports
 
   test:
     name: Test (Python ${{ matrix.python-version }})
