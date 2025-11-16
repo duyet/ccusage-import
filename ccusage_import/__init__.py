@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
 ccusage-import: Import ccusage data into ClickHouse for analytics
+
+A production-ready tool for importing Claude Code usage analytics into ClickHouse
+with enterprise features: structured logging, data validation, retry logic, and more.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .cli import main, system_check
 from .clickhouse_client import ClickHouseClient
@@ -29,7 +32,38 @@ from .data_parser import (
     parse_date,
     parse_datetime,
 )
+from .exceptions import (
+    CCUsageCommandError,
+    CCUsageImportError,
+    CircuitBreakerOpenError,
+    ClickHouseConnectionError,
+    ClickHouseError,
+    ClickHouseQueryError,
+    ClickHouseSchemaError,
+    ConfigurationError,
+    DataFetchError,
+    DataParseError,
+    DataValidationError,
+    ImportError as CCUsageImportImportError,
+    ImportRollbackError,
+    ImportValidationError,
+    PackageManagerNotFoundError,
+    RetryExhaustedError,
+)
 from .importer import ClickHouseImporter
+from .logger import get_logger, log, setup_logger
+from .models import (
+    BlockUsage,
+    CCUsageData,
+    ClickHouseConfig,
+    DailyUsage,
+    ImportStatistics,
+    ModelBreakdown,
+    MonthlyUsage,
+    ProjectDailyUsage,
+    SessionUsage,
+    TokenCounts,
+)
 from .ui import LoadingAnimation, UIFormatter
 
 __all__ = [
@@ -62,4 +96,36 @@ __all__ = [
     "parse_datetime",
     "extract_burn_rate",
     "extract_projection",
+    # Exceptions
+    "CCUsageImportError",
+    "ConfigurationError",
+    "ClickHouseError",
+    "ClickHouseConnectionError",
+    "ClickHouseQueryError",
+    "ClickHouseSchemaError",
+    "DataFetchError",
+    "CCUsageCommandError",
+    "PackageManagerNotFoundError",
+    "DataValidationError",
+    "DataParseError",
+    "CCUsageImportImportError",
+    "ImportValidationError",
+    "ImportRollbackError",
+    "RetryExhaustedError",
+    "CircuitBreakerOpenError",
+    # Logging
+    "setup_logger",
+    "get_logger",
+    "log",
+    # Models
+    "DailyUsage",
+    "MonthlyUsage",
+    "SessionUsage",
+    "BlockUsage",
+    "ProjectDailyUsage",
+    "ModelBreakdown",
+    "TokenCounts",
+    "CCUsageData",
+    "ClickHouseConfig",
+    "ImportStatistics",
 ]
