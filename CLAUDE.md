@@ -21,12 +21,22 @@ uv run --python 3.11 python ccusage_importer.py
 
 ## Project Structure
 
-- `ccusage_importer.py` - Main Python script for data import
+**Refactored Modular Architecture** (see REFACTORING.md for details):
+- `ccusage_import/` - Main package (refactored from monolithic script)
+  - `cli.py` - CLI argument parsing & main entry point
+  - `config.py` - Environment variables & configuration
+  - `ui.py` - UI formatting utilities (LoadingAnimation, UIFormatter)
+  - `data_parser.py` - Date/datetime parsing & data transformation
+  - `data_fetcher.py` - ccusage command execution & parallel fetching
+  - `clickhouse_client.py` - ClickHouse connection & database operations
+  - `importer.py` - Main import logic & data transformation
+- `ccusage_importer.py` - Backwards compatibility wrapper (re-exports from package)
 - `ccusage_clickhouse_schema.sql` - Complete ClickHouse database schema
 - `queries.sql` - 27 ready-to-use SQL queries for analytics
 - `setup_cronjob.sh` - Script to setup automated hourly imports
 - `verify_setup.sh` - HTTP-based verification script (no clickhouse-client required)
 - `README.md` - Complete project documentation
+- `REFACTORING.md` - Detailed refactoring documentation
 
 ## Dependencies
 
