@@ -16,6 +16,7 @@ USE your_database;
 CREATE TABLE IF NOT EXISTS ccusage_usage_daily
 (
     date Date,
+    source String DEFAULT 'ccusage',  -- Data source: 'ccusage' or 'opencode'
     machine_name String,  -- Machine/hostname where data originated
     input_tokens UInt64,
     output_tokens UInt64,
@@ -29,7 +30,7 @@ CREATE TABLE IF NOT EXISTS ccusage_usage_daily
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(date)
-ORDER BY (date, machine_name)
+ORDER BY (date, source, machine_name)
 SETTINGS index_granularity = 8192;
 
 -- Monthly aggregated usage data
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS ccusage_usage_monthly
     month String,  -- Format: "2025-08"
     year UInt16,
     month_num UInt8,
+    source String DEFAULT 'ccusage',  -- Data source: 'ccusage' or 'opencode'
     machine_name String,  -- Machine/hostname where data originated
     input_tokens UInt64,
     output_tokens UInt64,
@@ -51,7 +53,7 @@ CREATE TABLE IF NOT EXISTS ccusage_usage_monthly
 )
 ENGINE = MergeTree()
 PARTITION BY year
-ORDER BY (year, month_num, machine_name)
+ORDER BY (year, month_num, source, machine_name)
 SETTINGS index_granularity = 8192;
 
 -- Session-based usage data (grouped by project directory)
@@ -59,6 +61,7 @@ CREATE TABLE IF NOT EXISTS ccusage_usage_sessions
 (
     session_id String,  -- Actually project directory path
     project_path String,
+    source String DEFAULT 'ccusage',  -- Data source: 'ccusage' or 'opencode'
     machine_name String,  -- Machine/hostname where data originated
     input_tokens UInt64,
     output_tokens UInt64,
@@ -73,13 +76,14 @@ CREATE TABLE IF NOT EXISTS ccusage_usage_sessions
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(last_activity)
-ORDER BY (session_id, machine_name, last_activity)
+ORDER BY (session_id, source, machine_name, last_activity)
 SETTINGS index_granularity = 8192;
 
 -- 5-hour billing blocks usage data
 CREATE TABLE IF NOT EXISTS ccusage_usage_blocks
 (
     block_id String,
+    source String DEFAULT 'ccusage',  -- Data source: 'ccusage' or 'opencode'
     machine_name String,  -- Machine/hostname where data originated
     start_time DateTime,
     end_time DateTime,
@@ -102,7 +106,7 @@ CREATE TABLE IF NOT EXISTS ccusage_usage_blocks
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(start_time)
-ORDER BY (start_time, machine_name, block_id)
+ORDER BY (start_time, source, machine_name, block_id)
 SETTINGS index_granularity = 8192;
 
 -- Daily usage data broken down by project
@@ -110,6 +114,7 @@ CREATE TABLE IF NOT EXISTS ccusage_usage_projects_daily
 (
     date Date,
     project_id String,  -- Session ID / Project directory
+    source String DEFAULT 'ccusage',  -- Data source: 'ccusage' or 'opencode'
     machine_name String,  -- Machine/hostname where data originated
     input_tokens UInt64,
     output_tokens UInt64,
@@ -123,7 +128,7 @@ CREATE TABLE IF NOT EXISTS ccusage_usage_projects_daily
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(date)
-ORDER BY (date, machine_name, project_id)
+ORDER BY (date, source, machine_name, project_id)
 SETTINGS index_granularity = 8192;
 
 -- =========================
@@ -135,6 +140,7 @@ CREATE TABLE IF NOT EXISTS ccusage_model_breakdowns
 (
     record_type Enum8('daily' = 1, 'monthly' = 2, 'session' = 3, 'block' = 4, 'project_daily' = 5),
     record_key String,  -- Primary key of the parent record (date, month, session_id, block_id, etc.)
+    source String DEFAULT 'ccusage',  -- Data source: 'ccusage' or 'opencode'
     machine_name String,  -- Machine/hostname where data originated
     model_name String,
     input_tokens UInt64,
@@ -146,7 +152,7 @@ CREATE TABLE IF NOT EXISTS ccusage_model_breakdowns
 )
 ENGINE = MergeTree()
 PARTITION BY record_type
-ORDER BY (record_type, machine_name, record_key, model_name)
+ORDER BY (record_type, source, machine_name, record_key, model_name)
 SETTINGS index_granularity = 8192;
 
 -- Models used in each usage record (many-to-many relationship)
@@ -154,13 +160,14 @@ CREATE TABLE IF NOT EXISTS ccusage_models_used
 (
     record_type Enum8('daily' = 1, 'monthly' = 2, 'session' = 3, 'block' = 4, 'project_daily' = 5),
     record_key String,  -- Primary key of the parent record
+    source String DEFAULT 'ccusage',  -- Data source: 'ccusage' or 'opencode'
     machine_name String,  -- Machine/hostname where data originated
     model_name String,
     created_at DateTime DEFAULT now()
 )
 ENGINE = MergeTree()
 PARTITION BY record_type
-ORDER BY (record_type, machine_name, record_key, model_name)
+ORDER BY (record_type, source, machine_name, record_key, model_name)
 SETTINGS index_granularity = 8192;
 
 -- ===============================
@@ -171,9 +178,10 @@ SETTINGS index_granularity = 8192;
 CREATE MATERIALIZED VIEW IF NOT EXISTS ccusage_mv_cost_by_model
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(created_at)
-ORDER BY (model_name, machine_name, toDate(created_at))
+ORDER BY (model_name, source, machine_name, toDate(created_at))
 AS SELECT
     model_name,
+    source,
     machine_name,
     toDate(created_at) as date,
     sumState(cost) as total_cost,
@@ -183,15 +191,16 @@ AS SELECT
     countState() as usage_count,
     created_at
 FROM ccusage_model_breakdowns
-GROUP BY model_name, machine_name, toDate(created_at), created_at;
+GROUP BY model_name, source, machine_name, toDate(created_at), created_at;
 
 -- Daily usage trends
 CREATE MATERIALIZED VIEW IF NOT EXISTS ccusage_mv_daily_trends
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(date)
-ORDER BY (date, machine_name)
+ORDER BY (date, source, machine_name)
 AS SELECT
     date,
+    source,
     machine_name,
     sumState(total_cost) as daily_cost,
     sumState(total_tokens) as daily_tokens,
@@ -201,31 +210,32 @@ AS SELECT
     uniqState(models_count) as unique_models,
     avgState(total_cost) as avg_cost_per_session
 FROM (
-    SELECT date, machine_name, total_cost, total_tokens, input_tokens, output_tokens, 
+    SELECT date, source, machine_name, total_cost, total_tokens, input_tokens, output_tokens,
            cache_creation_tokens, cache_read_tokens, models_count
     FROM ccusage_usage_daily
     UNION ALL
-    SELECT date, machine_name, total_cost, total_tokens, input_tokens, output_tokens,
+    SELECT date, source, machine_name, total_cost, total_tokens, input_tokens, output_tokens,
            cache_creation_tokens, cache_read_tokens, models_count
     FROM ccusage_usage_projects_daily
-) 
-GROUP BY date, machine_name;
+)
+GROUP BY date, source, machine_name;
 
 -- Top projects by cost
 CREATE MATERIALIZED VIEW IF NOT EXISTS ccusage_mv_top_projects
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(last_activity)
-ORDER BY (last_activity, machine_name, session_id)
+ORDER BY (last_activity, source, machine_name, session_id)
 AS SELECT
     session_id,
     project_path,
+    source,
     machine_name,
     last_activity,
     sumState(total_cost) as project_total_cost,
     sumState(total_tokens) as project_total_tokens,
     maxState(last_activity) as latest_activity
 FROM ccusage_usage_sessions
-GROUP BY session_id, project_path, machine_name, last_activity;
+GROUP BY session_id, project_path, source, machine_name, last_activity;
 
 -- ======================
 -- Indexes for Performance
@@ -248,8 +258,9 @@ ALTER TABLE ccusage_models_used ADD INDEX idx_model_record (record_type, model_n
 
 -- Simple view for daily cost analysis
 CREATE VIEW IF NOT EXISTS ccusage_v_daily_summary AS
-SELECT 
+SELECT
     date,
+    source,
     machine_name,
     total_cost,
     total_tokens,
@@ -259,17 +270,18 @@ SELECT
     models_count,
     total_cost / total_tokens * 1000000 as cost_per_million_tokens
 FROM ccusage_usage_daily
-ORDER BY date DESC, machine_name;
+ORDER BY date DESC, source, machine_name;
 
 -- Session summary with clean project names
 CREATE VIEW IF NOT EXISTS ccusage_v_session_summary AS
-SELECT 
+SELECT
     session_id,
+    source,
     machine_name,
-    CASE 
-        WHEN session_id LIKE '%-Users-duet-project-%' 
+    CASE
+        WHEN session_id LIKE '%-Users-duet-project-%'
         THEN regexp_replace(session_id, '.*-Users-duet-project-', '')
-        ELSE session_id 
+        ELSE session_id
     END as project_name,
     project_path,
     total_cost,
@@ -281,8 +293,9 @@ ORDER BY total_cost DESC;
 
 -- Model performance analysis
 CREATE VIEW IF NOT EXISTS ccusage_v_model_performance AS
-SELECT 
+SELECT
     model_name,
+    source,
     machine_name,
     sum(cost) as total_cost,
     sum(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) as total_tokens,
@@ -290,26 +303,28 @@ SELECT
     count() as usage_count,
     sum(cost) / sum(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) * 1000000 as cost_per_million_tokens
 FROM ccusage_model_breakdowns
-GROUP BY model_name, machine_name
+GROUP BY model_name, source, machine_name
 ORDER BY total_cost DESC;
 
 -- Monthly trends analysis
 CREATE VIEW IF NOT EXISTS ccusage_v_monthly_trends AS
-SELECT 
+SELECT
     month,
     year,
     month_num,
+    source,
     machine_name,
     total_cost,
     total_tokens,
     total_cost / total_tokens * 1000000 as cost_per_million_tokens
 FROM ccusage_usage_monthly
-ORDER BY year, month_num, machine_name;
+ORDER BY year, month_num, source, machine_name;
 
 -- Active blocks analysis (for current usage monitoring)
 CREATE VIEW IF NOT EXISTS ccusage_v_active_blocks AS
-SELECT 
+SELECT
     block_id,
+    source,
     machine_name,
     start_time,
     end_time,
@@ -320,10 +335,10 @@ SELECT
     total_tokens,
     burn_rate,
     projection,
-    CASE 
-        WHEN is_active = 1 AND projection IS NOT NULL 
-        THEN projection 
-        ELSE cost_usd 
+    CASE
+        WHEN is_active = 1 AND projection IS NOT NULL
+        THEN projection
+        ELSE cost_usd
     END as projected_cost
 FROM ccusage_usage_blocks
 WHERE is_gap = 0

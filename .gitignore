@@ -77,3 +77,6 @@ Thumbs.db
 junit/
 htmlcov/
 .pytest_cache/
+
+# Concurrency lock file
+.ccusage_import.lock

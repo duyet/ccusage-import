@@ -22,7 +22,7 @@ ccusage is a CLI tool that analyzes Claude Code usage data from local JSONL file
 ## Features
 
 - **🎬 Interactive UI with Animations**: Beautiful loading spinners and progress indicators
-- **⚡ Parallel Data Fetching**: Concurrent processing of all 5 ccusage data sources  
+- **⚡ Parallel Data Fetching**: Concurrent processing of all 5 ccusage data sources
 - **📊 Enhanced Statistics Display**: Professional analytics with smart number formatting
 - **🔁 Complete ClickHouse Schema**: Optimized tables for all ccusage data types
 - **🛡️ Automated Data Import**: Python script with idempotent inserts and retry logic
@@ -30,6 +30,7 @@ ccusage is a CLI tool that analyzes Claude Code usage data from local JSONL file
 - **⏰ Cronjob Integration**: Hourly automated data sync
 - **🗃️ Performance Optimized**: Proper indexing, partitioning, and parallel processing
 - **🖥️ Multi-Machine Support**: Track Claude usage across different machines with automatic merging
+- **🔄 Dual Source Import**: Unified support for both ccusage and OpenCode usage data with source tracking
 
 ## Multi-Machine Support 🆕
 
@@ -49,15 +50,77 @@ Track Claude Code usage across multiple machines seamlessly:
 - Machine utilization trends over time
 - Data freshness monitoring per machine
 
+## OpenCode Integration
+
+The importer now supports **OpenCode** usage data alongside ccusage, providing a unified view of all AI usage across both tools.
+
+### OpenCode Data Source
+
+- **Storage Path**: `~/.local/share/opencode/storage/message/`
+- **Data Format**: Individual JSON message files (msg_*.json)
+- **Granularity**: Message-level -> Aggregated to daily/monthly/session
+- **Models Tracked**: glm-4.7, claude-haiku-4-5, gemini-3-pro-preview, etc.
+
+### Unified Schema
+
+All tables include a `source` column to distinguish data sources:
+- `ccusage` - Data from ccusage CLI
+- `opencode` - Data from OpenCode storage
+
+### CLI Options
+
+```bash
+# Import both ccusage and OpenCode (default)
+uv run python ccusage_importer.py
+
+# Skip OpenCode import (ccusage only)
+uv run python ccusage_importer.py --skip-opencode
+
+# Use custom OpenCode storage path
+uv run python ccusage_importer.py --opencode-path /custom/path/to/storage
+```
+
+### Query Examples
+
+```sql
+-- All AI usage (both sources)
+SELECT source, date, sum(total_tokens)
+FROM ccusage_usage_daily
+GROUP BY source, date
+ORDER BY date DESC;
+
+-- ccusage only
+SELECT * FROM ccusage_usage_daily WHERE source = 'ccusage';
+
+-- OpenCode only
+SELECT * FROM ccusage_usage_daily WHERE source = 'opencode';
+
+-- Compare usage by source
+SELECT
+    source,
+    sum(total_cost) as total_cost,
+    sum(total_tokens) as total_tokens
+FROM ccusage_usage_daily
+GROUP BY source;
+```
+
+### Token Mapping
+
+OpenCode token fields are mapped to ccusage format:
+- `cache.read` -> `cache_read_tokens`
+- `cache.write` -> `cache_creation_tokens`
+- `reasoning` -> included in `total_tokens`
+
 ## Data Sources Supported
 
-| ccusage Command | Description | ClickHouse Table |
-|----------------|-------------|------------------|
-| `ccusage daily` | Daily usage aggregation | `ccusage_usage_daily` |
-| `ccusage monthly` | Monthly usage aggregation | `ccusage_usage_monthly` |
-| `ccusage session` | Session-based usage | `ccusage_usage_sessions` |
-| `ccusage blocks` | 5-hour billing windows | `ccusage_usage_blocks` |
-| `ccusage daily --instances` | Project-level daily data | `ccusage_usage_projects_daily` |
+| Source | Command/Path | Description | ClickHouse Table |
+|--------|-------------|-------------|------------------|
+| **ccusage** | `ccusage daily` | Daily usage aggregation | `ccusage_usage_daily` |
+| **ccusage** | `ccusage monthly` | Monthly usage aggregation | `ccusage_usage_monthly` |
+| **ccusage** | `ccusage session` | Session-based usage | `ccusage_usage_sessions` |
+| **ccusage** | `ccusage blocks` | 5-hour billing windows | `ccusage_usage_blocks` |
+| **ccusage** | `ccusage daily --instances` | Project-level daily data | `ccusage_usage_projects_daily` |
+| **OpenCode** | `~/.local/share/opencode/storage/message/` | Message-level JSON files | All tables (source='opencode') |
 
 ## Quick Start
 
@@ -299,6 +362,29 @@ WHERE total_cost > 0
 ORDER BY tokens_per_dollar DESC;
 ```
 
+### Import OpenCode Data Only
+
+```bash
+# Skip ccusage, import only OpenCode
+# (Note: Currently both sources imported together, use --skip-opencode to exclude)
+```
+
+### Query Data by Source
+
+```sql
+-- Get combined statistics
+SELECT source, count(*) as records, sum(total_cost) as cost
+FROM ccusage_usage_daily
+GROUP BY source;
+
+-- Get OpenCode-specific model usage
+SELECT model_name, sum(cost) as total_cost
+FROM ccusage_model_breakdowns
+WHERE source = 'opencode'
+GROUP BY model_name
+ORDER BY total_cost DESC;
+```
+
 ## Dashboard Integration
 
 This schema is designed for integration with visualization tools:
@@ -311,17 +397,18 @@ This schema is designed for integration with visualization tools:
 ## Data Pipeline Architecture
 
 ```
-ccusage CLI → JSON Output → Python Importer → ClickHouse → Dashboard
-     ↓              ↓              ↓              ↓           ↓
-   JSONL Files  → JSON Data → SQL Inserts → Tables → Queries
+ccusage CLI + OpenCode Storage → JSON Output → Python Importer → ClickHouse → Dashboard
+     ↓              ↓                      ↓              ↓              ↓           ↓
+   JSONL Files  → msg_*.json         → JSON Data → SQL Inserts → Tables → Queries
 ```
 
 ### Data Flow
 
 1. **ccusage** reads local Claude Code JSONL files
-2. **Python importer** calls ccusage with `--json` flag
-3. **ClickHouse** stores data in optimized tables
-4. **SQL queries** power dashboards and analytics
+2. **OpenCode** reads message storage JSON files (msg_*.json)
+3. **Python importer** calls ccusage with `--json` flag and reads OpenCode files
+4. **ClickHouse** stores data in optimized tables with source tracking
+5. **SQL queries** power dashboards and analytics
 
 ## File Structure
 
@@ -353,6 +440,11 @@ CH_DATABASE=your_database
 # Override machine name for identification across different machines
 # Default: Uses hostname automatically (socket.gethostname())
 MACHINE_NAME=my-custom-machine-name
+
+# OpenCode Configuration (Optional)
+# Path to OpenCode message storage
+# Default: ~/.local/share/opencode/storage/message/
+OPENCODE_PATH=/custom/path/to/opencode/storage/message
 ```
 
 ### Cronjob Schedule

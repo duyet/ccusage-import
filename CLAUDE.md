@@ -81,13 +81,15 @@ The importer pulls data from these ccusage commands:
 ## Key Features
 
 - **🖥️ Multi-Machine Support**: Track Claude usage across different machines with automatic hostname detection
-- **⚡ Parallel Data Fetching**: Fetches all ccusage data concurrently for faster imports  
+- **⚡ Parallel Data Fetching**: Fetches all ccusage data concurrently for faster imports
 - **📊 Clean & Compact CLI**: Simplified output without excessive borders or animations
 - **🔁 Idempotent Imports**: Safe to run multiple times, won't duplicate data
 - **🛡️ Robust Error Handling**: Retry logic and timeout protection for reliable imports
 - **🗃️ Comprehensive Schema**: Optimized for analytics with proper indexing and machine_name columns
 - **📈 Ready-to-Use Queries**: 40+ pre-built queries for dashboards including multi-machine analytics
 - **⏰ Automated Scheduling**: Hourly cronjob support with logging
+- **🔒 Concurrency Protection**: File-based locking prevents race conditions in concurrent imports
+- **🧵 Thread Safety**: Atomic database operations and thread-safe connection pooling
 
 ## ClickHouse Server Procedures
 
@@ -397,6 +399,36 @@ The enhanced importer follows this optimized workflow with beautiful UI:
 - No configuration needed for basic multi-machine support
 - Custom machine names can be set via MACHINE_NAME environment variable
 
+### Concurrency & Thread Safety
+
+**Race Condition Protection** (BUG-004 Fix):
+- **File-Based Locking**: Exclusive lock prevents multiple import processes from running simultaneously
+- **Atomic Upserts**: DELETE-INSERT operations execute atomically to prevent duplicate data
+- **Thread-Safe Connections**: Per-thread ClickHouse client instances via threading.local()
+- **Instance-Level Mutex**: Protects shared state within single import process
+- **Comprehensive Logging**: All lock operations logged to ccusage_import.log
+
+**Testing Concurrency**:
+```bash
+# Run concurrency test suite
+python test_concurrency.py
+
+# Stress test with 10 concurrent processes
+python test_concurrency.py --stress
+
+# Run specific test scenario
+python test_concurrency.py --scenario 2
+```
+
+**Concurrency Features**:
+- Only one import process can run at a time
+- Other processes wait up to 5 minutes or fail gracefully
+- Lock automatically released on exit, error, or crash
+- Lock file: `.ccusage_import.lock` (contains PID for debugging)
+- Detailed logging in `ccusage_import.log`
+
+**See CONCURRENCY.md for complete documentation**
+
 ### Recent Changes Summary
 - ✅ Added machine_name columns to all 7 tables for multi-machine support
 - ✅ Simplified CLI output removing verbose headers and borders
@@ -412,3 +444,6 @@ The enhanced importer follows this optimized workflow with beautiful UI:
 - ✅ Added automatic HTTPS detection for ports 443, 8443, 9440
 - ✅ Enhanced cronjob setup with automatic PATH and environment variable detection
 - 📝 Enhanced documentation with ClickHouse HTTP procedures and curl commands
+- 🔒 **BUG-004 FIX**: Implemented comprehensive race condition protection with file locking, atomic operations, and thread safety
+- 🧪 Added concurrency test suite (test_concurrency.py) with 5 test scenarios
+- 📝 Created CONCURRENCY.md with complete thread safety documentation

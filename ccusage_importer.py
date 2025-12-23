@@ -16,13 +16,18 @@ import sys
 import threading
 import time
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+import logging
 
 import clickhouse_connect
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # ClickHouse connection settings from environment
 CH_HOST = os.getenv("CH_HOST", "localhost")
@@ -36,6 +41,11 @@ MACHINE_NAME = os.getenv("MACHINE_NAME", socket.gethostname().lower())
 
 # Project privacy settings (global configuration)
 HASH_PROJECT_NAMES = True
+
+# OpenCode settings (global configuration)
+DEFAULT_OPENCODE_PATH = None  # Will be set from command-line args
+SKIP_OPENCODE = False  # Will be set from command-line args
+SKIP_CCUSAGE = False  # Will be set from command-line args
 
 
 def hash_project_name(project_path: str) -> str:
@@ -391,6 +401,430 @@ class ClickHouseImporter:
         )
         return results
 
+    def _fetch_opencode_messages(self, opencode_path: str = None) -> List[Dict[str, Any]]:
+        """
+        Fetch all OpenCode message files from storage and parse them.
+
+        Args:
+            opencode_path: Path to OpenCode storage (default: ~/.local/share/opencode/storage/message)
+
+        Returns:
+            List of message dictionaries. Malformed files are skipped with warnings.
+        """
+        if opencode_path is None:
+            opencode_path = Path.home() / ".local/share/opencode/storage/message"
+
+        opencode_path = Path(opencode_path)
+
+        # Validate path exists
+        if not opencode_path.exists():
+            logger.warning(f"OpenCode storage path does not exist: {opencode_path}")
+            return []
+
+        if not opencode_path.is_dir():
+            logger.warning(f"OpenCode storage path is not a directory: {opencode_path}")
+            return []
+
+        messages = []
+        parse_failures = 0
+
+        for json_file in opencode_path.rglob("msg_*.json"):
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    msg = json.load(f)
+                    messages.append(msg)
+            except (json.JSONDecodeError, IOError) as e:
+                parse_failures += 1
+                logger.debug(f"Failed to parse {json_file.name}: {e}")
+
+        logger.info(f"Fetched {len(messages)} OpenCode messages from {opencode_path}")
+        if parse_failures > 0:
+            logger.warning(f"Failed to parse {parse_failures} OpenCode message files")
+
+        return messages
+
+    def _fetch_and_aggregate_opencode(self, opencode_path: str = None) -> Dict[str, Any]:
+        """
+        Fetch and aggregate OpenCode messages for parallel execution.
+
+        This is a helper method that wraps the OpenCode fetching and aggregation
+        for use in ThreadPoolExecutor. It handles errors gracefully and returns
+        an empty dict on failure.
+
+        Args:
+            opencode_path: Path to OpenCode storage directory
+
+        Returns:
+            Dictionary with aggregated OpenCode data (daily, monthly, session, projects)
+            Returns empty dict if fetching fails
+        """
+        try:
+            messages = self._fetch_opencode_messages(opencode_path)
+            if not messages:
+                return {}
+            return self._aggregate_opencode_messages(messages, MACHINE_NAME)
+        except Exception as e:
+            logger.error(f"Failed to fetch and aggregate OpenCode data: {e}")
+            return {}
+
+    def _aggregate_opencode_messages(self, messages: List[Dict[str, Any]], machine_name: str) -> Dict[str, Any]:
+        """
+        Aggregate raw OpenCode messages into ccusage-compatible format.
+
+        Args:
+            messages: List of OpenCode message dictionaries
+            machine_name: Machine name for multi-machine support
+
+        Returns:
+            Dict with keys: 'daily', 'monthly', 'session', 'projects'
+        """
+        # Filter only assistant messages (they have token data)
+        assistant_messages = [m for m in messages if m.get("role") == "assistant"]
+
+        if not assistant_messages:
+            logger.info("No assistant messages found in OpenCode data")
+            return {"daily": [], "monthly": [], "session": [], "projects": {}}
+
+        # Group by date for daily aggregation
+        daily_groups = {}
+        monthly_groups = {}
+        session_groups = {}
+        project_daily_groups = {}
+
+        for msg in assistant_messages:
+            # Extract timestamp
+            created_ts = msg.get("time", {}).get("created", 0)
+            if created_ts == 0:
+                continue
+
+            msg_date = datetime.fromtimestamp(created_ts / 1000).date()
+            date_str = msg_date.isoformat()
+            month_str = msg_date.strftime("%Y-%m")
+
+            # Extract token data
+            tokens = msg.get("tokens", {})
+            input_tokens = tokens.get("input", 0)
+            output_tokens = tokens.get("output", 0)
+
+            # Handle cache tokens - cache is a dict with 'read' and 'write' keys
+            cache_data = tokens.get("cache", {})
+            if isinstance(cache_data, dict):
+                cache_read = cache_data.get("read", 0)
+                cache_write = cache_data.get("write", 0)
+            else:
+                cache_read = 0
+                cache_write = 0
+
+            reasoning_tokens = tokens.get("reasoning", 0)
+
+            total_tokens = input_tokens + output_tokens + cache_read + reasoning_tokens
+
+            model_id = msg.get("modelID", "unknown")
+            cost = msg.get("cost", 0)
+
+            # Daily grouping
+            if date_str not in daily_groups:
+                daily_groups[date_str] = {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "cacheReadTokens": 0,
+                    "totalTokens": 0,
+                    "totalCost": 0,
+                    "modelsUsed": set(),
+                    "modelBreakdowns": {}
+                }
+
+            daily_groups[date_str]["inputTokens"] += input_tokens
+            daily_groups[date_str]["outputTokens"] += output_tokens
+            daily_groups[date_str]["cacheReadTokens"] += cache_read
+            daily_groups[date_str]["cacheCreationTokens"] += cache_write
+            daily_groups[date_str]["totalTokens"] += total_tokens
+            daily_groups[date_str]["totalCost"] += cost
+            daily_groups[date_str]["modelsUsed"].add(model_id)
+
+            # Model breakdowns
+            if model_id not in daily_groups[date_str]["modelBreakdowns"]:
+                daily_groups[date_str]["modelBreakdowns"][model_id] = {
+                    "modelName": model_id,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "cacheReadTokens": 0,
+                    "cost": 0
+                }
+
+            daily_groups[date_str]["modelBreakdowns"][model_id]["inputTokens"] += input_tokens
+            daily_groups[date_str]["modelBreakdowns"][model_id]["outputTokens"] += output_tokens
+            daily_groups[date_str]["modelBreakdowns"][model_id]["cacheReadTokens"] += cache_read
+            daily_groups[date_str]["modelBreakdowns"][model_id]["cacheCreationTokens"] += cache_write
+            daily_groups[date_str]["modelBreakdowns"][model_id]["cost"] += cost
+
+            # Monthly grouping
+            if month_str not in monthly_groups:
+                monthly_groups[month_str] = {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "cacheReadTokens": 0,
+                    "totalTokens": 0,
+                    "totalCost": 0,
+                    "modelsUsed": set(),
+                    "modelBreakdowns": {}
+                }
+
+            monthly_groups[month_str]["inputTokens"] += input_tokens
+            monthly_groups[month_str]["outputTokens"] += output_tokens
+            monthly_groups[month_str]["cacheReadTokens"] += cache_read
+            monthly_groups[month_str]["cacheCreationTokens"] += cache_write
+            monthly_groups[month_str]["totalTokens"] += total_tokens
+            monthly_groups[month_str]["totalCost"] += cost
+            monthly_groups[month_str]["modelsUsed"].add(model_id)
+
+            # Session grouping
+            session_id = msg.get("sessionID", "unknown")
+            if session_id not in session_groups:
+                session_groups[session_id] = {
+                    "sessionId": session_id,
+                    "startTime": created_ts,
+                    "endTime": created_ts,
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "cacheCreationTokens": 0,
+                    "cacheReadTokens": 0,
+                    "totalTokens": 0,
+                    "totalCost": 0,
+                    "modelsUsed": set(),
+                    "modelBreakdowns": {},
+                    "projectPath": None
+                }
+
+            session_groups[session_id]["endTime"] = max(session_groups[session_id]["endTime"], created_ts)
+            session_groups[session_id]["inputTokens"] += input_tokens
+            session_groups[session_id]["outputTokens"] += output_tokens
+            session_groups[session_id]["cacheReadTokens"] += cache_read
+            session_groups[session_id]["cacheCreationTokens"] += cache_write
+            session_groups[session_id]["totalTokens"] += total_tokens
+            session_groups[session_id]["totalCost"] += cost
+            session_groups[session_id]["modelsUsed"].add(model_id)
+
+            # Get project path from first message with path
+            if session_groups[session_id]["projectPath"] is None:
+                path_data = msg.get("path", {})
+                if path_data and path_data.get("root"):
+                    project_path = path_data["root"]
+                    session_groups[session_id]["projectPath"] = project_path
+
+                    # Project daily grouping
+                    if project_path not in project_daily_groups:
+                        project_daily_groups[project_path] = {}
+                    if date_str not in project_daily_groups[project_path]:
+                        project_daily_groups[project_path][date_str] = {
+                            "inputTokens": 0,
+                            "outputTokens": 0,
+                            "cacheCreationTokens": 0,
+                            "cacheReadTokens": 0,
+                            "totalTokens": 0,
+                            "totalCost": 0,
+                            "modelsUsed": set(),
+                            "modelBreakdowns": {}
+                        }
+
+                    project_daily_groups[project_path][date_str]["inputTokens"] += input_tokens
+                    project_daily_groups[project_path][date_str]["outputTokens"] += output_tokens
+                    project_daily_groups[project_path][date_str]["cacheReadTokens"] += cache_read
+                    project_daily_groups[project_path][date_str]["cacheCreationTokens"] += cache_write
+                    project_daily_groups[project_path][date_str]["totalTokens"] += total_tokens
+                    project_daily_groups[project_path][date_str]["totalCost"] += cost
+                    project_daily_groups[project_path][date_str]["modelsUsed"].add(model_id)
+
+        # Convert to final format
+        daily_records = []
+        for date_str, data in daily_groups.items():
+            daily_records.append({
+                "date": date_str,
+                "inputTokens": data["inputTokens"],
+                "outputTokens": data["outputTokens"],
+                "cacheCreationTokens": data["cacheCreationTokens"],
+                "cacheReadTokens": data["cacheReadTokens"],
+                "totalTokens": data["totalTokens"],
+                "totalCost": data["totalCost"],
+                "modelsUsed": sorted(list(data["modelsUsed"])),
+                "modelBreakdowns": list(data["modelBreakdowns"].values())
+            })
+
+        monthly_records = []
+        for month_str, data in monthly_groups.items():
+            monthly_records.append({
+                "month": month_str,
+                "inputTokens": data["inputTokens"],
+                "outputTokens": data["outputTokens"],
+                "cacheCreationTokens": data["cacheCreationTokens"],
+                "cacheReadTokens": data["cacheReadTokens"],
+                "totalTokens": data["totalTokens"],
+                "totalCost": data["totalCost"],
+                "modelsUsed": sorted(list(data["modelsUsed"])),
+                "modelBreakdowns": list(data["modelBreakdowns"].values())
+            })
+
+        session_records = []
+        for session_id, data in session_groups.items():
+            # Calculate last activity date from endTime timestamp
+            end_timestamp = data["endTime"]
+            last_activity_date = datetime.fromtimestamp(end_timestamp / 1000).date().isoformat()
+
+            session_records.append({
+                "sessionId": data["sessionId"],
+                "lastActivity": last_activity_date,
+                "inputTokens": data["inputTokens"],
+                "outputTokens": data["outputTokens"],
+                "cacheCreationTokens": data["cacheCreationTokens"],
+                "cacheReadTokens": data["cacheReadTokens"],
+                "totalTokens": data["totalTokens"],
+                "totalCost": data["totalCost"],
+                "modelsUsed": sorted(list(data["modelsUsed"])),
+                "modelBreakdowns": list(data["modelBreakdowns"].values()),
+                "projectPath": data["projectPath"] or "unknown"
+            })
+
+        # Project daily records - convert to dict keyed by project_id
+        projects_dict = {}
+        for project_path, daily_data in project_daily_groups.items():
+            project_id = hash_project_name(project_path) if HASH_PROJECT_NAMES else project_path
+            project_daily_records = []
+            for date_str, data in daily_data.items():
+                project_daily_records.append({
+                    "date": date_str,
+                    "inputTokens": data["inputTokens"],
+                    "outputTokens": data["outputTokens"],
+                    "cacheCreationTokens": data["cacheCreationTokens"],
+                    "cacheReadTokens": data["cacheReadTokens"],
+                    "totalTokens": data["totalTokens"],
+                    "totalCost": data["totalCost"],
+                    "modelsUsed": sorted(list(data["modelsUsed"])),
+                    "modelBreakdowns": list(data["modelBreakdowns"].values())
+                })
+            projects_dict[project_id] = project_daily_records
+
+        logger.info(f"Aggregated {len(daily_records)} daily, {len(monthly_records)} monthly, {len(session_records)} session records from OpenCode")
+
+        return {
+            "daily": daily_records,
+            "monthly": monthly_records,
+            "session": session_records,
+            "projects": projects_dict
+        }
+
+    def fetch_all_data_parallel(self, opencode_path: str = None, skip_opencode: bool = False) -> Dict[str, Any]:
+        """
+        Fetch all data from both ccusage and OpenCode sources in parallel.
+
+        OpenCode fetching runs concurrently with ccusage commands in the same
+        ThreadPoolExecutor for optimal performance.
+
+        Args:
+            opencode_path: Custom path to OpenCode storage directory
+            skip_opencode: If True, skip OpenCode data fetching
+
+        Returns:
+            Dict with keys: 'daily', 'monthly', 'session', 'blocks', 'projects', 'opencode'
+            All sources fetched in parallel where possible
+            'opencode' contains aggregated OpenCode data or empty dict if skipped/unavailable
+
+        Resource Management:
+            - Creates and properly shuts down ThreadPoolExecutor
+            - All loading animations tracked for cleanup
+        """
+        commands = [
+            ("daily", "daily"),
+            ("monthly", "monthly"),
+            ("session", "session"),
+            ("blocks", "blocks"),
+            ("projects", "daily --instances"),
+        ]
+
+        # Determine total task count based on which sources to fetch
+        skip_ccusage = SKIP_CCUSAGE
+        total_tasks = 0
+        if not skip_ccusage:
+            total_tasks += len(commands)
+        if not skip_opencode:
+            total_tasks += 1
+
+        # Show which sources are being fetched
+        sources_to_fetch = []
+        if not skip_ccusage:
+            sources_to_fetch.append("ccusage")
+        if not skip_opencode:
+            sources_to_fetch.append("OpenCode")
+        task_description = f"Fetching {', '.join(sources_to_fetch)} data ({total_tasks} tasks)..."
+        UIFormatter.print_step(
+            1, "Fetching all data sources", task_description
+        )
+
+        # Start loading animation
+        loader = LoadingAnimation("Fetching data from all sources")
+        loader.start()
+
+        start_time = datetime.now()
+        results = {}
+        completed_count = 0
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            # Submit ccusage commands if not skipped
+            if not skip_ccusage:
+                future_to_key = {
+                    executor.submit(self.run_ccusage_command, cmd): key
+                    for key, cmd in commands
+                }
+            else:
+                future_to_key = {}
+
+            # Also submit OpenCode fetching if not skipped
+            if not skip_opencode:
+                future_to_key[
+                    executor.submit(self._fetch_and_aggregate_opencode, opencode_path)
+                ] = "opencode"
+
+            # Collect results as they complete
+            for future in concurrent.futures.as_completed(future_to_key):
+                key = future_to_key[future]
+                completed_count += 1
+
+                try:
+                    results[key] = future.result()
+
+                    # Format success message based on data source type
+                    if key == "opencode":
+                        daily_count = len(results[key].get("daily", []))
+                        loader.stop(
+                            f"{key} data fetched ({completed_count}/{total_tasks}, {daily_count} daily records)"
+                        )
+                    else:
+                        loader.stop(
+                            f"{key} data fetched ({completed_count}/{total_tasks})"
+                        )
+
+                    if completed_count < total_tasks:
+                        loader = LoadingAnimation(
+                            f"Fetching remaining data ({completed_count}/{total_tasks} complete)"
+                        )
+                        loader.start()
+                except Exception as e:
+                    loader.stop(error_message=f"{key} data failed: {e}")
+                    results[key] = {}
+                    if completed_count < total_tasks:
+                        loader = LoadingAnimation(
+                            f"Fetching remaining data ({completed_count}/{total_tasks} complete)"
+                        )
+                        loader.start()
+
+        fetch_duration = (datetime.now() - start_time).total_seconds()
+        print(
+            f"\n✅ All data sources fetched in {UIFormatter.format_duration(fetch_duration)}"
+        )
+        return results
+
     def run_ccusage_command(
         self, command: str, verbose: bool = False
     ) -> Dict[str, Any]:
@@ -440,7 +874,7 @@ class ClickHouseImporter:
 
         return {}
 
-    def upsert_daily_data(self, daily_data: List[Dict[str, Any]]):
+    def upsert_daily_data(self, daily_data: List[Dict[str, Any]], source: str = 'ccusage'):
         """Insert or update daily usage data"""
         if not daily_data:
             # No daily data available
@@ -451,7 +885,7 @@ class ClickHouseImporter:
         if dates:
             dates_str = ",".join([f"'{d}'" for d in dates])
             self.client.command(
-                f"DELETE FROM ccusage_usage_daily WHERE date IN ({dates_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"DELETE FROM ccusage_usage_daily WHERE date IN ({dates_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
 
         # Prepare data for insertion
@@ -463,17 +897,18 @@ class ClickHouseImporter:
             # Main daily record
             rows.append(
                 [
-                    self._parse_date(item["date"]),
-                    MACHINE_NAME,
-                    item["inputTokens"],
-                    item["outputTokens"],
-                    item["cacheCreationTokens"],
-                    item["cacheReadTokens"],
-                    item["totalTokens"],
-                    item["totalCost"],
-                    len(item["modelsUsed"]),
-                    datetime.now(),
-                    datetime.now(),
+                    self._parse_date(item["date"]),  # date
+                    MACHINE_NAME,  # machine_name
+                    item["inputTokens"],  # input_tokens
+                    item["outputTokens"],  # output_tokens
+                    item["cacheCreationTokens"],  # cache_creation_tokens
+                    item["cacheReadTokens"],  # cache_read_tokens
+                    item["totalTokens"],  # total_tokens
+                    item["totalCost"],  # total_cost
+                    len(item["modelsUsed"]),  # models_count
+                    datetime.now(),  # created_at
+                    datetime.now(),  # updated_at
+                    source,  # source (must be last to match schema)
                 ]
             )
 
@@ -491,13 +926,14 @@ class ClickHouseImporter:
                         breakdown["cacheReadTokens"],
                         breakdown["cost"],
                         datetime.now(),
+                        source,
                     ]
                 )
 
             # Models used
             for model in item["modelsUsed"]:
                 model_used_rows.append(
-                    ["daily", item["date"], MACHINE_NAME, model, datetime.now()]
+                    ["daily", item["date"], MACHINE_NAME, model, datetime.now(), source]
                 )
 
         # Insert data
@@ -510,7 +946,7 @@ class ClickHouseImporter:
             dates_str = ",".join([f"'{d}'" for d in dates])
             delete_query = (
                 f"DELETE FROM ccusage_model_breakdowns WHERE record_type = "
-                f"'daily' AND record_key IN ({dates_str})"
+                f"'daily' AND record_key IN ({dates_str}) AND source = '{source}'"
             )
             self.client.command(delete_query)
             self.client.insert("ccusage_model_breakdowns", model_breakdown_rows)
@@ -521,13 +957,13 @@ class ClickHouseImporter:
             dates_str = ",".join([f"'{d}'" for d in dates])
             delete_query = (
                 f"DELETE FROM ccusage_models_used WHERE record_type = "
-                f"'daily' AND record_key IN ({dates_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"'daily' AND record_key IN ({dates_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
             self.client.command(delete_query)
             self.client.insert("ccusage_models_used", model_used_rows)
             # Models used records inserted
 
-    def upsert_monthly_data(self, monthly_data: List[Dict[str, Any]]):
+    def upsert_monthly_data(self, monthly_data: List[Dict[str, Any]], source: str = 'ccusage'):
         """Insert or update monthly usage data"""
         if not monthly_data:
             # No monthly data available
@@ -538,7 +974,7 @@ class ClickHouseImporter:
         if months:
             months_str = ",".join([f"'{m}'" for m in months])
             self.client.command(
-                f"DELETE FROM ccusage_usage_monthly WHERE month IN ({months_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"DELETE FROM ccusage_usage_monthly WHERE month IN ({months_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
 
         # Prepare data for insertion
@@ -565,6 +1001,7 @@ class ClickHouseImporter:
                     len(item["modelsUsed"]),
                     datetime.now(),
                     datetime.now(),
+                    source,
                 ]
             )
 
@@ -582,12 +1019,13 @@ class ClickHouseImporter:
                         breakdown["cacheReadTokens"],
                         breakdown["cost"],
                         datetime.now(),
+                        source,
                     ]
                 )
 
             for model in item["modelsUsed"]:
                 model_used_rows.append(
-                    ["monthly", item["month"], MACHINE_NAME, model, datetime.now()]
+                    ["monthly", item["month"], MACHINE_NAME, model, datetime.now(), source]
                 )
 
         # Insert data
@@ -599,7 +1037,7 @@ class ClickHouseImporter:
             months_str = ",".join([f"'{m}'" for m in months])
             delete_query = (
                 f"DELETE FROM ccusage_model_breakdowns WHERE record_type = "
-                f"'monthly' AND record_key IN ({months_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"'monthly' AND record_key IN ({months_str}) AND source = '{source}'"
             )
             self.client.command(delete_query)
             self.client.insert("ccusage_model_breakdowns", model_breakdown_rows)
@@ -608,23 +1046,29 @@ class ClickHouseImporter:
             months_str = ",".join([f"'{m}'" for m in months])
             delete_query = (
                 f"DELETE FROM ccusage_models_used WHERE record_type = "
-                f"'monthly' AND record_key IN ({months_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"'monthly' AND record_key IN ({months_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
             self.client.command(delete_query)
             self.client.insert("ccusage_models_used", model_used_rows)
 
-    def upsert_session_data(self, session_data: List[Dict[str, Any]]):
+    def upsert_session_data(self, session_data: List[Dict[str, Any]], source: str = 'ccusage'):
         """Insert or update session usage data"""
         if not session_data:
             # No session data available
             return
+
+        # Debug: print first session item to check data types
+        if session_data:
+            logger.debug(f"First session data item: {session_data[0]}")
+            for key, value in session_data[0].items():
+                logger.debug(f"  {key}: {value} (type: {type(value).__name__})")
 
         # Delete existing data for these sessions first
         session_ids = [hash_project_name(item["sessionId"]) for item in session_data]
         if session_ids:
             sessions_str = ",".join([f"'{s}'" for s in session_ids])
             self.client.command(
-                f"DELETE FROM ccusage_usage_sessions WHERE session_id IN ({sessions_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"DELETE FROM ccusage_usage_sessions WHERE session_id IN ({sessions_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
 
         # Prepare data for insertion
@@ -653,6 +1097,7 @@ class ClickHouseImporter:
                     len(item["modelsUsed"]),  # models_count
                     datetime.now(),  # created_at
                     datetime.now(),  # updated_at
+                    source,  # source (must be last to match schema)
                 ]
             )
 
@@ -670,12 +1115,13 @@ class ClickHouseImporter:
                         breakdown["cacheReadTokens"],
                         breakdown["cost"],
                         datetime.now(),
+                        source,
                     ]
                 )
 
             for model in item["modelsUsed"]:
                 model_used_rows.append(
-                    ["session", hashed_session_id, MACHINE_NAME, model, datetime.now()]
+                    ["session", hashed_session_id, MACHINE_NAME, model, datetime.now(), source]
                 )
 
         # Insert data
@@ -687,7 +1133,7 @@ class ClickHouseImporter:
             sessions_str = ",".join([f"'{s}'" for s in session_ids])
             delete_query = (
                 f"DELETE FROM ccusage_model_breakdowns WHERE record_type = "
-                f"'session' AND record_key IN ({sessions_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"'session' AND record_key IN ({sessions_str}) AND source = '{source}'"
             )
             self.client.command(delete_query)
             self.client.insert("ccusage_model_breakdowns", model_breakdown_rows)
@@ -696,12 +1142,12 @@ class ClickHouseImporter:
             sessions_str = ",".join([f"'{s}'" for s in session_ids])
             delete_query = (
                 f"DELETE FROM ccusage_models_used WHERE record_type = "
-                f"'session' AND record_key IN ({sessions_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"'session' AND record_key IN ({sessions_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
             self.client.command(delete_query)
             self.client.insert("ccusage_models_used", model_used_rows)
 
-    def upsert_blocks_data(self, blocks_data: List[Dict[str, Any]]):
+    def upsert_blocks_data(self, blocks_data: List[Dict[str, Any]], source: str = 'ccusage'):
         """Insert or update blocks usage data"""
         if not blocks_data:
             # No blocks data available
@@ -712,7 +1158,7 @@ class ClickHouseImporter:
         if block_ids:
             blocks_str = ",".join([f"'{b}'" for b in block_ids])
             self.client.command(
-                f"DELETE FROM ccusage_usage_blocks WHERE block_id IN ({blocks_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"DELETE FROM ccusage_usage_blocks WHERE block_id IN ({blocks_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
 
         # Prepare data for insertion
@@ -747,6 +1193,7 @@ class ClickHouseImporter:
                     ),  # usage_limit_reset_time
                     self._extract_burn_rate(item.get("burnRate")),  # burn_rate
                     self._extract_projection(item.get("projection")),  # projection
+                    source,  # source (must be last to match schema)
                 ]
             )
 
@@ -754,7 +1201,7 @@ class ClickHouseImporter:
             for model in item["models"]:
                 if model != "<synthetic>":  # Skip synthetic entries
                     model_used_rows.append(
-                        ["block", item["id"], MACHINE_NAME, model, datetime.now()]
+                        ["block", item["id"], MACHINE_NAME, model, datetime.now(), source]
                     )
 
         # Insert data
@@ -766,13 +1213,13 @@ class ClickHouseImporter:
             blocks_str = ",".join([f"'{b}'" for b in block_ids])
             delete_query = (
                 f"DELETE FROM ccusage_models_used WHERE record_type = "
-                f"'block' AND record_key IN ({blocks_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"'block' AND record_key IN ({blocks_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
             self.client.command(delete_query)
             self.client.insert("ccusage_models_used", model_used_rows)
 
     def upsert_projects_daily_data(
-        self, projects_data: Dict[str, List[Dict[str, Any]]]
+        self, projects_data: Dict[str, List[Dict[str, Any]]], source: str = 'ccusage'
     ):
         """Insert or update projects daily usage data"""
         if not projects_data:
@@ -793,8 +1240,8 @@ class ClickHouseImporter:
                 rows.append(
                     [
                         self._parse_date(item["date"]),
-                        MACHINE_NAME,
                         project_id,
+                        MACHINE_NAME,
                         item["inputTokens"],
                         item["outputTokens"],
                         item["cacheCreationTokens"],
@@ -804,6 +1251,7 @@ class ClickHouseImporter:
                         len(item["modelsUsed"]),
                         datetime.now(),
                         datetime.now(),
+                        source,
                     ]
                 )
 
@@ -821,6 +1269,7 @@ class ClickHouseImporter:
                             breakdown["cacheReadTokens"],
                             breakdown["cost"],
                             datetime.now(),
+                            source,
                         ]
                     )
 
@@ -832,6 +1281,7 @@ class ClickHouseImporter:
                             MACHINE_NAME,
                             model,
                             datetime.now(),
+                            source,
                         ]
                     )
 
@@ -839,7 +1289,7 @@ class ClickHouseImporter:
         if dates_to_delete:
             dates_str = ",".join([f"'{d}'" for d in dates_to_delete])
             self.client.command(
-                f"DELETE FROM ccusage_usage_projects_daily WHERE date IN ({dates_str}) AND machine_name = '{MACHINE_NAME}'"
+                f"DELETE FROM ccusage_usage_projects_daily WHERE date IN ({dates_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
             )
 
         # Insert data
@@ -858,7 +1308,7 @@ class ClickHouseImporter:
                 keys_str = ",".join([f"'{k}'" for k in record_keys])
                 delete_query = (
                     f"DELETE FROM ccusage_model_breakdowns WHERE record_type = "
-                    f"'project_daily' AND record_key IN ({keys_str}) AND machine_name = '{MACHINE_NAME}'"
+                    f"'project_daily' AND record_key IN ({keys_str}) AND source = '{source}'"
                 )
                 self.client.command(delete_query)
             self.client.insert("ccusage_model_breakdowns", model_breakdown_rows)
@@ -874,18 +1324,18 @@ class ClickHouseImporter:
                 keys_str = ",".join([f"'{k}'" for k in record_keys])
                 delete_query = (
                     f"DELETE FROM ccusage_models_used WHERE record_type = "
-                    f"'project_daily' AND record_key IN ({keys_str}) AND machine_name = '{MACHINE_NAME}'"
+                    f"'project_daily' AND record_key IN ({keys_str}) AND machine_name = '{MACHINE_NAME}' AND source = '{source}'"
                 )
                 self.client.command(delete_query)
             self.client.insert("ccusage_models_used", model_used_rows)
 
     def get_import_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive statistics after import"""
+        """Get comprehensive statistics after import with source grouping"""
         # Generate statistics silently
 
         stats = {}
 
-        # Table row counts - get them individually to avoid SQL issues
+        # Table row counts - get them grouped by source
         tables = [
             "ccusage_usage_daily",
             "ccusage_usage_monthly",
@@ -899,13 +1349,22 @@ class ClickHouseImporter:
         table_counts = {}
         for table in tables:
             try:
+                # Try to get counts grouped by source (if column exists)
                 count_result = self.client.query(
-                    f"SELECT count() FROM {table}"
-                ).result_rows[0]
-                table_counts[table] = int(count_result[0])
+                    f"SELECT source, count() FROM {table} WHERE machine_name = '{MACHINE_NAME}' GROUP BY source ORDER BY source"
+                ).result_rows
+                # Store as dict: {'ccusage': 123, 'opencode': 45}
+                table_counts[table] = {row[0]: int(row[1]) for row in count_result}
             except Exception:
-                # Silently handle table count error
-                table_counts[table] = 0
+                # Fallback to simple count if source column doesn't exist
+                try:
+                    count_result = self.client.query(
+                        f"SELECT count() FROM {table} WHERE machine_name = '{MACHINE_NAME}'"
+                    ).result_rows[0]
+                    table_counts[table] = int(count_result[0])
+                except Exception:
+                    # Silently handle table count error
+                    table_counts[table] = 0
 
         stats["table_counts"] = table_counts
 
@@ -938,6 +1397,29 @@ class ClickHouseImporter:
             "latest_date": str(usage_result[7]) if usage_result[7] else None,
             "days_with_usage": int(usage_result[8]) if usage_result[8] else 0,
         }
+
+        # Usage by source (ccusage vs OpenCode)
+        stats["usage_by_source"] = {}
+        for source in ['ccusage', 'opencode']:
+            source_query = f"""
+            SELECT
+                sum(total_cost) as total_cost,
+                sum(total_tokens) as total_tokens,
+                min(date) as earliest_date,
+                max(date) as latest_date
+            FROM ccusage_usage_daily
+            WHERE source = '{source}' AND machine_name = '{MACHINE_NAME}'
+            """
+            try:
+                result = self.client.query(source_query).result_rows[0]
+                stats["usage_by_source"][source] = {
+                    "total_cost": float(result[0]) if result[0] else 0.0,
+                    "total_tokens": int(result[1]) if result[1] else 0,
+                    "earliest_date": str(result[2]) if result[2] else None,
+                    "latest_date": str(result[3]) if result[3] else None,
+                }
+            except Exception:
+                stats["usage_by_source"][source] = {"total_cost": 0, "total_tokens": 0, "earliest_date": None, "latest_date": None}
 
         # Model usage
         model_stats_query = """
@@ -1021,15 +1503,36 @@ class ClickHouseImporter:
         return stats
 
     def print_statistics(self, stats: Dict[str, Any]):
-        """Print beautifully formatted statistics"""
+        """Print beautifully formatted statistics with source grouping"""
         UIFormatter.print_header("📊 IMPORT SUMMARY & STATISTICS", 70)
 
-        # Table counts with enhanced formatting
+        # Table counts with source breakdown
         UIFormatter.print_section("📋 Database Records", 70)
         for table, count in stats["table_counts"].items():
             table_display = table.replace("ccusage_", "").replace("_", " ").title()
-            count_formatted = UIFormatter.format_number(count)
-            UIFormatter.print_metric(table_display, f"{count_formatted} records")
+            if isinstance(count, dict):
+                # Format: "Usage Daily: ccusage: 123 | opencode: 45"
+                parts = [f"{s}: {UIFormatter.format_number(c)}" for s, c in count.items()]
+                UIFormatter.print_metric(table_display, " | ".join(parts))
+            else:
+                # Backward compatibility: simple count
+                count_formatted = UIFormatter.format_number(count)
+                UIFormatter.print_metric(table_display, f"{count_formatted} records")
+
+        # Data source statistics (NEW)
+        if stats.get("usage_by_source"):
+            has_data = any(
+                stats["usage_by_source"].get(s, {}).get("total_tokens", 0) > 0
+                for s in ['ccusage', 'opencode']
+            )
+            if has_data:
+                UIFormatter.print_section("📊 Data Source Statistics", 70)
+                for source in ['ccusage', 'opencode']:
+                    source_data = stats["usage_by_source"].get(source, {})
+                    if source_data.get("total_tokens", 0) > 0:
+                        tokens_str = UIFormatter.format_number(source_data["total_tokens"])
+                        cost_str = f"${source_data['total_cost']:,.2f}"
+                        UIFormatter.print_metric(source.title(), f"{tokens_str} tokens, {cost_str}")
 
         # Usage summary with better number formatting
         usage = stats["usage_summary"]
@@ -1186,30 +1689,58 @@ class ClickHouseImporter:
             return False
 
     def print_statistics_with_comparison(self, stats: Dict[str, Any]):
-        """Print statistics with comparison to previous import"""
+        """Print statistics with comparison to previous import with source grouping"""
         previous_stats = self.get_previous_statistics()
 
         UIFormatter.print_header("📊 IMPORT SUMMARY & STATISTICS", 70)
 
-        # Table counts with comparison
+        # Table counts with source-aware comparison
         UIFormatter.print_section("📋 Database Records", 70)
         for table, count in stats["table_counts"].items():
             table_display = table.replace("ccusage_", "").replace("_", " ").title()
-            count_formatted = UIFormatter.format_number(count)
+            if isinstance(count, dict):
+                # Format: "Usage Daily: ccusage: 123 | opencode: 45"
+                parts = []
+                for source, current_count in count.items():
+                    diff_str = ""
+                    prev_counts = previous_stats.get("table_counts", {}).get(table, {})
+                    if isinstance(prev_counts, dict) and source in prev_counts:
+                        prev_count = prev_counts[source]
+                        diff = current_count - prev_count
+                        if diff > 0:
+                            diff_str = f" (+{UIFormatter.format_number(diff)})"
+                        elif diff < 0:
+                            diff_str = f" ({UIFormatter.format_number(diff)})"
+                    parts.append(f"{source}: {UIFormatter.format_number(current_count)}{diff_str}")
+                UIFormatter.print_metric(table_display, " | ".join(parts))
+            else:
+                # Backward compatibility: simple count
+                count_formatted = UIFormatter.format_number(count)
+                diff_str = ""
+                if previous_stats.get("table_counts", {}).get(table):
+                    prev_count = previous_stats["table_counts"][table]
+                    if not isinstance(prev_count, dict):
+                        diff = count - prev_count
+                        if diff > 0:
+                            diff_str = f" (+{UIFormatter.format_number(diff)})"
+                        elif diff < 0:
+                            diff_str = f" ({UIFormatter.format_number(diff)})"
+                UIFormatter.print_metric(table_display, f"{count_formatted} records{diff_str}")
 
-            # Calculate difference
-            diff_str = ""
-            if previous_stats.get("table_counts", {}).get(table):
-                prev_count = previous_stats["table_counts"][table]
-                diff = count - prev_count
-                if diff > 0:
-                    diff_str = f" (+{UIFormatter.format_number(diff)})"
-                elif diff < 0:
-                    diff_str = f" ({UIFormatter.format_number(diff)})"
-
-            UIFormatter.print_metric(
-                table_display, f"{count_formatted} records{diff_str}"
+        # Data source statistics (NEW)
+        if stats.get("usage_by_source"):
+            has_data = any(
+                stats["usage_by_source"].get(s, {}).get("total_tokens", 0) > 0
+                for s in ['ccusage', 'opencode']
             )
+            if has_data:
+                UIFormatter.print_section("📊 Data Source Statistics", 70)
+                for source in ['ccusage', 'opencode']:
+                    source_data = stats["usage_by_source"].get(source, {})
+                    if source_data.get("total_tokens", 0) > 0:
+                        tokens_str = UIFormatter.format_number(source_data["total_tokens"])
+                        cost_str = f"${source_data['total_cost']:,.2f}"
+                        UIFormatter.print_metric(source.title(), f"{tokens_str} tokens, {cost_str}")
 
         # Usage summary with comparison
         usage = stats["usage_summary"]
@@ -1426,7 +1957,7 @@ class ClickHouseImporter:
             return {"is_stale": False}
 
     def import_all_data(self):
-        """Import all ccusage data into ClickHouse with enhanced UI and animations"""
+        """Import all ccusage and/or OpenCode data into ClickHouse with enhanced UI and animations"""
         UIFormatter.print_header("CCUSAGE DATA IMPORTER")
         privacy_status = "Enabled" if HASH_PROJECT_NAMES else "Disabled"
         print(
@@ -1434,31 +1965,49 @@ class ClickHouseImporter:
         )
         print(f"Project Privacy: {privacy_status}")
 
-        # Check data freshness before import
-        freshness = self._check_data_freshness()
-        if freshness.get("is_stale"):
-            hours_old = freshness.get("seconds_since_import", 0) // 3600
-            print(
-                f"⚠️  Data is stale: ClickHouse has data up to {freshness['latest_ch_date']}, ccusage has {freshness['latest_ccusage_date']}"
-            )
-            print(f"   Last import was {hours_old} hours ago")
+        # Show which sources are being imported
+        sources_to_import = []
+        if not SKIP_CCUSAGE:
+            sources_to_import.append("ccusage")
+        if not SKIP_OPENCODE:
+            sources_to_import.append("OpenCode")
+        print(f"Import sources: {', '.join(sources_to_import)}")
+
+        # Check data freshness before import (only if importing ccusage)
+        if not SKIP_CCUSAGE:
+            freshness = self._check_data_freshness()
+            if freshness.get("is_stale"):
+                hours_old = freshness.get("seconds_since_import", 0) // 3600
+                print(f"⚠️  Data is stale: ClickHouse has data up to {freshness['latest_ch_date']}, ccusage has {freshness['latest_ccusage_date']}")
+                print(f"   Last import was {hours_old} hours ago")
 
         print()
 
         overall_start = datetime.now()
 
         try:
-            # Fetch all data in parallel
-            all_data = self.fetch_ccusage_data_parallel()
+            # Fetch all data in parallel (ccusage + OpenCode)
+            all_data = self.fetch_all_data_parallel(
+                opencode_path=DEFAULT_OPENCODE_PATH,
+                skip_opencode=SKIP_OPENCODE
+            )
 
-            # Check if this data is identical to the previous import
-            is_identical = self._is_identical_import(all_data)
-            if is_identical:
-                print("🔄 Identical data detected - No new data since last import")
-                # Still get statistics but don't show comparison
-                stats = self.get_import_statistics()
-                UIFormatter.print_header("📊 CURRENT DATABASE STATISTICS", 70)
-                self.print_statistics(stats)
+            # Separate ccusage and OpenCode data
+            ccusage_data = {
+                "daily": all_data.get("daily", {}),
+                "monthly": all_data.get("monthly", {}),
+                "session": all_data.get("session", {}),
+                "blocks": all_data.get("blocks", {}),
+                "projects": all_data.get("projects", {}),
+            }
+            opencode_data = all_data.get("opencode", {})
+
+            # Check if we have any data to import
+            has_ccusage_data = any(ccusage_data.values())
+            has_opencode_data = bool(opencode_data.get("daily") or opencode_data.get("monthly") or opencode_data.get("session"))
+
+            if not has_ccusage_data and not has_opencode_data:
+                print("⚠️  No data found to import")
                 return
 
             # Process and import data
@@ -1472,42 +2021,84 @@ class ClickHouseImporter:
             loader.start()
             # import_start = datetime.now()
 
-            # Import daily data
-            if "daily" in all_data and "daily" in all_data["daily"]:
-                self.upsert_daily_data(all_data["daily"]["daily"])
-                loader.stop("Daily data processed")
-            else:
-                loader.stop(error_message="No daily data found")
+            # Import ccusage data
+            if not SKIP_CCUSAGE:
+                # Import daily data
+                if "daily" in ccusage_data and ccusage_data["daily"]:
+                    self.upsert_daily_data(ccusage_data["daily"], source='ccusage')
+                    loader.stop("ccusage daily data processed")
+                else:
+                    loader.stop(error_message="No ccusage daily data found")
 
-            # Import monthly data
-            if "monthly" in all_data and "monthly" in all_data["monthly"]:
-                self.upsert_monthly_data(all_data["monthly"]["monthly"])
-                print("✓ Monthly")
-            else:
-                print("⚠️  No monthly data")
+                # Import monthly data
+                if "monthly" in ccusage_data and ccusage_data["monthly"]:
+                    self.upsert_monthly_data(ccusage_data["monthly"], source='ccusage')
+                    print("✓ ccusage Monthly")
+                else:
+                    print("⚠️  No ccusage monthly data")
 
-            # Import session data
-            if "session" in all_data and "sessions" in all_data["session"]:
-                self.upsert_session_data(all_data["session"]["sessions"])
-                print("✓ Sessions")
-            else:
-                print("⚠️  No session data")
+                # Import session data
+                if "session" in ccusage_data and ccusage_data["session"]:
+                    self.upsert_session_data(ccusage_data["session"], source='ccusage')
+                    print("✓ ccusage Sessions")
+                else:
+                    print("⚠️  No ccusage session data")
 
-            # Import blocks data
-            if "blocks" in all_data and "blocks" in all_data["blocks"]:
-                self.upsert_blocks_data(all_data["blocks"]["blocks"])
-                print("✓ Blocks")
-            else:
-                print("⚠️  No blocks data")
+                # Import blocks data
+                if "blocks" in ccusage_data and ccusage_data["blocks"]:
+                    self.upsert_blocks_data(ccusage_data["blocks"], source='ccusage')
+                    print("✓ ccusage Blocks")
+                else:
+                    print("⚠️  No ccusage blocks data")
 
-            # Import projects daily data
-            if "projects" in all_data and "projects" in all_data["projects"]:
-                loader = LoadingAnimation("Processing projects data")
-                loader.start()
-                self.upsert_projects_daily_data(all_data["projects"]["projects"])
-                loader.stop("Projects data processed")
-            else:
-                print("⚠️  No projects data found")
+                # Import projects daily data
+                if "projects" in ccusage_data and ccusage_data["projects"]:
+                    loader = LoadingAnimation("Processing ccusage projects data")
+                    loader.start()
+                    self.upsert_projects_daily_data(ccusage_data["projects"], source='ccusage')
+                    loader.stop("ccusage Projects data processed")
+                else:
+                    print("⚠️  No ccusage projects data found")
+
+            # Import OpenCode data
+            if not SKIP_OPENCODE and opencode_data:
+                try:
+                    # Import daily data
+                    if opencode_data.get("daily"):
+                        self.upsert_daily_data(opencode_data["daily"], source='opencode')
+                        print("✓ OpenCode Daily")
+                    else:
+                        print("⚠️  No OpenCode daily data")
+
+                    # Import monthly data
+                    if opencode_data.get("monthly"):
+                        self.upsert_monthly_data(opencode_data["monthly"], source='opencode')
+                        print("✓ OpenCode Monthly")
+                    else:
+                        print("⚠️  No OpenCode monthly data")
+
+                    # Import session data
+                    if opencode_data.get("session"):
+                        self.upsert_session_data(opencode_data["session"], source='opencode')
+                        print("✓ OpenCode Sessions")
+                    else:
+                        print("⚠️  No OpenCode session data")
+
+                    # Import projects daily data
+                    if opencode_data.get("projects"):
+                        loader = LoadingAnimation("Processing OpenCode projects data")
+                        loader.start()
+                        self.upsert_projects_daily_data(opencode_data["projects"], source='opencode')
+                        loader.stop("OpenCode Projects data processed")
+                    else:
+                        print("⚠️  No OpenCode projects data found")
+
+                    print("✅ OpenCode data imported successfully")
+
+                except Exception as e:
+                    import traceback
+                    print(f"⚠️  OpenCode import failed (non-critical): {e}")
+                    traceback.print_exc()
 
             # import_duration = (datetime.now() - import_start).total_seconds()
             overall_duration = (datetime.now() - overall_start).total_seconds()
@@ -1525,7 +2116,15 @@ class ClickHouseImporter:
             self.print_statistics_with_comparison(stats)
 
             # Save import statistics for future comparison with data hash
-            total_records = sum(stats.get("table_counts", {}).values())
+            # Calculate total records - handle both dict (per-source) and int (simple) formats
+            table_counts = stats.get("table_counts", {})
+            total_records = 0
+            if isinstance(table_counts, dict):
+                for count in table_counts.values():
+                    if isinstance(count, dict):
+                        total_records += sum(count.values())
+                    else:
+                        total_records += count
             current_hash = self._calculate_data_hash(all_data)
             self.save_import_statistics(
                 stats, overall_duration, total_records, current_hash
@@ -1675,11 +2274,11 @@ def system_check():
 
 def main():
     """Main function with argument parsing"""
-    global HASH_PROJECT_NAMES
+    global HASH_PROJECT_NAMES, DEFAULT_OPENCODE_PATH, SKIP_OPENCODE, SKIP_CCUSAGE
 
     parser = argparse.ArgumentParser(
-        description="ccusage to ClickHouse Data Importer",
-        epilog="Examples:\n  %(prog)s                    # Import with privacy enabled (default)\n  %(prog)s --no-hash-projects  # Import with original project names\n  %(prog)s --check             # Validate system prerequisites",
+        description="ccusage to ClickHouse Data Importer with OpenCode support",
+        epilog="Examples:\n  %(prog)s                    # Import both ccusage and OpenCode (default)\n  %(prog)s --source ccusage    # Import only ccusage data\n  %(prog)s --source opencode   # Import only OpenCode data\n  %(prog)s --no-hash-projects  # Import with original project names\n  %(prog)s --check             # Validate system prerequisites",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -1692,12 +2291,30 @@ def main():
         action="store_true",
         help="Disable project name hashing (store original paths/session IDs)",
     )
+    parser.add_argument(
+        "--source",
+        type=str,
+        choices=["ccusage", "opencode", "both"],
+        default="both",
+        help="Data source to import: 'ccusage', 'opencode', or 'both' (default: both)",
+    )
+    parser.add_argument(
+        "--opencode-path",
+        type=str,
+        default=None,
+        help="Path to OpenCode storage directory (default: ~/.local/share/opencode/storage/message)",
+    )
 
     args = parser.parse_args()
 
     # Set global privacy configuration
     if args.no_hash_projects:
         HASH_PROJECT_NAMES = False
+
+    # Set global source configuration
+    DEFAULT_OPENCODE_PATH = args.opencode_path
+    SKIP_OPENCODE = args.source == "ccusage"
+    SKIP_CCUSAGE = args.source == "opencode"
 
     try:
         if args.check:

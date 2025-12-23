@@ -550,3 +550,97 @@ SELECT
 FROM ccusage_usage_sessions
 GROUP BY machine_name
 ORDER BY machine_name, data_type;
+
+-- ==============================================================================
+-- OPENCODE SPECIFIC QUERIES
+-- ==============================================================================
+
+-- OpenCode Daily Usage Summary
+SELECT
+    date,
+    sum(total_tokens) as total_tokens,
+    sum(input_tokens) as input_tokens,
+    sum(output_tokens) as output_tokens,
+    sum(total_cost) as total_cost,
+    count(distinct machine_name) as machines
+FROM ccusage_usage_daily
+WHERE source = 'opencode'
+GROUP BY date
+ORDER BY date DESC
+LIMIT 30;
+
+-- OpenCode Model Performance
+SELECT
+    model_name,
+    count() as usage_count,
+    sum(cost) as total_cost,
+    sum(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) as total_tokens,
+    avg(cost) as avg_cost_per_use
+FROM ccusage_model_breakdowns
+WHERE record_type = 'daily' AND source = 'opencode'
+GROUP BY model_name
+ORDER BY total_cost DESC;
+
+-- OpenCode Sessions by Project
+SELECT
+    project_path,
+    count() as session_count,
+    sum(total_tokens) as total_tokens,
+    sum(total_cost) as total_cost,
+    max(end_time) as last_activity
+FROM ccusage_usage_sessions
+WHERE source = 'opencode'
+GROUP BY project_path
+ORDER BY total_cost DESC
+LIMIT 20;
+
+-- OpenCode Error Rate (sessions with errors)
+SELECT
+    date,
+    count() as total_sessions,
+    count() - countIf(error_msg = '') as sessions_with_errors,
+    round((count() - countIf(error_msg = '')) / count() * 100, 2) as error_rate_percent
+FROM ccusage_usage_sessions
+WHERE source = 'opencode' AND date >= today() - INTERVAL 30 DAY
+GROUP BY date
+ORDER BY date DESC;
+
+-- Compare ccusage vs OpenCode Usage
+SELECT
+    source,
+    formatDateTime(min(date), '%Y-%m-%d') as first_date,
+    formatDateTime(max(date), '%Y-%m-%d') as last_date,
+    count(distinct date) as active_days,
+    sum(total_tokens) as total_tokens,
+    sum(total_cost) as total_cost,
+    count() as records
+FROM ccusage_usage_daily
+GROUP BY source
+ORDER BY source;
+
+-- Combined Daily Usage (Both Sources)
+SELECT
+    date,
+    sumIf(total_tokens, source = 'ccusage') as ccusage_tokens,
+    sumIf(total_tokens, source = 'opencode') as opencode_tokens,
+    sum(total_tokens) as combined_tokens,
+    sumIf(total_cost, source = 'ccusage') as ccusage_cost,
+    sumIf(total_cost, source = 'opencode') as opencode_cost,
+    sum(total_cost) as combined_cost
+FROM ccusage_usage_daily
+GROUP BY date
+ORDER BY date DESC
+LIMIT 30;
+
+-- Top Models Across Both Sources
+SELECT
+    source,
+    model_name,
+    sum(cost) as total_cost,
+    sum(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) as total_tokens,
+    count() as usage_count
+FROM ccusage_model_breakdowns
+WHERE record_type = 'daily'
+GROUP BY source, model_name
+ORDER BY total_cost DESC
+LIMIT 20;
