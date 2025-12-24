@@ -118,6 +118,15 @@ class LoadingAnimation:
 class UIFormatter:
     """Enhanced UI formatting utilities"""
 
+    # Unicode block characters for intensity levels
+    INTENSITY_CHARS = {
+        0: '·',  # No activity
+        1: '░',  # Light
+        2: '▒',  # Medium
+        3: '▓',  # Dark
+        4: '█',  # Full
+    }
+
     @staticmethod
     def print_header(title: str, width: int = 50):
         """Print a compact header"""
@@ -165,6 +174,220 @@ class UIFormatter:
             return f"{num / 1_000:.1f}K"
         else:
             return f"{num:,}"
+
+    @staticmethod
+    def _get_intensity_level(value: int, max_value: int) -> int:
+        """
+        Calculate intensity level (0-4) using logarithmic scale.
+
+        Logarithmic scale handles skewed data better:
+        - Level 0: No activity
+        - Level 1: < 1% of max
+        - Level 2: 1% - 10% of max
+        - Level 3: 10% - 50% of max
+        - Level 4: > 50% of max
+        """
+        if value == 0:
+            return 0
+        if max_value == 0:
+            return 0
+
+        ratio = value / max_value
+
+        if ratio < 0.01:
+            return 1
+        elif ratio < 0.1:
+            return 2
+        elif ratio < 0.5:
+            return 3
+        else:
+            return 4
+
+    @staticmethod
+    def _build_heatmap_grid(daily_data: List[Dict], days: int = 365) -> Dict:
+        """
+        Build 2D grid for heatmap display.
+
+        Returns:
+            Dict with:
+            - 'grid': Dict[week_num][day_of_week] = tokens
+            - 'max_value': Maximum token count for scaling
+            - 'month_labels': List of (week_num, month_name) for headers
+        """
+        from collections import defaultdict
+        import datetime
+
+        grid = defaultdict(lambda: defaultdict(int))
+        max_value = 0
+        month_labels = []
+
+        # Create date lookup
+        data_by_date = {d["date"]: d["tokens"] for d in daily_data}
+
+        # Calculate end date (today or last data date)
+        end_date = daily_data[-1]["date"] if daily_data else datetime.date.today()
+
+        # Build grid from end_date backwards
+        for day_offset in range(days):
+            current_date = end_date - datetime.timedelta(days=day_offset)
+
+            # Calculate week and day of week
+            week_num = (days - day_offset - 1) // 7
+            day_of_week = current_date.weekday() + 1  # 1=Monday, 7=Sunday
+
+            tokens = data_by_date.get(current_date, 0)
+            if tokens > max_value:
+                max_value = tokens
+
+            grid[week_num][day_of_week] = tokens
+
+            # Track month labels (first week of each month)
+            if current_date.day <= 7:
+                month_name = current_date.strftime("%b")
+                if not month_labels or month_labels[-1][1] != month_name:
+                    month_labels.append((week_num, month_name))
+
+        return {
+            "grid": grid,
+            "max_value": max_value,
+            "month_labels": month_labels
+        }
+
+    @staticmethod
+    def print_heatmap(daily_data: List[Dict], days: int = 365, title: str = "Activity Heatmap"):
+        """
+        Print GitHub-style contribution heatmap.
+
+        Args:
+            daily_data: List of dicts with date, day_of_week, week_num, tokens
+            days: Number of days to display (default 365)
+            title: Chart title
+        """
+        import datetime
+
+        UIFormatter.print_section(title, 70)
+
+        if not daily_data:
+            print("  No activity data available")
+            return
+
+        # Build grid
+        grid_data = UIFormatter._build_heatmap_grid(daily_data, days)
+        grid = grid_data["grid"]
+        max_value = grid_data["max_value"]
+        month_labels = grid_data["month_labels"]
+
+        # Day labels
+        day_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+        # Calculate grid dimensions
+        max_week = max(grid.keys()) if grid else 0
+
+        # Print month headers
+        print("     ", end="")
+        last_month_week = 0
+        for week_num, month_name in month_labels:
+            # Add spacing for weeks between months
+            while last_month_week < week_num:
+                print("  ", end="")
+                last_month_week += 1
+            print(month_name, end="")
+            last_month_week = week_num
+        print()
+
+        # Print day rows
+        for day_idx in range(7):  # 0=Monday, 6=Sunday
+            day_name = day_labels[day_idx]
+            print(f"  {day_name} ", end="")
+
+            for week_num in range(max_week + 1):
+                day_of_week = day_idx + 1  # 1-7
+                tokens = grid[week_num][day_of_week]
+                level = UIFormatter._get_intensity_level(tokens, max_value)
+                char = UIFormatter.INTENSITY_CHARS[level]
+                print(char, end=" ")
+            print()
+
+        # Print legend
+        print("      Less ", end="")
+        for level in range(5):
+            print(UIFormatter.INTENSITY_CHARS[level], end="")
+        print(" More")
+
+    @staticmethod
+    def print_statistics_summary(stats: Dict[str, Any]):
+        """
+        Print summary statistics in two columns.
+
+        Args:
+            stats: Dict with favorite_model, total_tokens, streaks, peak_hour, sessions
+        """
+        UIFormatter.print_section("Statistics Summary", 70)
+
+        # Helper for two-column layout
+        def print_stat_row(label1: str, value1: str, label2: str, value2: str):
+            print(f"  {label1}: {value1:<30}  {label2}: {value2}")
+
+        # Format values
+        total_tokens = UIFormatter.format_number(stats.get("total_tokens", 0))
+
+        favorite = stats.get("favorite_model", {})
+        model_name = favorite.get("model_name", "N/A")
+        if len(model_name) > 25:
+            model_name = model_name[:22] + "..."
+
+        sessions = stats.get("sessions", {})
+        session_count = UIFormatter.format_number(sessions.get("session_count", 0))
+        longest_sec = sessions.get("longest_session_seconds", 0)
+        longest = UIFormatter.format_duration(longest_sec) if longest_sec > 0 else "N/A"
+
+        streaks = stats.get("streaks", {})
+        current = streaks.get("current_streak", 0)
+        longest_streak = streaks.get("longest_streak", 0)
+
+        heatmap = stats.get("heatmap", {})
+        active_days = heatmap.get("active_days", 0)
+        total_days = heatmap.get("total_days", 365)
+
+        peak = stats.get("peak_hour", "N/A")
+
+        # Print rows
+        print_stat_row("Favorite model", model_name, "Total tokens", total_tokens)
+        print()
+        print_stat_row("Sessions", session_count, "Longest session", longest)
+        print_stat_row("Current streak", f"{current} days", "Longest streak", f"{longest_streak} days")
+        print_stat_row("Active days", f"{active_days}/{total_days}", "Peak hour", peak)
+
+    @staticmethod
+    def print_models_tab(model_data: List[Dict]):
+        """
+        Print model usage breakdown as ranked list.
+
+        Args:
+            model_data: List of {model_name, tokens, cost, percentage}
+        """
+        UIFormatter.print_section("Model Usage Breakdown", 70)
+
+        # Sort by tokens descending
+        sorted_models = sorted(model_data, key=lambda x: x.get("tokens", 0), reverse=True)
+
+        # Print header
+        print(f"  {'Model':<30} {'Tokens':>15} {'Cost':>12} {'%':>6}")
+        print("  " + "-" * 68)
+
+        # Print top 10 models
+        for model in sorted_models[:10]:
+            name = model.get("model_name", "Unknown")
+            if len(name) > 30:
+                name = name[:27] + "..."
+            tokens = UIFormatter.format_number(model.get("tokens", 0))
+            cost = f"${model.get('cost', 0):,.2f}"
+            pct = f"{model.get('percentage', 0):.1f}%"
+
+            print(f"  {name:<30} {tokens:>15} {cost:>12} {pct:>6}")
+
+        if len(sorted_models) > 10:
+            print(f"  ... and {len(sorted_models) - 10} more models")
 
 
 class ClickHouseImporter:
@@ -1502,6 +1725,297 @@ class ClickHouseImporter:
 
         return stats
 
+    def get_heatmap_data(self, days: int = 365) -> Dict[str, Any]:
+        """
+        Query daily usage data for heatmap visualization.
+
+        Args:
+            days: Number of days to include (default 365)
+
+        Returns:
+            Dict with:
+            - 'daily_data': List of {date, day_of_week, week_num, tokens, cost}
+            - 'total_tokens': Total tokens in period
+            - 'active_days': Number of days with activity
+            - 'date_range': (min_date, max_date)
+        """
+        query = f"""
+        SELECT
+            date,
+            toDayOfWeek(date) as day_of_week,
+            toRelativeWeekNum(date) as week_num,
+            sum(total_tokens) as tokens,
+            sum(total_cost) as cost
+        FROM ccusage_usage_daily
+        WHERE date >= today() - INTERVAL {days} DAY
+          AND machine_name = '{MACHINE_NAME}'
+        GROUP BY date, day_of_week, week_num
+        ORDER BY date
+        """
+        result = self.client.query(query).result_rows
+
+        daily_data = []
+        total_tokens = 0
+        active_days = len(result)
+
+        for row in result:
+            daily_data.append({
+                "date": row[0],
+                "day_of_week": row[1],  # 1-7
+                "week_num": row[2],
+                "tokens": int(row[3]),
+                "cost": float(row[4])
+            })
+            total_tokens += int(row[3])
+
+        return {
+            "daily_data": daily_data,
+            "total_tokens": total_tokens,
+            "active_days": active_days,
+            "date_range": (result[0][0] if result else None, result[-1][0] if result else None)
+        }
+
+    def get_streak_stats(self) -> Dict[str, Any]:
+        """
+        Calculate current and longest streaks of consecutive active days.
+
+        Returns:
+            Dict with current_streak, longest_streak
+        """
+        query = f"""
+        WITH ordered_dates AS (
+            SELECT date, total_tokens
+            FROM ccusage_usage_daily
+            WHERE machine_name = '{MACHINE_NAME}'
+            ORDER BY date DESC
+        ),
+        streak_groups AS (
+            SELECT
+                date,
+                total_tokens,
+                date - toInt32(rowNumber() - 1) as group_id
+            FROM ordered_dates
+            WHERE total_tokens > 0
+        )
+        SELECT
+            count() as current_streak,
+            max(group_count) as longest_streak
+        FROM (
+            SELECT
+                group_id,
+                count() as group_count
+            FROM streak_groups
+            GROUP BY group_id
+            ORDER BY group_id
+            LIMIT 1
+        )
+        CROSS JOIN (
+            SELECT max(group_count) as group_count
+            FROM (
+                SELECT count() as group_count
+                FROM streak_groups
+                GROUP BY group_id
+            )
+        )
+        """
+
+        try:
+            result = self.client.query(query).result_rows[0]
+            return {
+                "current_streak": int(result[0]) if result[0] else 0,
+                "longest_streak": int(result[1]) if result[1] else 0
+            }
+        except Exception:
+            return {"current_streak": 0, "longest_streak": 0}
+
+    def get_peak_hour(self) -> Optional[str]:
+        """
+        Find peak usage day of week from daily data.
+
+        Note: Session data stores dates only (no time), so we calculate
+        peak activity from daily usage patterns instead.
+
+        Returns:
+            Day string like "Mon" or None
+        """
+        query = f"""
+        SELECT
+            toDayOfWeek(date) as day_of_week,
+            sum(total_tokens) as tokens
+        FROM ccusage_usage_daily
+        WHERE machine_name = '{MACHINE_NAME}'
+          AND date >= today() - INTERVAL 90 DAY
+        GROUP BY day_of_week
+        ORDER BY tokens DESC
+        LIMIT 1
+        """
+
+        try:
+            result = self.client.query(query).result_rows
+            if result and result[0]:
+                day_num = int(result[0][0])  # 1=Monday, 7=Sunday
+                days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                return days[day_num - 1] if 1 <= day_num <= 7 else None
+        except Exception:
+            pass
+        return None
+
+    def get_favorite_model(self) -> Dict[str, Any]:
+        """
+        Find most-used model by total tokens.
+
+        Returns:
+            Dict with model_name, token_count, percentage
+        """
+        query = f"""
+        SELECT
+            model_name,
+            sum(input_tokens + output_tokens) as total_tokens
+        FROM ccusage_model_breakdowns
+        WHERE machine_name = '{MACHINE_NAME}'
+        GROUP BY model_name
+        ORDER BY total_tokens DESC
+        LIMIT 1
+        """
+
+        try:
+            result = self.client.query(query).result_rows
+            if result and result[0]:
+                # Get total for percentage calculation
+                total_query = f"""
+                SELECT sum(input_tokens + output_tokens)
+                FROM ccusage_model_breakdowns
+                WHERE machine_name = '{MACHINE_NAME}'
+                """
+                total = self.client.query(total_query).result_rows[0][0]
+
+                model_name = result[0][0]
+                tokens = int(result[0][1])
+                percentage = (tokens / total * 100) if total > 0 else 0
+
+                return {
+                    "model_name": model_name,
+                    "tokens": tokens,
+                    "percentage": percentage
+                }
+        except Exception:
+            pass
+
+        return {"model_name": "N/A", "tokens": 0, "percentage": 0}
+
+    def get_session_stats(self) -> Dict[str, Any]:
+        """
+        Get session statistics: total count.
+
+        Note: The sessions table doesn't track duration, only counts.
+
+        Returns:
+            Dict with session_count
+        """
+        query = f"""
+        SELECT
+            count() as session_count
+        FROM ccusage_usage_sessions
+        WHERE machine_name = '{MACHINE_NAME}'
+        """
+
+        try:
+            result = self.client.query(query).result_rows[0]
+            return {
+                "session_count": int(result[0]),
+                "longest_session_seconds": 0  # Not tracked in schema
+            }
+        except Exception:
+            return {"session_count": 0, "longest_session_seconds": 0}
+
+    def display_charts(self, days: int = 365, tabs: List[str] = ["Overview", "Models"], auto_cycle: bool = True):
+        """
+        Display chart visualizations with tab navigation.
+
+        Args:
+            days: Number of days to include in heatmap
+            tabs: List of tab names to display
+            auto_cycle: If True, automatically cycle through tabs with delay
+        """
+        import time
+        import signal
+
+        # Fetch all data
+        heatmap_data = self.get_heatmap_data(days)
+        streaks = self.get_streak_stats()
+        peak_hour = self.get_peak_hour()
+        favorite_model = self.get_favorite_model()
+        sessions = self.get_session_stats()
+
+        # Fetch model breakdown for Models tab
+        model_query = f"""
+        SELECT
+            model_name,
+            sum(input_tokens + output_tokens) as tokens,
+            sum(cost) as cost
+        FROM ccusage_model_breakdowns
+        WHERE machine_name = '{MACHINE_NAME}'
+        GROUP BY model_name
+        ORDER BY tokens DESC
+        """
+        model_result = self.client.query(model_query).result_rows
+        total_tokens = sum(m[1] for m in model_result) if model_result else 0
+
+        model_data = []
+        for row in model_result:
+            model_data.append({
+                "model_name": row[0],
+                "tokens": int(row[1]),
+                "cost": float(row[2]),
+                "percentage": (row[1] / total_tokens * 100) if total_tokens > 0 else 0
+            })
+
+        # Prepare stats dict
+        stats = {
+            "total_tokens": heatmap_data.get("total_tokens", 0),
+            "heatmap": {
+                **heatmap_data,
+                "total_days": days
+            },
+            "streaks": streaks,
+            "peak_hour": peak_hour,
+            "favorite_model": favorite_model,
+            "sessions": sessions
+        }
+
+        # Tab display function
+        def show_tab(tab_name: str):
+            print("\033[2J\033[H")  # Clear screen (works on most terminals)
+            UIFormatter.print_header(f"AI USAGE ANALYTICS - {tab_name}", 70)
+
+            if tab_name == "Overview":
+                UIFormatter.print_heatmap(heatmap_data["daily_data"], days, "Activity Heatmap")
+                print()
+                UIFormatter.print_statistics_summary(stats)
+            elif tab_name == "Models":
+                UIFormatter.print_models_tab(model_data)
+
+            print()
+            print("  Press Ctrl+C to exit", end="")
+            if auto_cycle and len(tabs) > 1:
+                next_idx = (tabs.index(tab_name) + 1) % len(tabs)
+                print(f", or wait for next tab ({tabs[next_idx]})...", end="", flush=True)
+
+        # Display tabs
+        if auto_cycle:
+            try:
+                for tab in tabs:
+                    show_tab(tab)
+                    time.sleep(8)  # Wait 8 seconds before next tab
+            except KeyboardInterrupt:
+                print("\n\n  Exiting charts...")
+        else:
+            # Single tab display
+            for tab in tabs:
+                show_tab(tab)
+                if len(tabs) > 1:
+                    input("\n  Press Enter to continue...")
+
     def print_statistics(self, stats: Dict[str, Any]):
         """Print beautifully formatted statistics with source grouping"""
         UIFormatter.print_header("📊 IMPORT SUMMARY & STATISTICS", 70)
@@ -2115,6 +2629,13 @@ class ClickHouseImporter:
             # Display beautiful statistics with comparison to previous import
             self.print_statistics_with_comparison(stats)
 
+            # Show overview chart after import
+            print()
+            try:
+                self.display_charts(days=365, tabs=["Overview"], auto_cycle=False)
+            except KeyboardInterrupt:
+                print("\n  Charts skipped by user")
+
             # Save import statistics for future comparison with data hash
             # Calculate total records - handle both dict (per-source) and int (simple) formats
             table_counts = stats.get("table_counts", {})
@@ -2304,6 +2825,24 @@ def main():
         default=None,
         help="Path to OpenCode storage directory (default: ~/.local/share/opencode/storage/message)",
     )
+    parser.add_argument(
+        "--charts",
+        action="store_true",
+        help="Display usage charts and exit (skip import)",
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=365,
+        help="Number of days to include in charts (default: 365)",
+    )
+    parser.add_argument(
+        "--tab",
+        type=str,
+        choices=["overview", "models", "both"],
+        default="both",
+        help="Which chart tab(s) to display (default: both)",
+    )
 
     args = parser.parse_args()
 
@@ -2317,7 +2856,18 @@ def main():
     SKIP_CCUSAGE = args.source == "opencode"
 
     try:
-        if args.check:
+        if args.charts:
+            # Display charts in standalone mode
+            importer = ClickHouseImporter()
+            tabs = []
+            if args.tab in ["overview", "both"]:
+                tabs.append("Overview")
+            if args.tab in ["models", "both"]:
+                tabs.append("Models")
+
+            importer.display_charts(days=args.days, tabs=tabs, auto_cycle=len(tabs) > 1)
+            sys.exit(0)
+        elif args.check:
             # Run system check
             success = system_check()
             sys.exit(0 if success else 1)
