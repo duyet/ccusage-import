@@ -392,6 +392,53 @@ The enhanced importer follows this optimized workflow with beautiful UI:
    - Status: Header simplified, but progress animations remain
    - Impact: Cosmetic only, does not affect functionality
 
+### ccusage CLI Response Structure (BUG-005)
+**Error**: `string indices must be integers, not 'str'`
+
+**Root Cause**: The ccusage CLI wraps each data type in an object with the type name as key:
+```json
+// ccusage daily --json returns:
+{ "daily": [...], "totals": {...} }
+
+// ccusage monthly --json returns:
+{ "monthly": [...], "totals": {...} }
+
+// ccusage session --json returns:
+{ "sessions": [...], "totals": {...} }  // Note: "sessions" not "session"!
+
+// ccusage blocks --json returns:
+{ "blocks": [...] }
+
+// ccusage daily --instances --json returns:
+{ "projects": [...], "totals": {...} }
+```
+
+**Bug Location**: `import_all_data()` method was passing the entire response object to upsert methods instead of extracting the inner array.
+
+**Wrong Code**:
+```python
+ccusage_data = {
+    "daily": all_data.get("daily", {}),  # Returns {"daily": [...], "totals": {...}}
+    ...
+}
+self.upsert_daily_data(ccusage_data["daily"], ...)  # Passes dict, not list!
+```
+
+**Fix**: Extract the inner array from each response:
+```python
+raw_daily = all_data.get("daily", {})
+ccusage_data = {
+    "daily": raw_daily.get("daily", []) if isinstance(raw_daily, dict) else [],
+    "session": raw_session.get("sessions", []),  # Note: "sessions" key!
+    ...
+}
+```
+
+**Debugging Tips**:
+- Use `bunx ccusage@latest daily --json | jq 'keys'` to check response structure
+- The "sessions" key (plural) is different from the command name "session"
+- Always verify data shape before passing to upsert methods
+
 ### Multi-Machine Deployment Notes
 - Each machine auto-detects its hostname via `socket.gethostname()`
 - Data is isolated by machine_name in all tables
@@ -447,3 +494,4 @@ python test_concurrency.py --scenario 2
 - 🔒 **BUG-004 FIX**: Implemented comprehensive race condition protection with file locking, atomic operations, and thread safety
 - 🧪 Added concurrency test suite (test_concurrency.py) with 5 test scenarios
 - 📝 Created CONCURRENCY.md with complete thread safety documentation
+- 🔧 **BUG-005 FIX**: Fixed ccusage data extraction - extract inner arrays from wrapped response objects (Dec 25, 2025)

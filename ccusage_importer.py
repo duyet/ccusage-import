@@ -2514,12 +2514,20 @@ class ClickHouseImporter:
             )
 
             # Separate ccusage and OpenCode data
+            # Note: ccusage CLI wraps data in objects like {daily: [...], totals: {...}}
+            # We need to extract the inner arrays from each response
+            raw_daily = all_data.get("daily", {})
+            raw_monthly = all_data.get("monthly", {})
+            raw_session = all_data.get("session", {})
+            raw_blocks = all_data.get("blocks", {})
+            raw_projects = all_data.get("projects", {})
+
             ccusage_data = {
-                "daily": all_data.get("daily", {}),
-                "monthly": all_data.get("monthly", {}),
-                "session": all_data.get("session", {}),
-                "blocks": all_data.get("blocks", {}),
-                "projects": all_data.get("projects", {}),
+                "daily": raw_daily.get("daily", []) if isinstance(raw_daily, dict) else [],
+                "monthly": raw_monthly.get("monthly", []) if isinstance(raw_monthly, dict) else [],
+                "session": raw_session.get("sessions", []) if isinstance(raw_session, dict) else [],  # Note: "sessions" not "session"
+                "blocks": raw_blocks.get("blocks", []) if isinstance(raw_blocks, dict) else [],
+                "projects": raw_projects.get("projects", []) if isinstance(raw_projects, dict) else [],
             }
             opencode_data = all_data.get("opencode", {})
 
