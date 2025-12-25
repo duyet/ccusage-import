@@ -266,6 +266,7 @@ class UIFormatter:
         import datetime
 
         UIFormatter.print_section(title, 70)
+        print()
 
         if not daily_data:
             print("  No activity data available")
@@ -283,16 +284,22 @@ class UIFormatter:
         # Calculate grid dimensions
         max_week = max(grid.keys()) if grid else 0
 
+        # Reverse month labels so they display chronologically (left to right)
+        # Grid is built backwards, so labels come in reverse order
+        month_labels = list(reversed(month_labels))
+
         # Print month headers
         print("     ", end="")
-        last_month_week = 0
+        last_printed_pos = 0
         for week_num, month_name in month_labels:
-            # Add spacing for weeks between months
-            while last_month_week < week_num:
-                print("  ", end="")
-                last_month_week += 1
+            # Calculate target position (each week column is 2 chars wide)
+            target_pos = week_num * 2
+            # Add spacing to reach target position
+            while last_printed_pos < target_pos:
+                print(" ", end="")
+                last_printed_pos += 1
             print(month_name, end="")
-            last_month_week = week_num
+            last_printed_pos += len(month_name)
         print()
 
         # Print day rows
@@ -1071,7 +1078,7 @@ class ClickHouseImporter:
                     capture_output=True,
                     text=True,
                     check=True,
-                    timeout=30,  # 30 second timeout per command
+                    timeout=120,  # 120 second timeout per command (ccusage can be slow with large datasets)
                 )
                 return json.loads(result.stdout)
             except subprocess.TimeoutExpired:
@@ -2704,7 +2711,7 @@ def system_check():
     for cmd_name, cmd in ccusage_commands:
         try:
             result = subprocess.run(
-                cmd.split(), capture_output=True, text=True, timeout=30
+                cmd.split(), capture_output=True, text=True, timeout=120
             )
             if result.returncode == 0:
                 data = json.loads(result.stdout)
@@ -2715,7 +2722,7 @@ def system_check():
                 print(f"  ❌ {cmd_name}: Failed to execute - {result.stderr}")
                 all_checks_passed = False
         except subprocess.TimeoutExpired:
-            print(f"  ⚠️  {cmd_name}: Command timed out (30s)")
+            print(f"  ⚠️  {cmd_name}: Command timed out (120s)")
             all_checks_passed = False
         except json.JSONDecodeError:
             print(f"  ⚠️  {cmd_name}: Invalid JSON response")
