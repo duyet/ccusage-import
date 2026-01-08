@@ -80,3 +80,4 @@ htmlcov/
 
 # Concurrency lock file
 .ccusage_import.lock
+node_modules/
