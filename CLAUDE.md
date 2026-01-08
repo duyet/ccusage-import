@@ -4,9 +4,167 @@ This file provides guidance to Claude Code when working with the ccusage-import 
 
 ## Project Overview
 
-This is a Python project that imports ccusage (Claude Code usage analytics) data into ClickHouse database for visualization and analysis.
+**Status**: 🔄 **Migrating to TypeScript + Bun**
+
+This project is transitioning from Python to TypeScript + Bun for better performance, type safety, and modern tooling. The Python implementation remains functional during migration.
+
+- **Python**: Legacy implementation (2,902 lines, fully functional)
+- **TypeScript**: New implementation (Phase 2 complete, 30+ files, 40+ tests passing)
+
+This is a data importer that pulls ccusage (Claude Code usage analytics) data into ClickHouse database for visualization and analysis.
+
+---
+
+## TypeScript Migration (In Progress)
+
+### Phase 1: Foundation ✅ COMPLETE
+
+**Completed (2025-01-05):**
+- [x] Bun + TypeScript project initialization
+- [x] Project directory structure (`src/config/`, `src/types/`, `src/database/`, etc.)
+- [x] Configuration classes:
+  - `ClickHouseConfig` - Database connection with auto HTTPS detection
+  - `ImporterConfig` - Import behavior settings
+  - `UIConfig` - Display and animation settings
+- [x] Zod schemas for all data types (ccusage + OpenCode)
+- [x] ClickHouse client wrapper (`CHClient`) with async/await
+- [x] TTY detection utilities for cron compatibility
+- [x] Formatting utilities (numbers, costs, durations)
+- [x] Bun test infrastructure with first passing tests
+
+**Current Files Created:**
+```
+src/
+├── config/
+│   ├── clickhouse.ts      ✅ ClickHouseConfig class
+│   ├── importer.ts        ✅ ImporterConfig class
+│   ├── ui.ts              ✅ UIConfig class
+│   └── index.ts           ✅ ConfigManager class
+├── types/
+│   └── schemas.ts         ✅ Zod schemas (15+ schemas)
+├── database/
+│   └── client.ts          ✅ CHClient wrapper
+├── ui/utils/
+│   ├── tty.ts             ✅ TTY detection
+│   └── formatting.ts      ✅ Number/cost/duration formatting
+tests/
+├── setup.ts               ✅ Test fixtures & mocks
+└── unit/
+    └── formatting.test.ts ✅ 16 passing tests
+```
+
+**How to Run Tests (Bun):**
+```bash
+# Run all tests
+bun test
+
+# Run specific test file
+bun test tests/unit/formatting.test.ts
+
+# Run with coverage
+bun test --coverage
+```
+
+**TypeScript Commands:**
+```bash
+# Type check
+npx tsc --noEmit
+
+# Build (when ready)
+bun run build
+
+# Run main entry (when implemented)
+bun run src/main.ts
+```
+
+### Phase 2: Core Logic ✅ COMPLETE
+
+**Completed (2025-01-06):**
+- [x] CcusageFetcher (parallel data fetching with Bun shell)
+- [x] OpenCodeFetcher (JSONL reader with Bun.file API)
+- [x] Data parsers with Zod validation
+- [x] Repository classes for 7 tables
+- [x] OpenCode aggregators
+- [x] Retry logic with exponential backoff and jitter
+- [x] SHA-256 project name hashing (stable, collision-resistant)
+- [x] Date/datetime parsing utilities
+- [x] Row builders for all tables
+
+**New Files Created:**
+```
+src/
+├── fetchers/
+│   ├── ccusage.ts         ✅ CcusageFetcher with parallel execution
+│   ├── opencode.ts        ✅ OpenCodeFetcher for JSONL
+│   └── index.ts           ✅ Export module
+├── parsers/
+│   ├── dates.ts           ✅ Date/datetime parsing (parseDate, parseDateTime)
+│   ├── hash.ts            ✅ SHA-256 hashing (async + sync variants)
+│   ├── hash.test.ts       ✅ Comprehensive hash tests
+│   ├── parsers.ts         ✅ Row builders for all tables
+│   ├── aggregators.ts     ✅ OpenCode message aggregation
+│   └── types.ts           ✅ TypeScript type definitions
+├── database/
+│   ├── repositories.ts    ✅ Repository classes for 7 tables
+│   └── repositories/       📁 Directory for individual repos
+├── utils/
+│   └── retry.ts           ✅ Exponential backoff retry utility
+└── ui/
+    ├── utils/colors.ts    ✅ Color constants
+    ├── utils/formatters.ts ✅ Additional formatters
+    ├── utils/index.ts     ✅ Export module
+    ├── types/index.ts     ✅ UI type definitions
+    └── components/index.ts ✅ Export module
+```
+
+**Test Results:**
+- 40+ tests passing (formatting, retry utilities)
+- TypeScript compiles cleanly (no errors)
+- Type-safe with Zod validation throughout
+
+### Phase 3: UI Implementation (Planned)
+- [ ] Ink app setup with React
+- [ ] TTY-aware App component
+- [ ] ImportProgress component
+- [ ] StatisticsDashboard component
+- [ ] UsageHeatmap component
+
+### Phase 4: Enhanced Features (Planned)
+- [ ] BarChart component (ASCII charts)
+- [ ] ComparisonView component
+- [ ] DataExporter (JSON/CSV/Markdown)
+- [ ] Export CLI commands
+
+### Phase 5: Testing & Polish (Planned)
+- [ ] Unit tests for all modules (90%+ coverage)
+- [ ] Integration tests
+- [ ] E2E test with real ClickHouse
+- [ ] Cron compatibility testing
+
+### Phase 6: Migration & Validation (Planned)
+- [ ] Parallel Python/TypeScript imports
+- [ ] Data integrity validation
+- [ ] Statistics comparison
+- [ ] Update cronjob scripts
+- [ ] Remove Python code
+
+---
 
 ## Development Setup
+
+### TypeScript (New, Recommended)
+```bash
+# Install dependencies (use npm if bun not available)
+npm install
+
+# Run tests
+bun test
+
+# Type check
+npx tsc --noEmit
+```
+
+### Python (Legacy, Still Functional)
 
 ```bash
 # Install dependencies

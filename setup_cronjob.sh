@@ -1,227 +1,228 @@
 #!/bin/bash
-# Setup cronjob for ccusage data import to ClickHouse
-# Security: All variables are properly quoted to prevent command injection
-# Uses [[ ]] for tests and validates all external inputs
-# PATH TRAVERSAL PROTECTION: Validates all paths before use
+set -e
 
-set -euo pipefail  # Exit on error, undefined variables, and pipe failures
+# ccusage-import Cronjob Setup Script
+# Sets up automated hourly imports
+#
+# Usage: ./setup_cronjob.sh [-f|--force]
+#   -f, --force    Force overwrite existing cronjob without prompting
 
-# Security: Get the actual script directory (resolves symlinks)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-PROJECT_DIR="$SCRIPT_DIR"
-SCRIPT_PATH="$PROJECT_DIR/ccusage_importer.py"
+FORCE=false
+SHOW_STATUS=false
 
-# Security: Validate PROJECT_DIR is an absolute path and doesn't contain ".."
-if [[ ! "$PROJECT_DIR" =~ ^/ ]]; then
-    echo "❌ Security Error: PROJECT_DIR must be an absolute path"
-    exit 1
-fi
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -f|--force)
+            FORCE=true
+            shift
+            ;;
+        -s|--status)
+            SHOW_STATUS=true
+            shift
+            ;;
+        -h|--help)
+            echo "ccusage-import Cronjob Setup"
+            echo ""
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  -f, --force      Force overwrite existing cronjob without prompting"
+            echo "  -s, --status     Show current cronjob status and exit"
+            echo "  -h, --help       Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0               # Interactive setup"
+            echo "  $0 -f            # Force overwrite"
+            echo "  $0 -s            # Show status"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [-f|--force] [-s|--status] [-h|--help]"
+            exit 1
+            ;;
+    esac
+done
 
-if [[ "$PROJECT_DIR" =~ \.\. ]]; then
-    echo "❌ Security Error: PROJECT_DIR contains '..' sequence"
-    exit 1
-fi
-
-# Security: Detect uv path dynamically with proper quoting
-UV_PATH="$(which uv 2>/dev/null || true)"
-if [[ -z "$UV_PATH" ]]; then
-    echo "❌ uv not found in PATH. Please install uv first."
-    exit 1
-fi
-
-# Security: Validate UV_PATH is a valid executable path (basic sanitization)
-if [[ ! -x "$UV_PATH" ]]; then
-    echo "❌ uv path is not executable: $UV_PATH"
-    exit 1
-fi
-
-# Security: Detect package runner paths (npx and bunx) with proper quoting
-NPX_PATH="$(which npx 2>/dev/null || true)"
-BUNX_PATH="$(which bunx 2>/dev/null || true)"
-
-if [[ -z "$NPX_PATH" ]] && [[ -z "$BUNX_PATH" ]]; then
-    echo "❌ Neither npx nor bunx found in PATH. Please install Node.js/npm or Bun first."
-    exit 1
-fi
-
-# Security: Build the PATH additions with proper quoting
-BIN_PATHS=""
-if [[ -n "$NPX_PATH" ]]; then
-    NPX_DIR="$(dirname "$NPX_PATH")"
-    BIN_PATHS="$NPX_DIR"
-fi
-if [[ -n "$BUNX_PATH" ]]; then
-    BUNX_DIR="$(dirname "$BUNX_PATH")"
-    if [[ -n "$BIN_PATHS" ]]; then
-        BIN_PATHS="$BIN_PATHS:$BUNX_DIR"
+# Show status and exit if requested
+if [ "$SHOW_STATUS" = true ]; then
+    echo "📊 Current cronjob status:"
+    echo ""
+    if crontab -l 2>/dev/null | grep -q "ccusage-import"; then
+        echo "✅ ccusage-import cronjob is installed:"
+        echo ""
+        crontab -l 2>/dev/null | grep "ccusage-import" | while read -r line; do
+            echo "  $line"
+        done
+        echo ""
+        echo "📝 Log file: $PROJECT_DIR/logs/ccusage-import.log"
+        if [ -f "$PROJECT_DIR/logs/ccusage-import.log" ]; then
+            echo "📊 Log size: $(wc -l < "$PROJECT_DIR/logs/ccusage-import.log") lines"
+            echo "🕒 Last entry:"
+            tail -1 "$PROJECT_DIR/logs/ccusage-import.log" 2>/dev/null | sed 's/^/    /'
+        fi
     else
-        BIN_PATHS="$BUNX_DIR"
+        echo "⚠️  No ccusage-import cronjob found"
+        echo ""
+        echo "To install, run: $0"
+    fi
+    exit 0
+fi
+
+echo "⏰ Setting up ccusage-import cronjob..."
+
+# Detect shell and config file
+SHELL_NAME="$(basename "$SHELL")"
+CRON_ENTRY=""
+
+case "$SHELL_NAME" in
+    bash)
+        CONFIG_FILE="$HOME/.bashrc"
+        ;;
+    zsh)
+        CONFIG_FILE="$HOME/.zshrc"
+        ;;
+    fish)
+        CONFIG_FILE="$HOME/.config/fish/config.fish"
+        ;;
+    *)
+        CONFIG_FILE="$HOME/.profile"
+        ;;
+esac
+
+# Get the project directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
+echo "📂 Project directory: $PROJECT_DIR"
+echo "📁 Shell config: $CONFIG_FILE"
+
+# Check if environment variables are set
+if [ -z "$CH_HOST" ] || [ -z "$CH_USER" ] || [ -z "$CH_PASSWORD" ] || [ -z "$CH_DATABASE" ]; then
+    echo ""
+    echo "⚠️  ClickHouse environment variables not set!"
+    echo ""
+    echo "Please set them first:"
+    echo "  export CH_HOST='your-host'"
+    echo "  export CH_PORT='8123'"
+    echo "  export CH_USER='your-user'"
+    echo "  export CH_PASSWORD='your-password'"
+    echo "  export CH_DATABASE='your-database'"
+    echo ""
+    echo "Then add them to $CONFIG_FILE for persistence."
+    echo ""
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
     fi
 fi
 
-# Security: Check if project directory exists with [[ ]]
-if [[ ! -d "$PROJECT_DIR" ]]; then
-    echo "❌ Project directory not found: $PROJECT_DIR"
+# Detect node/bun binary
+if command -v bun &> /dev/null; then
+    RUNNER="bun"
+    echo "✅ Detected bun runtime"
+elif command -v node &> /dev/null; then
+    RUNNER="node"
+    echo "✅ Detected node runtime"
+else
+    echo "❌ No Node.js runtime found"
     exit 1
 fi
 
-# Security: Check if script exists with [[ ]]
-if [[ ! -f "$SCRIPT_PATH" ]]; then
-    echo "❌ Script not found: $SCRIPT_PATH"
-    exit 1
-fi
-
-# Security: Validate and create log directory with proper quoting
-# Ensure HOME is set and doesn't contain path traversal sequences
-if [[ -z "${HOME:-}" ]]; then
-    echo "❌ Security Error: HOME environment variable is not set"
-    exit 1
-fi
-
-if [[ "$HOME" =~ \.\. ]]; then
-    echo "❌ Security Error: HOME contains '..' sequence"
-    exit 1
-fi
-
-# Security: Construct log directory path and validate it
-LOG_DIR="$HOME/.local/log/ccusage"
-
-# Security: Validate LOG_DIR doesn't contain path traversal sequences
-if [[ "$LOG_DIR" =~ \.\. ]]; then
-    echo "❌ Security Error: LOG_DIR contains '..' sequence"
-    exit 1
-fi
-
-# Security: Create log directory with safe permissions (rwx for user only)
+# Log file setup
+LOG_DIR="$PROJECT_DIR/logs"
 mkdir -p "$LOG_DIR"
-chmod 700 "$LOG_DIR"
+LOG_FILE="$LOG_DIR/ccusage-import.log"
 
-echo "🔧 Setting up ccusage cronjob..."
-echo "📁 Project: $PROJECT_DIR"
-echo "📜 Script: $SCRIPT_PATH"
-echo "📋 Logs: $LOG_DIR"
-echo "🔗 UV Path: $UV_PATH"
-echo "📦 Package runners:"
-if [[ -n "$NPX_PATH" ]]; then
-    echo "   - NPX: $NPX_PATH"
+echo "📝 Log file: $LOG_FILE"
+
+# Get npx/bunx path
+if command -v npx &> /dev/null; then
+    NPX_PATH="$(which npx)"
+elif command -v bunx &> /dev/null; then
+    NPX_PATH="$(which bunx)"
+else
+    NPX_PATH="npx"  # fallback
 fi
-if [[ -n "$BUNX_PATH" ]]; then
-    echo "   - BUNX: $BUNX_PATH"
+
+# Detect PATH for cron
+CRON_PATH="/usr/local/bin:/usr/bin:/bin:$HOME/.local/bin"
+
+if [ -d "$HOME/.bun" ]; then
+    CRON_PATH="$HOME/.bun/bin:$CRON_PATH"
 fi
-echo "🛤️  Cron PATH: $BIN_PATHS"
 
-# Check and display current environment variables
-echo "🔧 Environment variables:"
-echo "   - CH_HOST: ${CH_HOST:-'(not set)'}"
-echo "   - CH_PORT: ${CH_PORT:-'(not set)'}"
-echo "   - CH_USER: ${CH_USER:-'(not set)'}"
-echo "   - CH_DATABASE: ${CH_DATABASE:-'(not set)'}"
-echo "   - CH_PASSWORD: ${CH_PASSWORD:+'***set***'}"
+# Create cron entry
+# Run hourly at minute 0
+CRON_ENTRY="0 * * * * PATH=\"$CRON_PATH\" cd \"$PROJECT_DIR\" && $RUNNER src/cli.ts import --quiet >> \"$LOG_FILE\" 2>&1"
 
-# Add cronjob to run every hour with enhanced logging and environment variables
-echo "⏰ Setting up cronjob to run every hour with timestamp logging..."
+echo ""
+echo "Cron entry to be added:"
+echo "  $CRON_ENTRY"
+echo ""
 
-# Security: Validate environment variables before use
-# Only allow alphanumeric, dots, hyphens, underscores for host/user/database
-# This prevents command injection through environment variables
-validate_alphanum() {
-    local var="$1"
-    if [[ "$var" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-        return 0
+# Check if crontab exists and has ccusage-import entry
+if crontab -l 2>/dev/null | grep -q "ccusage-import"; then
+    echo "⚠️  Found existing ccusage-import cronjob"
+    if [ "$FORCE" = true ]; then
+        echo "🔄 Force mode: replacing existing cronjob"
+        # Remove existing entry
+        crontab -l 2>/dev/null | grep -v "ccusage-import" | crontab -
+        # Add new entry
+        (crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
+        echo "✅ Cronjob updated"
     else
-        return 1
+        read -p "Replace it? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            # Remove existing entry
+            crontab -l 2>/dev/null | grep -v "ccusage-import" | crontab -
+            # Add new entry
+            (crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
+            echo "✅ Cronjob updated"
+        else
+            echo "Skipped cronjob setup"
+        fi
     fi
+else
+    # Add new entry
+    (crontab -l 2>/dev/null; echo "$CRON_ENTRY") | crontab -
+    echo "✅ Cronjob installed"
+fi
+
+# Create logrotate config
+LOGROTATE_CONF="$PROJECT_DIR/logrotate.conf"
+cat > "$LOGROTATE_CONF" << LOGROTATE
+$LOG_FILE {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 $USER $USER
 }
+LOGROTATE
 
-# Security: Build environment variable exports for crontab with validation
-# Use arrays for safe command construction
-declare -a ENV_EXPORTS=()
+echo "📝 Created logrotate config: $LOGROTATE_CONF"
 
-if [[ -n "${CH_HOST:-}" ]]; then
-    if validate_alphanum "$CH_HOST"; then
-        ENV_EXPORTS+=("CH_HOST=$CH_HOST")
-    else
-        echo "⚠️  Warning: CH_HOST contains invalid characters, skipping"
-    fi
+# Add logrotate to cron if not exists
+if ! crontab -l 2>/dev/null | grep -q "logrotate.*ccusage-import"; then
+    LOGROTATE_ENTRY="0 0 * * * /usr/sbin/logrotate -s \"$PROJECT_DIR/logrotate.status\" \"$LOGROTATE_CONF\" >> \"$LOG_FILE\" 2>&1"
+    (crontab -l 2>/dev/null; echo "$LOGROTATE_ENTRY") | crontab -
+    echo "✅ Log rotation cronjob added"
 fi
-
-if [[ -n "${CH_PORT:-}" ]]; then
-    # Validate port is numeric
-    if [[ "$CH_PORT" =~ ^[0-9]+$ ]]; then
-        ENV_EXPORTS+=("CH_PORT=$CH_PORT")
-    else
-        echo "⚠️  Warning: CH_PORT is not numeric, skipping"
-    fi
-fi
-
-if [[ -n "${CH_USER:-}" ]]; then
-    if validate_alphanum "$CH_USER"; then
-        ENV_EXPORTS+=("CH_USER=$CH_USER")
-    else
-        echo "⚠️  Warning: CH_USER contains invalid characters, skipping"
-    fi
-fi
-
-if [[ -n "${CH_PASSWORD:-}" ]]; then
-    # Security: Password needs special handling - escape single quotes
-    # Replace ' with '\'' to safely embed in single-quoted string
-    SAFE_PASSWORD="${CH_PASSWORD//\'/\'\\\'\'}"
-    ENV_EXPORTS+=("CH_PASSWORD='$SAFE_PASSWORD'")
-fi
-
-if [[ -n "${CH_DATABASE:-}" ]]; then
-    if validate_alphanum "$CH_DATABASE"; then
-        ENV_EXPORTS+=("CH_DATABASE=$CH_DATABASE")
-    else
-        echo "⚠️  Warning: CH_DATABASE contains invalid characters, skipping"
-    fi
-fi
-
-# Security: Join environment variables with proper spacing
-ENV_VARS="${ENV_EXPORTS[*]}"
-
-# Security: Build crontab entry using printf to avoid injection
-# All variables are properly quoted and validated
-CRON_ENTRY=$(printf '0 * * * * cd "%s" && PATH=%s:$PATH %s echo "$(date): Starting ccusage import" >> "%s/import.log" && PATH=%s:$PATH %s "%s" run python ccusage_importer.py >> "%s/import.log" 2>&1 && echo "$(date): ccusage import completed" >> "%s/import.log"' \
-    "$PROJECT_DIR" \
-    "$BIN_PATHS" \
-    "$ENV_VARS" \
-    "$LOG_DIR" \
-    "$BIN_PATHS" \
-    "$ENV_VARS" \
-    "$UV_PATH" \
-    "$LOG_DIR" \
-    "$LOG_DIR")
-
-# Security: Use printf to safely add crontab entry
-{ crontab -l 2>/dev/null || true; printf '%s\n' "$CRON_ENTRY"; } | crontab -
-
-# Security: Run initial import with proper quoting and error handling
-echo "🚀 Running initial import..."
-if ! cd "$PROJECT_DIR"; then
-    echo "❌ Failed to change to project directory: $PROJECT_DIR"
-    exit 1
-fi
-
-"$UV_PATH" run python ccusage_importer.py
 
 echo ""
-echo "✅ Setup completed!"
-echo "⏰ Cronjob will run every hour at minute 0"
-echo "📝 Enhanced logging with timestamps enabled"
+echo "🎉 Setup complete!"
 echo ""
-echo "📁 Log files:"
-echo "   - Main log: $LOG_DIR/import.log"
-echo "   - Location: $LOG_DIR/"
+echo "Your import will run hourly. View logs with:"
+echo "  tail -f $LOG_FILE"
 echo ""
-echo "🔧 Management commands:"
-echo "   - View current crontab: crontab -l"
-echo "   - View recent logs: tail -f $LOG_DIR/import.log"
-echo "   - View log history: ls -la $LOG_DIR/"
-echo "   - Test manual run: cd $PROJECT_DIR && uv run python ccusage_importer.py"
-echo "   - Remove cronjob: crontab -e (then delete the ccusage line)"
+echo "To list cronjobs:"
+echo "  crontab -l"
 echo ""
-echo "🎯 Next steps:"
-echo "   1. Verify cronjob: crontab -l | grep ccusage"
-echo "   2. Monitor first run: tail -f $LOG_DIR/import.log"
-echo "   3. Check ClickHouse data after import"
+echo "To remove the cronjob:"
+echo "  crontab -e   # and delete the ccusage-import lines"

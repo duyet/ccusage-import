@@ -1,0 +1,80 @@
+{
+  "name": "ccusage-import",
+  "version": "2.0.0",
+  "description": "Import ccusage and OpenCode data into ClickHouse for analytics",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "ccusage-import": "dist/cli.js"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/cli.ts --outdir ./dist --target bun",
+    "build:node": "bun build src/cli.ts --outdir ./dist --target node",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:bun": "bun test",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "clean": "rm -rf dist",
+    "setup-cronjob": "bun run src/scripts/setup-cronjob.ts",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "keywords": [
+    "ccusage",
+    "clickhouse",
+    "analytics",
+    "cli",
+    "typescript"
+  ],
+  "author": "ccusage-import contributors",
+  "license": "MIT",
+  "dependencies": {
+    "@clickhouse/client": "^1.10.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "ink": "^4.4.1",
+    "ora": "^8.1.0",
+    "react": "^18.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "prettier": "^3.2.5",
+    "tsx": "^4.21.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "engines": {
+    "bun": ">=1.2.0",
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "directories": {
+    "test": "tests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/duyet/ccusage-import.git"
+  },
+  "bugs": {
+    "url": "https://github.com/duyet/ccusage-import/issues"
+  },
+  "homepage": "https://github.com/duyet/ccusage-import#readme"
+}
