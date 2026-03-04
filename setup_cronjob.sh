@@ -156,7 +156,8 @@ fi
 
 # Create cron entry
 # Run hourly at minute 0
-CRON_ENTRY="0 * * * * PATH=\"$CRON_PATH\" cd \"$PROJECT_DIR\" && $RUNNER src/cli.ts import --quiet >> \"$LOG_FILE\" 2>&1"
+# Log truncation: keep only last 1000 lines after each run
+CRON_ENTRY="0 * * * * PATH=\"$CRON_PATH\" cd \"$PROJECT_DIR\" && $RUNNER src/cli.ts import --quiet >> \"$LOG_FILE\" 2>&1 && tail -n 1000 \"$LOG_FILE\" > \"$LOG_FILE.tmp\" && mv \"$LOG_FILE.tmp\" \"$LOG_FILE\""
 
 echo ""
 echo "Cron entry to be added:"
@@ -220,6 +221,11 @@ echo "🎉 Setup complete!"
 echo ""
 echo "Your import will run hourly. View logs with:"
 echo "  tail -f $LOG_FILE"
+echo ""
+echo "Features:"
+echo "  - Log truncation: keeps last 1000 lines after each run"
+echo "  - Reinstallation: run with -f flag to update existing cronjob"
+echo "  - Status check: run with -s flag to see cronjob status"
 echo ""
 echo "To list cronjobs:"
 echo "  crontab -l"
