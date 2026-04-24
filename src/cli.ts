@@ -26,27 +26,31 @@ import { ImporterConfig, ClickHouseConfig, UIConfig } from './config/index.js';
 import { CHClient } from './database/client.js';
 import {
   DailyUsageRepository,
+  MonthlyUsageRepository,
+  SessionsRepository,
   BlocksRepository,
+  type DailyUsageRecord,
+  type MonthlyUsageRecord,
+  type SessionRecord,
+  type BlockRecord,
 } from './database/index.js';
 
 // Import fetchers
 import {
   fetchAllCcusageData,
   checkCcusageAvailable,
-  fetchOpenCodeMessages,
-  checkOpenCodePath,
+  fetchAllCompanionData,
+  checkCompanionAvailable,
+  type CompanionData,
+  type CompanionSource,
 } from './fetchers/index.js';
 
 // Import parsers
 import {
-  hashProjectName,
   buildDailyRow,
   buildMonthlyRow,
   buildSessionRow,
   buildBlockRow,
-  buildModelBreakdownRow,
-  buildModelsUsedRow,
-  aggregateOpenCodeMessages,
 } from './parsers/index.js';
 
 // Import utilities
@@ -63,8 +67,10 @@ const packageJson = JSON.parse(
 async function performImport(options: {
   verbose: boolean;
   noHashProjects: boolean;
-  opencode?: string;
+  opencodePath?: string;
+  codexPath?: string;
   skipOpencode: boolean;
+  skipCodex: boolean;
   skipCcusage: boolean;
   source: string;
   timeout: number;
@@ -72,8 +78,10 @@ async function performImport(options: {
   const {
     verbose,
     noHashProjects,
-    opencode,
+    opencodePath,
+    codexPath,
     skipOpencode,
+    skipCodex,
     skipCcusage,
     source,
     timeout,
@@ -83,8 +91,10 @@ async function performImport(options: {
   const chConfig = ClickHouseConfig.fromEnv();
   const importerConfig = new ImporterConfig({
     hashProjectNames: !noHashProjects,
-    opencodePath: opencode,
+    opencodePath,
+    codexPath,
     skipOpencode,
+    skipCodex,
     skipCcusage,
     source,
   });
@@ -92,11 +102,75 @@ async function performImport(options: {
   // Initialize ClickHouse client
   const client = new CHClient(chConfig);
 
-  // Initialize repositories
-  const dailyRepo = new DailyUsageRepository(client, importerConfig);
-  const blocksRepo = new BlocksRepository(client, importerConfig);
+  importerConfig.validate();
 
-  // Fetch ccusage data
+  const createSourceConfig = (sourceName: string) => new ImporterConfig({
+    hashProjectNames: importerConfig.hashProjectNames,
+    opencodePath: importerConfig.opencodePath ?? undefined,
+    codexPath: importerConfig.codexPath ?? undefined,
+    skipOpencode: importerConfig.skipOpencode,
+    skipCodex: importerConfig.skipCodex,
+    skipCcusage: importerConfig.skipCcusage,
+    machineName: importerConfig.machineName,
+    commandTimeout: importerConfig.commandTimeout,
+    maxParallelWorkers: importerConfig.maxParallelWorkers,
+    source: sourceName,
+  });
+
+  const importUsage = async (
+    usageSource: string,
+    data: {
+      daily?: any[];
+      monthly?: any[];
+      session?: any[];
+      blocks?: any[];
+    }
+  ) => {
+    const sourceConfig = createSourceConfig(usageSource);
+    const dailyRepo = new DailyUsageRepository(client, sourceConfig);
+    const monthlyRepo = new MonthlyUsageRepository(client, sourceConfig);
+    const sessionsRepo = new SessionsRepository(client, sourceConfig);
+    const blocksRepo = new BlocksRepository(client, sourceConfig);
+
+    if (data.daily && data.daily.length > 0) {
+      if (verbose) console.log(`Importing ${usageSource} daily usage data...`);
+      const dailyRows = data.daily.map((item: any) =>
+        buildDailyRow(item, importerConfig.machineName, usageSource)
+      ) as DailyUsageRecord[];
+      await dailyRepo.upsert(dailyRows);
+    }
+
+    if (data.monthly && data.monthly.length > 0) {
+      if (verbose) console.log(`Importing ${usageSource} monthly usage data...`);
+      const monthlyRows = data.monthly.map((item: any) =>
+        buildMonthlyRow(item, importerConfig.machineName, usageSource)
+      ) as MonthlyUsageRecord[];
+      await monthlyRepo.upsert(monthlyRows);
+    }
+
+    if (data.session && data.session.length > 0) {
+      if (verbose) console.log(`Importing ${usageSource} session usage data...`);
+      const sessionRows = data.session.map((item: any) =>
+        buildSessionRow(
+          item,
+          importerConfig.machineName,
+          usageSource,
+          importerConfig.hashProjectNames
+        )
+      ) as SessionRecord[];
+      await sessionsRepo.upsert(sessionRows);
+    }
+
+    if (data.blocks && data.blocks.length > 0) {
+      if (verbose) console.log(`Importing ${usageSource} billing blocks...`);
+      const blockRows = data.blocks.map((item: any) =>
+        buildBlockRow(item, importerConfig.machineName, usageSource)
+      ) as BlockRecord[];
+      await blocksRepo.upsert(blockRows);
+    }
+  };
+
+  // Fetch and import ccusage data
   let ccusageData: any = {
     daily: [],
     monthly: [],
@@ -109,51 +183,35 @@ async function performImport(options: {
     if (verbose) console.log('Fetching ccusage data...');
     const raw = await fetchAllCcusageData({ verbose, timeout: timeout * 1000 });
     ccusageData = raw;
+    await importUsage(source, ccusageData);
   }
 
-  // Fetch OpenCode data
-  let opencodeAggregated: any = null;
-  if (!skipOpencode && opencode) {
-    if (verbose) console.log('Fetching OpenCode data...');
-    const messages = await fetchOpenCodeMessages({ opencodePath: opencode, verbose });
+  const fetchAndImportCompanion = async (
+    companionSource: CompanionSource,
+    dataPath?: string | null
+  ) => {
+    if (verbose) console.log(`Fetching ${companionSource} data...`);
+    const data: CompanionData = await fetchAllCompanionData(companionSource, {
+      verbose,
+      timeout: timeout * 1000,
+      dataPath: dataPath ?? undefined,
+    });
+    await importUsage(companionSource, data);
+  };
 
-    if (verbose) console.log('Aggregating OpenCode messages...');
-    opencodeAggregated = aggregateOpenCodeMessages(
-      messages,
-      importerConfig.machineName,
-      importerConfig.hashProjectNames
-    );
+  if (!skipCodex) {
+    await fetchAndImportCompanion('codex', codexPath);
   }
 
-  // Import ccusage data
-  if (!skipCcusage && ccusageData.daily && ccusageData.daily.length > 0) {
-    if (verbose) console.log('Importing daily usage data...');
-    const dailyRows = ccusageData.daily.map((item: any) =>
-      buildDailyRow(item, importerConfig.machineName, importerConfig.source)
-    );
-    await dailyRepo.upsert(dailyRows);
-  }
-
-  if (!skipCcusage && ccusageData.blocks && ccusageData.blocks.length > 0) {
-    if (verbose) console.log('Importing billing blocks...');
-    const blockRows = ccusageData.blocks.map((item: any) =>
-      buildBlockRow(item, importerConfig.machineName, importerConfig.source)
-    );
-    await blocksRepo.upsert(blockRows);
-  }
-
-  // Import OpenCode data
-  if (opencodeAggregated && opencodeAggregated.daily && opencodeAggregated.daily.length > 0) {
-    if (verbose) console.log('Importing OpenCode daily data...');
-    const dailyRows = opencodeAggregated.daily.map((item: any) =>
-      buildDailyRow(item, importerConfig.machineName, 'opencode')
-    );
-    await dailyRepo.upsert(dailyRows);
+  if (!skipOpencode) {
+    await fetchAndImportCompanion('opencode', opencodePath);
   }
 
   // Generate statistics
   const tableCounts = {
     ccusage_usage_daily: await client.getRowCount('ccusage_usage_daily'),
+    ccusage_usage_monthly: await client.getRowCount('ccusage_usage_monthly'),
+    ccusage_usage_sessions: await client.getRowCount('ccusage_usage_sessions'),
     ccusage_usage_blocks: await client.getRowCount('ccusage_usage_blocks'),
   };
 
@@ -161,6 +219,7 @@ async function performImport(options: {
     tableCounts,
     costBySource: {
       ccusage: 0, // Would need aggregation query
+      codex: 0,
       opencode: 0,
     },
     tokenConsumption: {
@@ -405,19 +464,22 @@ async function systemCheck(options: { verbose: boolean }): Promise<number> {
     allPassed = false;
   }
 
-  // Check OpenCode path if specified
-  const opencodePath = process.env.OPENCODE_PATH;
-  if (opencodePath) {
-    console.log('\nOpenCode Path:');
-    if (verbose) console.log(`  Path: ${opencodePath}`);
+  // Check Codex companion availability
+  console.log('\nCodex CLI:');
+  const codexAvailable = await checkCompanionAvailable('codex');
+  if (codexAvailable) {
+    console.log('  ✓ @ccusage/codex is available');
+  } else {
+    console.log('  ⚠ @ccusage/codex unavailable or no package runner found');
+  }
 
-    const opencodeValid = checkOpenCodePath(opencodePath);
-    if (opencodeValid) {
-      console.log('  ✓ OpenCode path is valid');
-    } else {
-      console.log(`  ✗ OpenCode path is not valid: ${opencodePath}`);
-      allPassed = false;
-    }
+  // Check OpenCode companion availability
+  console.log('\nOpenCode CLI:');
+  const opencodeAvailable = await checkCompanionAvailable('opencode');
+  if (opencodeAvailable) {
+    console.log('  ✓ @ccusage/opencode is available');
+  } else {
+    console.log('  ⚠ @ccusage/opencode unavailable or no package runner found');
   }
 
   // Display configuration
@@ -425,6 +487,8 @@ async function systemCheck(options: { verbose: boolean }): Promise<number> {
   console.log(`  Machine: ${process.env.MACHINE_NAME || 'auto-detected'}`);
   console.log(`  Database: ${process.env.CH_DATABASE || 'default'}`);
   console.log(`  Privacy: ${process.env.NO_HASH_PROJECTS ? 'disabled' : 'enabled (hashing)'}`);
+  console.log(`  Codex Home: ${process.env.CODEX_HOME || '~/.codex'}`);
+  console.log(`  OpenCode Data: ${process.env.OPENCODE_DATA_DIR || '~/.local/share/opencode'}`);
   console.log(`  Mode: ${isNonInteractive() ? 'non-interactive (cron)' : 'interactive'}`);
 
   console.log('\n' + (allPassed ? '✓ All checks passed' : '✗ Some checks failed'));
@@ -436,7 +500,7 @@ const program = new Command();
 
 program
   .name('ccusage-import')
-  .description('Import ccusage and OpenCode data into ClickHouse for analytics')
+  .description('Import ccusage, Codex, and OpenCode data into ClickHouse for analytics')
   .version(packageJson.version)
   .option('-v, --verbose', 'Show verbose output', false)
   .option('-q, --quiet', 'Suppress all output except errors', false)
@@ -445,12 +509,14 @@ program
 // Import command
 program
   .command('import')
-  .description('Import usage data from ccusage and/or OpenCode')
+  .description('Import usage data from ccusage, Codex, and OpenCode')
   .option('--skip-opencode', 'Skip OpenCode import', false)
+  .option('--skip-codex', 'Skip Codex import', false)
   .option('--skip-ccusage', 'Skip ccusage import', false)
   .option('--no-hash-projects', 'Disable project name hashing for privacy', false)
-  .option('--opencode <path>', 'Path to OpenCode data directory')
-  .option('--source <name>', 'Source identifier for this import', 'ccusage')
+  .option('--opencode-path <path>', 'Path to OpenCode data directory')
+  .option('--codex-path <path>', 'Path to Codex home directory')
+  .option('--source <name>', 'Source identifier for ccusage imports', 'ccusage')
   .option('--timeout <seconds>', 'Command timeout in seconds', '120')
   .action(async (options) => {
     try {
@@ -459,8 +525,10 @@ program
         const exitCode = await performImport({
           verbose: options.verbose,
           noHashProjects: options.noHashProjects,
-          opencode: options.opencode,
+          opencodePath: options.opencodePath,
+          codexPath: options.codexPath,
           skipOpencode: options.skipOpencode,
+          skipCodex: options.skipCodex,
           skipCcusage: options.skipCcusage,
           source: options.source,
           timeout: parseInt(options.timeout, 10),
@@ -471,8 +539,10 @@ program
           () => performImport({
             verbose: options.verbose,
             noHashProjects: options.noHashProjects,
-            opencode: options.opencode,
+            opencodePath: options.opencodePath,
+            codexPath: options.codexPath,
             skipOpencode: options.skipOpencode,
+            skipCodex: options.skipCodex,
             skipCcusage: options.skipCcusage,
             source: options.source,
             timeout: parseInt(options.timeout, 10),

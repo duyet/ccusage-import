@@ -36,7 +36,7 @@ export class CHClient {
     }
   }
 
-  async query<T extends Record<string, unknown>>(
+  async query<T>(
     query: string,
     parameters?: Record<string, unknown>
   ): Promise<T[]> {
@@ -54,7 +54,7 @@ export class CHClient {
     }
   }
 
-  async insert(table: string, values: Array<Record<string, unknown>>): Promise<void> {
+  async insert<T extends object>(table: string, values: T[]): Promise<void> {
     await this.connect();
     try {
       await this.client.insert({

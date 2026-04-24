@@ -40,7 +40,7 @@ export class DailyUsageRepository {
    * Get daily usage for date range
    */
   async getByDateRange(startDate: string, endDate: string): Promise<DailyUsageRecord[]> {
-    const result = await this.client.query(
+    return await this.client.query<DailyUsageRecord>(
       `SELECT * FROM ccusage_usage_daily
        WHERE date BETWEEN {start:String} AND {end:String}
        AND machine_name = {machine:String}
@@ -53,15 +53,13 @@ export class DailyUsageRepository {
         source: this.config.source,
       }
     );
-
-    return await result.json();
   }
 
   /**
    * Get total costs by date
    */
   async getCostsByDate(days = 30): Promise<Array<{ date: string; cost: number }>> {
-    const result = await this.client.query(
+    return await this.client.query<Array<{ date: string; cost: number }>[number]>(
       `SELECT date, sum(total_cost) AS cost
        FROM ccusage_usage_daily
        WHERE date >= today() - {days:Int32}
@@ -75,8 +73,54 @@ export class DailyUsageRepository {
         source: this.config.source,
       }
     );
+  }
+}
 
-    return await result.json();
+/**
+ * Monthly usage repository
+ */
+export class MonthlyUsageRepository {
+  constructor(
+    private client: CHClient,
+    private config: ImporterConfig
+  ) {}
+
+  async upsert(data: MonthlyUsageRecord[]): Promise<void> {
+    if (data.length === 0) return;
+
+    const months = data.map(d => d.month);
+
+    await this.client.delete('ccusage_usage_monthly', {
+      month: months,
+      machine_name: this.config.machineName,
+      source: this.config.source,
+    });
+
+    await this.client.insert('ccusage_usage_monthly', data);
+  }
+}
+
+/**
+ * Session usage repository
+ */
+export class SessionsRepository {
+  constructor(
+    private client: CHClient,
+    private config: ImporterConfig
+  ) {}
+
+  async upsert(data: SessionRecord[]): Promise<void> {
+    if (data.length === 0) return;
+
+    const sessionIds = data.map(d => d.session_id);
+
+    await this.client.delete('ccusage_usage_sessions', {
+      session_id: sessionIds,
+      machine_name: this.config.machineName,
+      source: this.config.source,
+    });
+
+    await this.client.insert('ccusage_usage_sessions', data);
   }
 }
 
@@ -114,7 +158,7 @@ export class ModelBreakdownsRepository {
    * Get model rankings by cost
    */
   async getRankingsByCost(limit = 10): Promise<ModelRanking[]> {
-    const result = await this.client.query(
+    return await this.client.query<ModelRanking>(
       `SELECT
          model_name,
          sum(cost) AS total_cost,
@@ -131,8 +175,6 @@ export class ModelBreakdownsRepository {
         limit,
       }
     );
-
-    return await result.json();
   }
 }
 
@@ -168,7 +210,7 @@ export class BlocksRepository {
    * Get active blocks
    */
   async getActiveBlocks(): Promise<BlockRecord[]> {
-    const result = await this.client.query(
+    return await this.client.query<BlockRecord>(
       `SELECT * FROM ccusage_usage_blocks
        WHERE is_active = 1
        AND machine_name = {machine:String}
@@ -179,8 +221,6 @@ export class BlocksRepository {
         source: this.config.source,
       }
     );
-
-    return await result.json();
   }
 }
 
@@ -196,6 +236,40 @@ export interface DailyUsageRecord {
   cache_read_tokens: number;
   total_tokens: number;
   total_cost: number;
+  models_count: number;
+  created_at: string;
+  updated_at: string;
+  source: string;
+}
+
+export interface MonthlyUsageRecord {
+  month: string;
+  year: number;
+  month_num: number;
+  machine_name: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+  models_count: number;
+  created_at: string;
+  updated_at: string;
+  source: string;
+}
+
+export interface SessionRecord {
+  session_id: string;
+  project_path: string;
+  machine_name: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+  last_activity: string;
   models_count: number;
   created_at: string;
   updated_at: string;

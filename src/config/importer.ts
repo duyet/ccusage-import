@@ -7,7 +7,9 @@ import * as os from 'node:os';
 export interface ImporterConfigOptions {
   hashProjectNames?: boolean;
   opencodePath?: string;
+  codexPath?: string;
   skipOpencode?: boolean;
+  skipCodex?: boolean;
   skipCcusage?: boolean;
   source?: string;
   machineName?: string;
@@ -18,7 +20,9 @@ export interface ImporterConfigOptions {
 export class ImporterConfig {
   readonly hashProjectNames: boolean;
   readonly opencodePath: string | null;
+  readonly codexPath: string | null;
   readonly skipOpencode: boolean;
+  readonly skipCodex: boolean;
   readonly skipCcusage: boolean;
   readonly source: string;
   readonly machineName: string;
@@ -31,9 +35,12 @@ export class ImporterConfig {
       process.env.HASH_PROJECT_NAMES !== 'false';
     this.opencodePath =
       options.opencodePath ??
-      process.env.OPencode_PATH ??
+      process.env.OPENCODE_DATA_DIR ??
+      process.env.OPENCODE_PATH ??
       this.getDefaultOpenCodePath();
+    this.codexPath = options.codexPath ?? process.env.CODEX_HOME ?? null;
     this.skipOpencode = options.skipOpencode ?? false;
+    this.skipCodex = options.skipCodex ?? false;
     this.skipCcusage = options.skipCcusage ?? false;
     this.source = options.source ?? 'ccusage';
     this.machineName = options.machineName ?? this.detectMachineName();
@@ -55,8 +62,8 @@ export class ImporterConfig {
    * Validate configuration constraints
    */
   validate(): void {
-    if (this.skipOpencode && this.skipCcusage) {
-      throw new Error('Cannot skip both ccusage and OpenCode imports');
+    if (this.skipOpencode && this.skipCodex && this.skipCcusage) {
+      throw new Error('Cannot skip ccusage, Codex, and OpenCode imports');
     }
     if (this.commandTimeout < 1 || this.commandTimeout > 600) {
       throw new Error(
@@ -76,6 +83,7 @@ export class ImporterConfig {
   toDisplayString(): {
     privacy: string;
     opencode: string;
+    codex: string;
     ccusage: string;
     machine: string;
     timeout: string;
@@ -83,6 +91,7 @@ export class ImporterConfig {
     return {
       privacy: this.hashProjectNames ? 'Enabled' : 'Disabled',
       opencode: this.skipOpencode ? 'Skipped' : 'Enabled',
+      codex: this.skipCodex ? 'Skipped' : 'Enabled',
       ccusage: this.skipCcusage ? 'Skipped' : 'Enabled',
       machine: this.machineName,
       timeout: `${this.commandTimeout}s`,
