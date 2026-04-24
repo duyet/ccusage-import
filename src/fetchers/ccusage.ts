@@ -105,7 +105,7 @@ async function fetchCcusageCommand(
     try {
       const proc = $`${runner} ccusage@latest ${command.split(' ')} --json`;
       proc.quiet();
-      proc.timeout(timeout);
+      (proc as unknown as { timeout(ms: number): void }).timeout(timeout);
 
       const result = await proc;
       const parsed = JSON.parse(result.stdout.toString());
@@ -141,7 +141,7 @@ export async function checkCcusageAvailable(): Promise<boolean> {
   try {
     const proc = $`npx ccusage@latest --version`;
     proc.quiet();
-    proc.timeout(5000);
+    (proc as unknown as { timeout(ms: number): void }).timeout(5000);
     await proc;
     return true;
   } catch {

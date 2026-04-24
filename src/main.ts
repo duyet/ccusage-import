@@ -146,7 +146,7 @@ async function mainImport(options: {
 
       log.info('Aggregating OpenCode messages...');
       opencodeAggregated = aggregateOpenCodeMessages(
-        messages,
+        messages as any,
         importerConfig.machineName,
         importerConfig.hashProjectNames
       );
@@ -158,7 +158,7 @@ async function mainImport(options: {
       log.info('Importing daily usage data...');
       const dailyRows = ccusageData.daily.map(item =>
         buildDailyRow(item, importerConfig.machineName, importerConfig.source)
-      );
+      ) as any;
       await dailyRepo.upsert(dailyRows);
       log.info(`Imported ${dailyRows.length} daily records`);
     }
@@ -167,7 +167,7 @@ async function mainImport(options: {
       log.info('Importing billing blocks...');
       const blockRows = ccusageData.blocks.map(item =>
         buildBlockRow(item, importerConfig.machineName, importerConfig.source)
-      );
+      ) as any;
       await blocksRepo.upsert(blockRows);
       log.info(`Imported ${blockRows.length} blocks`);
     }
@@ -177,7 +177,7 @@ async function mainImport(options: {
       log.info('Importing OpenCode daily data...');
       const dailyRows = opencodeAggregated.daily.map((item: any) =>
         buildDailyRow(item, importerConfig.machineName, 'opencode')
-      );
+      ) as any;
       await dailyRepo.upsert(dailyRows);
       log.info(`Imported ${dailyRows.length} OpenCode daily records`);
     }
@@ -232,7 +232,7 @@ async function checkCommand(options: { verbose: boolean }) {
   const opencodePath = process.env.OPencode_PATH;
   if (opencodePath) {
     console.log('\nChecking OpenCode path...');
-    const opencodeValid = checkOpenCodePath(opencodePath);
+    const opencodeValid = await checkOpenCodePath(opencodePath);
     if (opencodeValid) {
       console.log(`  ✓ OpenCode path is valid: ${opencodePath}`);
     } else {

@@ -40,7 +40,7 @@
     "target": "ESNext",
     "lib": ["ESNext"],
     "jsx": "react-jsx",
-    "jsxImportSource": "ink",
+    "jsxImportSource": "react",
 
     // Path Aliases
     "baseUrl": ".",

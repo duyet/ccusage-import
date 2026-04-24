@@ -357,10 +357,10 @@ export async function exportDailyData(
       output = exportAsJSON(filteredData);
       break;
     case 'csv':
-      output = exportAsCSV(filteredData as Record<string, unknown>[], columns as string[]);
+      output = exportAsCSV(filteredData as unknown as Record<string, unknown>[], columns as string[]);
       break;
     case 'markdown':
-      output = exportAsMarkdownTable(filteredData as Record<string, unknown>[], columns as string[]);
+      output = exportAsMarkdownTable(filteredData as unknown as Record<string, unknown>[], columns as string[]);
       break;
     default:
       throw new Error(`Unsupported export format: ${options.format}`);
@@ -392,10 +392,10 @@ export async function exportModelRankings(
       output = exportAsJSON(rankings);
       break;
     case 'csv':
-      output = exportAsCSV(rankings as Record<string, unknown>[]);
+      output = exportAsCSV(rankings as unknown as Record<string, unknown>[]);
       break;
     case 'markdown':
-      output = exportAsMarkdownTable(rankings as Record<string, unknown>[]);
+      output = exportAsMarkdownTable(rankings as unknown as Record<string, unknown>[]);
       break;
     default:
       throw new Error(`Unsupported export format: ${options.format}`);

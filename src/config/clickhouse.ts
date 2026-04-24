@@ -81,4 +81,8 @@ export class ClickHouseConfig {
   toMaskedString(): string {
     return `${this.url} (user=${this.user}, db=${this.database})`;
   }
+
+  getURL(): string {
+    return this.url;
+  }
 }

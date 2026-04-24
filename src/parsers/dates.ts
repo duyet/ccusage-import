@@ -12,6 +12,9 @@
  * - Returns null for invalid inputs
  */
 
+export type DateString = string;
+export type DateTimeString = string;
+
 /**
  * Parse a date string or Date object to ClickHouse-compatible format.
  *

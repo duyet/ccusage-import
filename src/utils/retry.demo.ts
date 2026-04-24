@@ -54,7 +54,7 @@ async function demoExponentialBackoff() {
   const originalSetTimeout = global.setTimeout;
 
   // Mock setTimeout to capture delays
-  global.setTimeout = ((fn: Function, delay: number) => {
+  global.setTimeout = ((fn: () => void, delay: number) => {
     delays.push(delay);
     console.log(`Waiting ${delay.toFixed(0)}ms before retry...`);
     return originalSetTimeout(fn, 0);

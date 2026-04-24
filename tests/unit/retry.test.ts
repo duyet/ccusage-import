@@ -87,7 +87,7 @@ describe('retryWithOptions', () => {
       const originalSetTimeout = global.setTimeout;
 
       // Mock setTimeout to capture delays
-      global.setTimeout = mock((fn: Function, delay: number) => {
+      global.setTimeout = mock((fn: () => void, delay: number) => {
         delays.push(delay);
         return originalSetTimeout(fn, 0); // Execute immediately
       }) as any;
@@ -126,7 +126,7 @@ describe('retryWithOptions', () => {
       const delays: number[] = [];
       const originalSetTimeout = global.setTimeout;
 
-      global.setTimeout = mock((fn: Function, delay: number) => {
+      global.setTimeout = mock((fn: () => void, delay: number) => {
         delays.push(delay);
         return originalSetTimeout(fn, 0);
       }) as any;
@@ -160,7 +160,7 @@ describe('retryWithOptions', () => {
       const delays: number[] = [];
       const originalSetTimeout = global.setTimeout;
 
-      global.setTimeout = mock((fn: Function, delay: number) => {
+      global.setTimeout = mock((fn: () => void, delay: number) => {
         delays.push(delay);
         return originalSetTimeout(fn, 0);
       }) as any;
@@ -311,7 +311,7 @@ describe('retryWithOptions', () => {
       const delays: number[] = [];
       const originalSetTimeout = global.setTimeout;
 
-      global.setTimeout = mock((fn: Function, delay: number) => {
+      global.setTimeout = mock((fn: () => void, delay: number) => {
         delays.push(delay);
         return originalSetTimeout(fn, 0);
       }) as any;
@@ -349,7 +349,7 @@ describe('retryWithOptions', () => {
       const delays: number[] = [];
       const originalSetTimeout = global.setTimeout;
 
-      global.setTimeout = mock((fn: Function, delay: number) => {
+      global.setTimeout = mock((fn: () => void, delay: number) => {
         delays.push(delay);
         return originalSetTimeout(fn, 0);
       }) as any;
@@ -480,7 +480,7 @@ describe('real-world scenarios', () => {
     const delays: number[] = [];
     const originalSetTimeout = global.setTimeout;
 
-    global.setTimeout = mock((fn: Function, delay: number) => {
+      global.setTimeout = mock((fn: () => void, delay: number) => {
       delays.push(delay);
       return originalSetTimeout(fn, 0);
     }) as any;

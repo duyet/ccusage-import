@@ -59,8 +59,8 @@ class ValidationError extends Error {}
 async function filteredRetryExample() {
   const validateAndFetch = async () => {
     // This won't retry on ValidationError
-    const data = await fetch('https://api.example.com/data');
-    const json = await response.json();
+    const response = await fetch('https://api.example.com/data');
+    const json = await response.json() as { id?: number };
 
     if (!json.id) {
       throw new ValidationError('Missing required field: id');
@@ -97,7 +97,7 @@ async function typedRetryExample() {
     if (!response.ok) {
       throw new Error(`User ${userId} not found`);
     }
-    return response.json();
+    return await response.json() as User;
   };
 
   // TypeScript knows the return type is User

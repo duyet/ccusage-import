@@ -206,7 +206,7 @@ function aggregateMessagesList(messages: OpenCodeMessage[]): Omit<DailyUsage, 'd
     breakdown.outputTokens += usage.outputTokens;
     breakdown.cacheCreationTokens += usage.cacheCreationTokens;
     breakdown.cacheReadTokens += usage.cacheReadTokens;
-    breakdown.cost += usage.cost;
+    breakdown.cost += usage.costUSD;
   }
 
   const modelBreakdowns = Array.from(modelCosts.values());

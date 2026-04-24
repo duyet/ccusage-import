@@ -7,8 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Box, Text, render, StdinContext } from 'ink';
-import type { Stdin } from 'ink';
+import { Box, Text, render } from 'ink';
 
 import { hasTTY } from '../utils/tty.js';
 import { ImportProgress } from './ImportProgress.js';
@@ -236,11 +235,36 @@ export function App({ onImport, verbose = false }: AppProps) {
   return (
     <Box flexDirection="column" paddingX={1}>
       <ImportProgress
-        currentStep={currentStep}
-        totalSteps={totalSteps}
-        steps={steps}
-        progress={importState.progress}
-        step={importState.step}
+        state={{
+          step: importState.step === 'processing'
+            ? 'process'
+            : importState.step === 'done'
+              ? 'complete'
+              : 'fetch',
+          fetchProgress: {
+            current: Math.min(currentStep + 1, totalSteps),
+            total: totalSteps,
+            subSteps: steps.map((step, index) => ({
+              id: step.key,
+              label: step.label,
+              status: index < currentStep
+                ? 'complete'
+                : index === currentStep
+                  ? 'in-progress'
+                  : 'pending',
+            })),
+          },
+          processProgress: {
+            current: importState.step === 'processing' ? 1 : 0,
+            total: 1,
+            message: 'Processing and importing data',
+          },
+          analyzeProgress: {
+            current: importState.step === 'done' ? 1 : 0,
+            total: 1,
+            message: 'Generating analytics',
+          },
+        }}
       />
       {verbose && importState.step === 'fetching' && (
         <Box marginTop={1}>

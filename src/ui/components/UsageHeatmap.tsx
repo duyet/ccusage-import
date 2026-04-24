@@ -119,9 +119,9 @@ export function UsageHeatmap({
               </Text>
             ))}
           </Box>
-          <Text marginLeft={1} dimColor>
-            More
-          </Text>
+          <Box marginLeft={1}>
+            <Text dimColor>More</Text>
+          </Box>
         </Box>
       )}
 

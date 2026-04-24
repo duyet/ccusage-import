@@ -2,7 +2,7 @@
  * ccusage companion fetcher tests
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 import {
   fetchAllCompanionData,
   type CompanionCommandExecutor,
@@ -10,7 +10,7 @@ import {
 
 describe('fetchAllCompanionData', () => {
   it('parses wrapped daily, monthly, and session JSON', async () => {
-    const executor: CompanionCommandExecutor = vi.fn(async ({ command }) => {
+    const executor: CompanionCommandExecutor = mock(async ({ command }) => {
       if (command === 'daily') {
         return {
           daily: [{
@@ -72,7 +72,7 @@ describe('fetchAllCompanionData', () => {
   });
 
   it('passes CODEX_HOME for Codex custom path', async () => {
-    const executor: CompanionCommandExecutor = vi.fn(async ({ env }) => {
+    const executor: CompanionCommandExecutor = mock(async ({ env }) => {
       expect(env.CODEX_HOME).toBe('/tmp/codex-home');
       return { daily: [] };
     });
@@ -87,7 +87,7 @@ describe('fetchAllCompanionData', () => {
   });
 
   it('passes OPENCODE_DATA_DIR for OpenCode custom path', async () => {
-    const executor: CompanionCommandExecutor = vi.fn(async ({ env }) => {
+    const executor: CompanionCommandExecutor = mock(async ({ env }) => {
       expect(env.OPENCODE_DATA_DIR).toBe('/tmp/opencode-data');
       return { daily: [] };
     });
@@ -102,7 +102,7 @@ describe('fetchAllCompanionData', () => {
   });
 
   it('returns empty arrays when a companion command fails', async () => {
-    const executor: CompanionCommandExecutor = vi.fn(async () => {
+    const executor: CompanionCommandExecutor = mock(async () => {
       throw new Error('missing logs');
     });
 

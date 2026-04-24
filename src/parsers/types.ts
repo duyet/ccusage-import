@@ -7,6 +7,18 @@
 import { z } from 'zod';
 
 /**
+ * Model breakdown schema
+ */
+export const ModelBreakdownSchema = z.object({
+  modelName: z.string(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cacheCreationTokens: z.number().int().nonnegative(),
+  cacheReadTokens: z.number().int().nonnegative(),
+  cost: z.number().nonnegative(),
+});
+
+/**
  * ccusage daily data schema
  */
 export const DailyUsageSchema = z.object({
@@ -86,18 +98,6 @@ export const BlockUsageSchema = z.object({
       totalCost: z.number(),
     }),
   ]).nullable(),
-});
-
-/**
- * Model breakdown schema
- */
-export const ModelBreakdownSchema = z.object({
-  modelName: z.string(),
-  inputTokens: z.number().int().nonnegative(),
-  outputTokens: z.number().int().nonnegative(),
-  cacheCreationTokens: z.number().int().nonnegative(),
-  cacheReadTokens: z.number().int().nonnegative(),
-  cost: z.number().nonnegative(),
 });
 
 /**
