@@ -176,9 +176,9 @@ function getCronPath(): string {
  */
 function buildCronEntry(runtime: 'bun' | 'node'): string {
   const cronPath = getCronPath();
-  const cliPath = path.join(PROJECT_DIR, 'src', 'cli.ts');
+  const scriptPath = path.join(PROJECT_DIR, 'src', 'scripts', 'import-all.ts');
 
-  return `0 * * * * PATH="${cronPath}" cd "${PROJECT_DIR}" && ${runtime} run "${cliPath}" import --quiet >> "${LOG_FILE}" 2>&1`;
+  return `0 * * * * PATH="${cronPath}" cd "${PROJECT_DIR}" && ${runtime} run "${scriptPath}" >> "${LOG_FILE}" 2>&1`;
 }
 
 /**

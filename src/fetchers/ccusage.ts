@@ -4,7 +4,6 @@
  * Fetches data from the ccusage CLI tool with parallel execution and retry logic.
  */
 
-import { $ } from 'bun';
 import type { CcusageDailyResponse, CcusageMonthlyResponse, CcusageSessionResponse, CcusageBlocksResponse, CcusageProjectsResponse } from '../parsers/types.js';
 
 export interface CcusageFetchOptions {
@@ -29,7 +28,7 @@ export async function fetchAllCcusageData(
   options: CcusageFetchOptions = {}
 ): Promise<CcusageData> {
   const {
-    timeout = 120_000, // 120 seconds
+    timeout = 120_000,
     maxRetries = 2,
     packageRunner = 'auto',
     verbose = false,
@@ -37,14 +36,12 @@ export async function fetchAllCcusageData(
 
   const runner = await detectPackageRunner(packageRunner);
 
-  // Fetch all data types in parallel
   const [daily, monthly, session, blocks, projects] = await Promise.all([
     fetchCcusageCommand('daily', runner, timeout, maxRetries, verbose),
     fetchCcusageCommand('monthly', runner, timeout, maxRetries, verbose),
     fetchCcusageCommand('session', runner, timeout, maxRetries, verbose),
     fetchCcusageCommand('blocks', runner, timeout, maxRetries, verbose),
     fetchCcusageCommand('daily --instances', runner, timeout, maxRetries, verbose).then(r => {
-      // Parse projects response differently
       if (r && 'projects' in r) {
         return (r as CcusageProjectsResponse).projects;
       }
@@ -52,13 +49,7 @@ export async function fetchAllCcusageData(
     }),
   ]);
 
-  return {
-    daily,
-    monthly,
-    session,
-    blocks,
-    projects,
-  };
+  return { daily, monthly, session, blocks, projects };
 }
 
 /**
@@ -67,28 +58,22 @@ export async function fetchAllCcusageData(
 async function detectPackageRunner(
   preferred: 'npx' | 'bunx' | 'auto'
 ): Promise<'npx' | 'bunx'> {
-  if (preferred !== 'auto') {
-    return preferred;
-  }
+  if (preferred !== 'auto') return preferred;
 
-  // Try bunx first (faster)
+  // Prefer npx with -y for auto-accept, avoids interactive prompts
   try {
-    const proc = $`bunx --version`;
-    proc.quiet();
-    await proc;
-    return 'bunx';
-  } catch {
-    // Fall back to npx
-  }
+    const proc = Bun.spawn(['npx', '--version'], { stdout: 'pipe', stderr: 'pipe' });
+    const exit = await withTimeout(proc.exited, 5_000, () => proc.kill());
+    if (exit === 0) return 'npx';
+  } catch { /* fall through */ }
 
   try {
-    const proc = $`npx --version`;
-    proc.quiet();
-    await proc;
-    return 'npx';
-  } catch {
-    throw new Error('No package runner found (npx or bunx required)');
-  }
+    const proc = Bun.spawn(['bunx', '--version'], { stdout: 'pipe', stderr: 'pipe' });
+    const exit = await withTimeout(proc.exited, 5_000, () => proc.kill());
+    if (exit === 0) return 'bunx';
+  } catch { /* fall through */ }
+
+  throw new Error('No package runner found (npx or bunx required)');
 }
 
 /**
@@ -103,12 +88,23 @@ async function fetchCcusageCommand(
 ): Promise<any> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const proc = $`${runner} ccusage@latest ${command.split(' ')} --json`;
-      proc.quiet();
-      (proc as unknown as { timeout(ms: number): void }).timeout(timeout);
+      const args = runner === 'npx' ? ['-y', 'ccusage@latest', ...command.split(' '), '--json'] : ['ccusage@latest', ...command.split(' '), '--json'];
+      const proc = Bun.spawn([runner, ...args], {
+        stdout: 'pipe',
+        stderr: 'pipe',
+        env: { ...process.env },
+      });
 
-      const result = await proc;
-      const parsed = JSON.parse(result.stdout.toString());
+      const stdoutPromise = new Response(proc.stdout).text();
+      const stderrPromise = new Response(proc.stderr).text();
+      const exitCode = await withTimeout(proc.exited, timeout, () => proc.kill());
+      const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+
+      if (exitCode !== 0) {
+        throw new Error(stderr.trim() || `ccusage ${command} exited with ${exitCode}`);
+      }
+
+      const parsed = JSON.parse(stdout);
 
       // Handle wrapped responses
       if ('daily' in parsed) return parsed.daily;
@@ -125,8 +121,6 @@ async function fetchCcusageCommand(
         }
         return [];
       }
-
-      // Exponential backoff
       await new Promise(resolve => setTimeout(resolve, 2 ** attempt * 1000));
     }
   }
@@ -139,12 +133,34 @@ async function fetchCcusageCommand(
  */
 export async function checkCcusageAvailable(): Promise<boolean> {
   try {
-    const proc = $`npx ccusage@latest --version`;
-    proc.quiet();
-    (proc as unknown as { timeout(ms: number): void }).timeout(5000);
-    await proc;
-    return true;
+    const proc = Bun.spawn(['npx', '-y', 'ccusage@latest', '--version'], {
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const exit = await withTimeout(proc.exited, 10_000, () => proc.kill());
+    return exit === 0;
   } catch {
     return false;
+  }
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeout: number,
+  onTimeout: () => void
+): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          onTimeout();
+          reject(new Error(`Command timed out after ${timeout}ms`));
+        }, timeout);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 }

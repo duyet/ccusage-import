@@ -20,38 +20,21 @@ import { App, runCLI } from './ui/index.js';
 import type { ImportStats } from './ui/types/index.js';
 
 // Import configuration
-import { ImporterConfig, ClickHouseConfig, UIConfig } from './config/index.js';
+import { ClickHouseConfig, UIConfig } from './config/index.js';
 
 // Import database
 import { CHClient } from './database/client.js';
 import {
   DailyUsageRepository,
-  MonthlyUsageRepository,
-  SessionsRepository,
-  BlocksRepository,
   type DailyUsageRecord,
-  type MonthlyUsageRecord,
-  type SessionRecord,
-  type BlockRecord,
 } from './database/index.js';
+import { ImporterConfig } from './config/index.js';
 
 // Import fetchers
 import {
-  fetchAllCcusageData,
   checkCcusageAvailable,
-  fetchAllCompanionData,
   checkCompanionAvailable,
-  type CompanionData,
-  type CompanionSource,
 } from './fetchers/index.js';
-
-// Import parsers
-import {
-  buildDailyRow,
-  buildMonthlyRow,
-  buildSessionRow,
-  buildBlockRow,
-} from './parsers/index.js';
 
 // Import utilities
 import { isNonInteractive } from './ui/utils/tty.js';
@@ -62,7 +45,7 @@ const packageJson = JSON.parse(
 );
 
 /**
- * Main import function with full implementation
+ * Main import function using the events-based pipeline
  */
 async function performImport(options: {
   verbose: boolean;
@@ -74,167 +57,65 @@ async function performImport(options: {
   skipCcusage: boolean;
   source: string;
   timeout: number;
+  duckdbPath?: string;
 }): Promise<ImportStats> {
   const {
     verbose,
     noHashProjects,
-    opencodePath,
-    codexPath,
     skipOpencode,
     skipCodex,
     skipCcusage,
-    source,
     timeout,
+    duckdbPath,
   } = options;
 
-  // Create configuration
-  const chConfig = ClickHouseConfig.fromEnv();
-  const importerConfig = new ImporterConfig({
-    hashProjectNames: !noHashProjects,
-    opencodePath,
-    codexPath,
-    skipOpencode,
-    skipCodex,
-    skipCcusage,
-    source,
-  });
+  // Use the new pipeline
+  const { ImportRunner } = await import('./pipeline/runner.js');
+  const { CcusageSource } = await import('./sources/ccusage.js');
+  const { CompanionDataSource } = await import('./sources/companion.js');
+  const { ClickHouseSink } = await import('./sinks/clickhouse.js');
+  const { DuckDBSink } = await import('./sinks/duckdb.js');
 
-  // Initialize ClickHouse client
-  const client = new CHClient(chConfig);
+  const { hostname } = await import('node:os');
+  const machineName = hostname();
+  const hashProjects = !noHashProjects;
 
-  importerConfig.validate();
-
-  const createSourceConfig = (sourceName: string) => new ImporterConfig({
-    hashProjectNames: importerConfig.hashProjectNames,
-    opencodePath: importerConfig.opencodePath ?? undefined,
-    codexPath: importerConfig.codexPath ?? undefined,
-    skipOpencode: importerConfig.skipOpencode,
-    skipCodex: importerConfig.skipCodex,
-    skipCcusage: importerConfig.skipCcusage,
-    machineName: importerConfig.machineName,
-    commandTimeout: importerConfig.commandTimeout,
-    maxParallelWorkers: importerConfig.maxParallelWorkers,
-    source: sourceName,
-  });
-
-  const importUsage = async (
-    usageSource: string,
-    data: {
-      daily?: any[];
-      monthly?: any[];
-      session?: any[];
-      blocks?: any[];
-    }
-  ) => {
-    const sourceConfig = createSourceConfig(usageSource);
-    const dailyRepo = new DailyUsageRepository(client, sourceConfig);
-    const monthlyRepo = new MonthlyUsageRepository(client, sourceConfig);
-    const sessionsRepo = new SessionsRepository(client, sourceConfig);
-    const blocksRepo = new BlocksRepository(client, sourceConfig);
-
-    if (data.daily && data.daily.length > 0) {
-      if (verbose) console.log(`Importing ${usageSource} daily usage data...`);
-      const dailyRows = data.daily.map((item: any) =>
-        buildDailyRow(item, importerConfig.machineName, usageSource)
-      ) as DailyUsageRecord[];
-      await dailyRepo.upsert(dailyRows);
-    }
-
-    if (data.monthly && data.monthly.length > 0) {
-      if (verbose) console.log(`Importing ${usageSource} monthly usage data...`);
-      const monthlyRows = data.monthly.map((item: any) =>
-        buildMonthlyRow(item, importerConfig.machineName, usageSource)
-      ) as MonthlyUsageRecord[];
-      await monthlyRepo.upsert(monthlyRows);
-    }
-
-    if (data.session && data.session.length > 0) {
-      if (verbose) console.log(`Importing ${usageSource} session usage data...`);
-      const sessionRows = data.session.map((item: any) =>
-        buildSessionRow(
-          item,
-          importerConfig.machineName,
-          usageSource,
-          importerConfig.hashProjectNames
-        )
-      ) as SessionRecord[];
-      await sessionsRepo.upsert(sessionRows);
-    }
-
-    if (data.blocks && data.blocks.length > 0) {
-      if (verbose) console.log(`Importing ${usageSource} billing blocks...`);
-      const blockRows = data.blocks.map((item: any) =>
-        buildBlockRow(item, importerConfig.machineName, usageSource)
-      ) as BlockRecord[];
-      await blocksRepo.upsert(blockRows);
-    }
-  };
-
-  // Fetch and import ccusage data
-  let ccusageData: any = {
-    daily: [],
-    monthly: [],
-    session: [],
-    blocks: [],
-    projects: {},
-  };
+  const runner = new ImportRunner();
 
   if (!skipCcusage) {
-    if (verbose) console.log('Fetching ccusage data...');
-    const raw = await fetchAllCcusageData({ verbose, timeout: timeout * 1000 });
-    ccusageData = raw;
-    await importUsage(source, ccusageData);
+    runner.addSource(new CcusageSource({ machineName, hashProjects, timeout: timeout * 1000, verbose }));
   }
-
-  const fetchAndImportCompanion = async (
-    companionSource: CompanionSource,
-    dataPath?: string | null
-  ) => {
-    if (verbose) console.log(`Fetching ${companionSource} data...`);
-    const data: CompanionData = await fetchAllCompanionData(companionSource, {
-      verbose,
-      timeout: timeout * 1000,
-      dataPath: dataPath ?? undefined,
-    });
-    await importUsage(companionSource, data);
-  };
-
   if (!skipCodex) {
-    await fetchAndImportCompanion('codex', codexPath);
+    runner.addSource(new CompanionDataSource({ type: 'codex', machineName, hashProjects, timeout: timeout * 1000, verbose }));
   }
-
   if (!skipOpencode) {
-    await fetchAndImportCompanion('opencode', opencodePath);
+    runner.addSource(new CompanionDataSource({ type: 'opencode', machineName, hashProjects, timeout: timeout * 1000, verbose }));
   }
 
-  // Generate statistics
-  const tableCounts = {
-    ccusage_usage_daily: await client.getRowCount('ccusage_usage_daily'),
-    ccusage_usage_monthly: await client.getRowCount('ccusage_usage_monthly'),
-    ccusage_usage_sessions: await client.getRowCount('ccusage_usage_sessions'),
-    ccusage_usage_blocks: await client.getRowCount('ccusage_usage_blocks'),
-  };
+  runner.addSink(new ClickHouseSink());
+  if (duckdbPath) {
+    runner.addSink(new DuckDBSink({ dbPath: duckdbPath }));
+  }
 
+  const result = await runner.run(verbose);
+
+  // Build stats from result
   const stats: ImportStats = {
-    tableCounts,
-    costBySource: {
-      ccusage: 0, // Would need aggregation query
-      codex: 0,
-      opencode: 0,
-    },
-    tokenConsumption: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheCreation: 0,
-      total: 0,
-    },
+    tableCounts: {},
+    costBySource: { ccusage: 0, codex: 0, opencode: 0 },
+    tokenConsumption: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, total: 0 },
     modelRankings: [],
     activeBlocks: [],
     dailyData: [],
   };
 
-  await client.close();
+  for (const s of result.sources) {
+    console.log(`  source ${s.name}: ${s.rows} rows${s.error ? ` (${s.error})` : ''}`);
+  }
+  for (const s of result.sinks) {
+    const total = Object.values(s.rowsWritten).reduce((a, b) => a + b, 0);
+    console.log(`  sink ${s.sinkName}: ${total} rows in ${s.durationMs}ms`);
+  }
 
   return stats;
 }
@@ -518,6 +399,7 @@ program
   .option('--codex-path <path>', 'Path to Codex home directory')
   .option('--source <name>', 'Source identifier for ccusage imports', 'ccusage')
   .option('--timeout <seconds>', 'Command timeout in seconds', '120')
+  .option('--duckdb-path <path>', 'Write DuckDB snapshot (local file or md:database for MotherDuck)', process.env.DUCKDB_PATH)
   .action(async (options) => {
     try {
       // Use Ink UI for TTY, simple output for non-TTY
@@ -532,6 +414,7 @@ program
           skipCcusage: options.skipCcusage,
           source: options.source,
           timeout: parseInt(options.timeout, 10),
+          duckdbPath: options.duckdbPath,
         }).then(() => 0).catch(() => 1);
         process.exit(exitCode);
       } else {
@@ -546,6 +429,7 @@ program
             skipCcusage: options.skipCcusage,
             source: options.source,
             timeout: parseInt(options.timeout, 10),
+            duckdbPath: options.duckdbPath,
           }),
           options.verbose
         );
