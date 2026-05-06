@@ -43,11 +43,15 @@ export class ClickHouseSink implements DataSink {
       }
     }
 
-    // Delete existing rows in scope
-    for (const scope of scopes.values()) {
-      await this.client.command(
-        `ALTER TABLE ccusage_events DELETE WHERE date = '${scope.date}' AND record_type = '${scope.record_type}' AND source = '${scope.source}' AND machine_name = '${scope.machine_name}'`
+    // Batch DELETE: combine scopes into fewer queries using OR
+    const scopeArr = [...scopes.values()];
+    const batchSize = 20;
+    for (let i = 0; i < scopeArr.length; i += batchSize) {
+      const batch = scopeArr.slice(i, i + batchSize);
+      const conditions = batch.map(s =>
+        `(date = '${s.date}' AND record_type = '${s.record_type}' AND source = '${s.source}' AND machine_name = '${s.machine_name}')`
       );
+      await this.client.command(`ALTER TABLE ccusage_events DELETE WHERE ${conditions.join(' OR ')}`);
     }
 
     // Insert all events

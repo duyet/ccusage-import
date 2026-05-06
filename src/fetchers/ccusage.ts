@@ -4,7 +4,7 @@
  * Fetches data from the ccusage CLI tool with parallel execution and retry logic.
  */
 
-import type { CcusageDailyResponse, CcusageMonthlyResponse, CcusageSessionResponse, CcusageBlocksResponse, CcusageProjectsResponse } from '../parsers/types.js';
+import type { CcusageDailyResponse, CcusageSessionResponse, CcusageBlocksResponse, CcusageProjectsResponse } from '../parsers/types.js';
 
 export interface CcusageFetchOptions {
   timeout?: number;
@@ -15,14 +15,14 @@ export interface CcusageFetchOptions {
 
 export interface CcusageData {
   daily: CcusageDailyResponse['daily'];
-  monthly: CcusageMonthlyResponse['monthly'];
   session: CcusageSessionResponse['sessions'];
   blocks: CcusageBlocksResponse['blocks'];
   projects: CcusageProjectsResponse['projects'];
 }
 
 /**
- * Fetch all ccusage data types in parallel
+ * Fetch ccusage data types sequentially to reduce memory.
+ * Monthly skipped — derivable via SQL GROUP BY toYYYYMM(date).
  */
 export async function fetchAllCcusageData(
   options: CcusageFetchOptions = {}
@@ -35,21 +35,20 @@ export async function fetchAllCcusageData(
   } = options;
 
   const runner = await detectPackageRunner(packageRunner);
+  const fetch = (cmd: string) => fetchCcusageCommand(cmd, runner, timeout, maxRetries, verbose);
 
-  const [daily, monthly, session, blocks, projects] = await Promise.all([
-    fetchCcusageCommand('daily', runner, timeout, maxRetries, verbose),
-    fetchCcusageCommand('monthly', runner, timeout, maxRetries, verbose),
-    fetchCcusageCommand('session', runner, timeout, maxRetries, verbose),
-    fetchCcusageCommand('blocks', runner, timeout, maxRetries, verbose),
-    fetchCcusageCommand('daily --instances', runner, timeout, maxRetries, verbose).then(r => {
-      if (r && 'projects' in r) {
-        return (r as CcusageProjectsResponse).projects;
-      }
-      return {};
-    }),
-  ]);
+  // Sequential to avoid 5 concurrent npm processes spiking memory
+  const daily = await fetch('daily');
+  const session = await fetch('session');
+  const blocks = await fetch('blocks');
+  const projects = await fetch('daily --instances').then(r => {
+    if (r && 'projects' in r) {
+      return (r as CcusageProjectsResponse).projects;
+    }
+    return {};
+  });
 
-  return { daily, monthly, session, blocks, projects };
+  return { daily, session, blocks, projects };
 }
 
 /**
@@ -104,7 +103,10 @@ async function fetchCcusageCommand(
         throw new Error(stderr.trim() || `ccusage ${command} exited with ${exitCode}`);
       }
 
-      const parsed = JSON.parse(stdout);
+      // CLI may print log lines before JSON
+      const jsonStart = stdout.search(/[{[]/);
+      if (jsonStart === -1) throw new Error(`No JSON in ccusage ${command} output: ${stdout.slice(0, 200)}`);
+      const parsed = JSON.parse(stdout.slice(jsonStart));
 
       // Handle wrapped responses
       if ('daily' in parsed) return parsed.daily;

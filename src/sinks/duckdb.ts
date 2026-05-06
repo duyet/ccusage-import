@@ -125,6 +125,8 @@ export class DuckDBSink implements DataSink {
         `DELETE FROM ccusage_events WHERE date = '${scope.date}' AND record_type = '${scope.record_type}' AND source = '${scope.source}' AND machine_name = '${scope.machine_name}'`
       );
     }
+    // Free scope map memory
+    scopes.clear();
 
     // Build CSV and COPY FROM
     const columns = Object.keys(rows[0]);

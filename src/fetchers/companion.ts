@@ -77,13 +77,11 @@ export async function fetchAllCompanionData(
   const runner = await detectPackageRunner(packageRunner);
   const env = dataPath ? { [SOURCE_PATH_ENV[source]]: dataPath } : {};
 
-  const [daily, monthly, session] = await Promise.all([
-    fetchCompanionCommand(source, 'daily', runner, timeout, maxRetries, env, verbose, executor),
-    fetchCompanionCommand(source, 'monthly', runner, timeout, maxRetries, env, verbose, executor),
-    fetchCompanionCommand(source, 'session', runner, timeout, maxRetries, env, verbose, executor),
-  ]);
+  // Sequential to reduce concurrent npm process memory
+  const daily = await fetchCompanionCommand(source, 'daily', runner, timeout, maxRetries, env, verbose, executor);
+  const session = await fetchCompanionCommand(source, 'session', runner, timeout, maxRetries, env, verbose, executor);
 
-  return { daily, monthly, session };
+  return { daily, monthly: [], session };
 }
 
 export async function checkCompanionAvailable(source: CompanionSource): Promise<boolean> {
@@ -150,7 +148,12 @@ async function executeCompanionCommand({
     throw new Error(stderr.trim() || `${source} ${command} exited with ${exitCode}`);
   }
 
-  return JSON.parse(stdout);
+  // Companion packages may print log lines to stdout before JSON (e.g. "[@ccusage/opencode] ℹ ...")
+  const jsonStart = stdout.search(/[{[]/);
+  if (jsonStart === -1) {
+    throw new Error(`No JSON in ${source} ${command} output: ${stdout.slice(0, 200)}`);
+  }
+  return JSON.parse(stdout.slice(jsonStart));
 }
 
 async function detectPackageRunner(preferred: PackageRunner): Promise<Exclude<PackageRunner, 'auto'>> {

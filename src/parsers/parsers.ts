@@ -277,6 +277,40 @@ export function buildModelsUsedRow(
 }
 
 /**
+ * Distribute cost across breakdowns when per-model costs are missing.
+ * Codex/ccusage models often lack per-model cost — only parent has totalCost.
+ * Distribute proportionally by outputTokens (or inputTokens as fallback).
+ */
+function distributeCost(
+  breakdowns: { cost: number; outputTokens: number; inputTokens: number }[],
+  parentCost: number
+): void {
+  const totalCost = breakdowns.reduce((s, b) => s + b.cost, 0);
+  if (totalCost > 0 || parentCost <= 0) return; // per-model costs already present
+
+  const totalOutput = breakdowns.reduce((s, b) => s + b.outputTokens, 0);
+  const totalInput = breakdowns.reduce((s, b) => s + b.inputTokens, 0);
+  const weight = totalOutput > 0 ? totalOutput : totalInput;
+  if (weight === 0) {
+    // No tokens — assign all cost to first model
+    if (breakdowns.length > 0) breakdowns[0].cost = parentCost;
+    return;
+  }
+
+  let remaining = parentCost;
+  for (let i = 0; i < breakdowns.length; i++) {
+    const w = breakdowns[i].outputTokens > 0 ? breakdowns[i].outputTokens : breakdowns[i].inputTokens;
+    if (i === breakdowns.length - 1) {
+      breakdowns[i].cost = Math.round(remaining * 1e8) / 1e8; // avoid rounding drift
+    } else {
+      const share = parentCost * (w / weight);
+      breakdowns[i].cost = Math.round(share * 1e8) / 1e8;
+      remaining -= breakdowns[i].cost;
+    }
+  }
+}
+
+/**
  * Build flat event rows from ccusage data.
  *
  * Explodes model breakdowns into individual rows:
@@ -286,7 +320,6 @@ export function buildModelsUsedRow(
 export function buildCcusageEventRows(
   data: {
     daily?: DailyUsage[];
-    monthly?: MonthlyUsage[];
     session?: SessionUsage[];
     blocks?: BlockUsage[];
     projects?: Record<string, ProjectDailyUsage[]>;
@@ -303,8 +336,9 @@ export function buildCcusageEventRows(
     const date = parseDate(item.date).toISOString().split('T')[0];
     const recordKey = date;
     const breakdowns = item.modelBreakdowns?.length
-      ? item.modelBreakdowns
+      ? item.modelBreakdowns.map(bd => ({ ...bd }))
       : [fallbackBreakdown(item)];
+    distributeCost(breakdowns, item.totalCost);
     for (const bd of breakdowns) {
       events.push({
         date, record_type: 'daily', record_key: recordKey,
@@ -330,8 +364,9 @@ export function buildCcusageEventRows(
     const recordKey = sid;
     const date = parseDate(item.lastActivity).toISOString().split('T')[0];
     const breakdowns = item.modelBreakdowns?.length
-      ? item.modelBreakdowns
+      ? item.modelBreakdowns.map(bd => ({ ...bd }))
       : [fallbackBreakdown(item)];
+    distributeCost(breakdowns, item.totalCost);
     for (const bd of breakdowns) {
       events.push({
         date, record_type: 'session', record_key: recordKey,
@@ -386,8 +421,9 @@ export function buildCcusageEventRows(
       const date = parseDate(item.date).toISOString().split('T')[0];
       const recordKey = `${date}:${pp}`;
       const breakdowns = item.modelBreakdowns?.length
-        ? item.modelBreakdowns
+        ? item.modelBreakdowns.map(bd => ({ ...bd }))
         : [fallbackBreakdown(item)];
+      distributeCost(breakdowns, item.totalCost);
       for (const bd of breakdowns) {
         events.push({
           date, record_type: 'project_daily', record_key: recordKey,
@@ -430,8 +466,9 @@ export function buildCompanionEventRows(
     const date = parseDate(dateStr).toISOString().split('T')[0];
     const recordKey = date;
     const breakdowns = row.modelBreakdowns?.length
-      ? row.modelBreakdowns
+      ? row.modelBreakdowns.map(bd => ({ ...bd }))
       : [fallbackCompanionBreakdown(row)];
+    distributeCost(breakdowns, (row.totalCost ?? 0) as number);
     for (const bd of breakdowns) {
       events.push({
         date, record_type: 'daily', record_key: recordKey,
@@ -460,8 +497,9 @@ export function buildCompanionEventRows(
     const date = parseDate(dateStr).toISOString().split('T')[0];
     const recordKey = sid;
     const breakdowns = row.modelBreakdowns?.length
-      ? row.modelBreakdowns
+      ? row.modelBreakdowns.map(bd => ({ ...bd }))
       : [fallbackCompanionBreakdown(row)];
+    distributeCost(breakdowns, (row.totalCost ?? 0) as number);
     for (const bd of breakdowns) {
       events.push({
         date, record_type: 'session', record_key: recordKey,
