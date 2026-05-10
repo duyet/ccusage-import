@@ -1,6 +1,9 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
+# Add common package manager locations to PATH
+export PATH="$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 # Configurable duckdb path via ENV, default to md:ccusage
 DUCKDB_PATH="${DUCKDB_PATH:-md:ccusage}"
 
