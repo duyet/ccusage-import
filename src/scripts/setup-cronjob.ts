@@ -100,8 +100,11 @@ function resolveBunCommand(): string {
   }
 
   try {
-    execSync('which bun', { stdio: 'ignore' });
-    return 'bun';
+    const resolved = execSync('which bun', { encoding: 'utf-8' }).trim();
+    if (resolved) {
+      return resolved;
+    }
+    throw new Error('bun runtime not found in PATH');
   } catch {
     throw new Error('bun runtime not found. Install bun or add it to PATH before setting up cronjob.');
   }
