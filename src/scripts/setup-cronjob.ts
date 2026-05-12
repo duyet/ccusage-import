@@ -120,8 +120,21 @@ function getCrontab(): string[] {
  * Set crontab entries
  */
 function setCrontab(entries: string[]): void {
+  if (entries.length === 0) {
+    throw new Error('Refusing to install an empty crontab');
+  }
+
   const content = `${entries.join('\n')}\n`;
-  execSync('crontab -', { input: content, stdio: ['pipe', 'ignore', 'pipe'] });
+  try {
+    execSync('crontab -', { input: content, stdio: ['pipe', 'ignore', 'pipe'] });
+  } catch (error) {
+    const stderr =
+      typeof error === 'object' && error !== null && 'stderr' in error
+        ? String((error as { stderr?: unknown }).stderr ?? '').trim()
+        : '';
+    const suffix = stderr ? `: ${stderr}` : '';
+    throw new Error(`Failed to install crontab entries${suffix}`);
+  }
 }
 
 /**
