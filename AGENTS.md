@@ -11,6 +11,7 @@ TypeScript + Bun. Python removed. Single `ccusage_events` table.
 ```bash
 bun test                # tests
 bunx tsc --noEmit       # typecheck (expect @types/bun errors)
+rg -n "<symbol>" src tests -g '!**/*.test.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import
 ```
 
