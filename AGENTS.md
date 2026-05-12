@@ -6,11 +6,14 @@ Data pipeline importing Claude Code usage analytics into ClickHouse and DuckDB.
 
 TypeScript + Bun. Python removed. Single `ccusage_events` table.
 
+Docs index: `docs/INDEX.md` (core memory: `docs/knowledge/core-memory.md`).
+
 ## Commands
 
 ```bash
 bun test                # tests
 bunx tsc --noEmit       # typecheck (expect @types/bun errors)
+git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # recent-change audit window
 rg -n "<symbol>" src tests -g '!**/*.test.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import
 ```

@@ -29,11 +29,6 @@ interface Options {
   help?: boolean;
 }
 
-interface CronEntry {
-  schedule: string;
-  command: string;
-}
-
 // Constants
 const PROJECT_DIR = path.resolve(__dirname, '..', '..');
 const LOG_DIR = path.join(PROJECT_DIR, 'logs');
@@ -48,7 +43,6 @@ const colors = {
   green: '\x1b[32m',
   yellow: '\x1b[33m',
   blue: '\x1b[34m',
-  dim: '\x1b[2m',
 };
 
 function log(color: string, emoji: string, message: string) {
@@ -126,8 +120,21 @@ function getCrontab(): string[] {
  * Set crontab entries
  */
 function setCrontab(entries: string[]): void {
-  const content = entries.join('\n');
-  execSync(`echo '${content}' | crontab -`, { stdio: 'pipe' });
+  if (entries.length === 0) {
+    throw new Error('Refusing to install an empty crontab');
+  }
+
+  const content = `${entries.join('\n')}\n`;
+  try {
+    execSync('crontab -', { input: content, stdio: ['pipe', 'ignore', 'pipe'] });
+  } catch (error) {
+    const stderr =
+      typeof error === 'object' && error !== null && 'stderr' in error
+        ? String((error as { stderr?: unknown }).stderr ?? '').trim()
+        : '';
+    const suffix = stderr ? `: ${stderr}` : '';
+    throw new Error(`Failed to install crontab entries${suffix}`);
+  }
 }
 
 /**

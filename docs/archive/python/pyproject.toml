@@ -3,7 +3,7 @@ name = "ccusage-import"
 version = "0.1.0"
 description = "Import ccusage data into ClickHouse for analytics"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "clickhouse-connect>=0.8.18",
     "python-dotenv>=1.0.1",
@@ -66,8 +66,8 @@ exclude = [
     "venv",
 ]
 
-# Target Python 3.8+ to match project requirements
-target-version = "py38"
+# Target Python 3.10+ to match dependency constraints
+target-version = "py310"
 
 [tool.ruff.lint.per-file-ignores]
 # Allow unused imports in __init__.py files
