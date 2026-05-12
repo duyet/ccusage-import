@@ -14,109 +14,42 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint and Format Check
+    name: Build Check
     runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - name: Set up Bun
+      uses: oven-sh/setup-bun@v2
       with:
-        python-version: '3.14'
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        version: "latest"
-
-    - name: Cache uv dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/uv
-        key: ${{ runner.os }}-uv-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-
+        bun-version: latest
 
     - name: Install dependencies
-      run: uv sync
+      run: bun install --frozen-lockfile
 
-    - name: Lint with ruff
-      run: uv run ruff check . --output-format=github
-
-    - name: Check formatting with ruff
-      run: uv run ruff format --check .
-
-    - name: Type check with mypy
-      continue-on-error: true
-      run: uv run mypy ccusage_importer.py --ignore-missing-imports
+    - name: Build
+      run: bun run build
 
   test:
-    name: Test (Python ${{ matrix.python-version }})
+    name: Test (Bun)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.8', '3.9', '3.10', '3.11', '3.12']
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
+    - name: Set up Bun
+      uses: oven-sh/setup-bun@v2
       with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        version: "latest"
-
-    - name: Cache uv dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/uv
-        key: ${{ runner.os }}-py${{ matrix.python-version }}-uv-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-py${{ matrix.python-version }}-uv-
+        bun-version: latest
 
     - name: Install dependencies
-      run: uv sync
+      run: bun install --frozen-lockfile
 
-    - name: Run tests with coverage
-      run: |
-        uv run pytest tests/ -v \
-          --cov=. \
-          --cov-report=xml \
-          --cov-report=term-missing \
-          --cov-report=html \
-          --junitxml=junit/test-results-${{ matrix.python-version }}.xml
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v5
-      if: matrix.python-version == '3.11'
-      with:
-        file: ./coverage.xml
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: false
-        token: ${{ secrets.CODECOV_TOKEN }}
-
-    - name: Upload test results
-      uses: actions/upload-artifact@v5
-      if: always()
-      with:
-        name: test-results-${{ matrix.python-version }}
-        path: junit/test-results-*.xml
-
-    - name: Upload coverage HTML report
-      uses: actions/upload-artifact@v5
-      if: always() && matrix.python-version == '3.11'
-      with:
-        name: coverage-report-html
-        path: htmlcov/
+    - name: Run tests
+      run: bun test
 
   security:
     name: Security Scan
@@ -126,30 +59,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v6
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
+    - name: Set up Bun
+      uses: oven-sh/setup-bun@v2
       with:
-        python-version: '3.14'
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-      with:
-        version: "latest"
+        bun-version: latest
 
     - name: Install dependencies
-      run: uv sync
+      run: bun install --frozen-lockfile
 
-    - name: Run safety check
+    - name: Run bun audit
       continue-on-error: true
-      run: |
-        uv pip install safety
-        uv run safety check --json || true
-
-    - name: Run bandit security linter
-      continue-on-error: true
-      run: |
-        uv pip install bandit
-        uv run bandit -r ccusage_importer.py -f json || true
+      run: bun audit --audit-level=high
 
   status-check:
     name: All checks passed
@@ -161,7 +81,7 @@ jobs:
     - name: Check all job status
       run: |
         if [ "${{ needs.lint.result }}" != "success" ]; then
-          echo "Lint job failed"
+          echo "Build job failed"
           exit 1
         fi
         if [ "${{ needs.test.result }}" != "success" ]; then

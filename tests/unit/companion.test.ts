@@ -9,7 +9,7 @@ import {
 } from '../../src/fetchers/companion';
 
 describe('fetchAllCompanionData', () => {
-  it('parses wrapped daily, monthly, and session JSON', async () => {
+  it('parses wrapped daily and session JSON', async () => {
     const executor: CompanionCommandExecutor = mock(async ({ command }) => {
       if (command === 'daily') {
         return {
@@ -22,22 +22,6 @@ describe('fetchAllCompanionData', () => {
             totalTokens: 180,
             totalCost: 0.01,
             modelBreakdowns: [{ modelName: 'gpt-5', inputTokens: 100, outputTokens: 50, cacheCreationTokens: 10, cacheReadTokens: 20, cost: 0.01 }],
-          }],
-        };
-      }
-
-      if (command === 'monthly') {
-        return {
-          monthly: [{
-            month: '2026-04',
-            inputTokens: 100,
-            outputTokens: 50,
-            cacheCreationTokens: 10,
-            cacheReadTokens: 20,
-            totalTokens: 180,
-            totalCost: 0.01,
-            modelsUsed: ['gpt-5'],
-            modelBreakdowns: [],
           }],
         };
       }
@@ -64,7 +48,7 @@ describe('fetchAllCompanionData', () => {
     });
 
     expect(data.daily).toHaveLength(1);
-    expect(data.monthly).toHaveLength(1);
+    expect(data.monthly).toEqual([]);
     expect(data.session).toHaveLength(1);
     expect(data.daily[0].modelsUsed).toEqual(['gpt-5']);
     expect(data.session[0].sessionId).toBe('session-1');
@@ -83,7 +67,7 @@ describe('fetchAllCompanionData', () => {
       executor,
     });
 
-    expect(executor).toHaveBeenCalledTimes(3);
+    expect(executor).toHaveBeenCalledTimes(2);
   });
 
   it('passes OPENCODE_DATA_DIR for OpenCode custom path', async () => {
@@ -98,7 +82,7 @@ describe('fetchAllCompanionData', () => {
       executor,
     });
 
-    expect(executor).toHaveBeenCalledTimes(3);
+    expect(executor).toHaveBeenCalledTimes(2);
   });
 
   it('returns empty arrays when a companion command fails', async () => {

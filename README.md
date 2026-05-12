@@ -1,544 +1,114 @@
-# ccusage ClickHouse Data Pipeline
+# ccusage-import
 
-[![CI](https://github.com/duyet/ccusage-import/actions/workflows/ci.yml/badge.svg)](https://github.com/duyet/ccusage-import/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/duyet/ccusage-import/branch/main/graph/badge.svg)](https://codecov.io/gh/duyet/ccusage-import)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
+Import Claude Code usage data into ClickHouse and DuckDB for analytics.
 
-This project provides a complete data pipeline to import [ccusage](https://github.com/duyet/ccusage) (Claude Code usage analytics) data into ClickHouse for visualization and analysis.
+## What it does
 
-## 📚 Documentation
+Fetches usage data from three sources, writes to a single `ccusage_events` table:
 
-- [Contributing Guide](CONTRIBUTING.md) - How to contribute to this project
-- [Security Policy](SECURITY.md) - Security best practices and reporting vulnerabilities
-- [License](LICENSE) - MIT License
+| Source | Data |
+|--------|------|
+| **ccusage** | Claude Code daily, session, block, project usage |
+| **codex** | OpenAI Codex usage via `@ccusage/codex` |
+| **opencode** | OpenCode usage via `@ccusage/opencode` |
 
-## Overview
+## Single table design
 
-ccusage is a CLI tool that analyzes Claude Code usage data from local JSONL files. This project takes that data and stores it in ClickHouse for advanced analytics, dashboards, and visualization.
+All data lands in one flat `ccusage_events` table. Model breakdowns are exploded inline (one row per model per record). Aggregation queries handle daily/weekly/monthly grouping.
 
-## Features
+```
+ccusage_events
+├── date, record_type (daily|session|block|project_daily)
+├── source (ccusage|codex|opencode), machine_name
+├── model_name, session_id, project_path
+├── input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens
+├── cost, total_tokens
+└── block-specific fields (start_time, burn_rate, etc.)
+```
 
-- **🎬 Interactive UI with Animations**: Beautiful loading spinners and progress indicators
-- **⚡ Parallel Data Fetching**: Concurrent processing of all 5 ccusage data sources
-- **📊 Enhanced Statistics Display**: Professional analytics with smart number formatting
-- **🔁 Complete ClickHouse Schema**: Optimized tables for all ccusage data types
-- **🛡️ Automated Data Import**: Python script with idempotent inserts and retry logic
-- **📈 Ready-to-Use Queries**: 40+ SQL queries for dashboards and analytics
-- **⏰ Cronjob Integration**: Hourly automated data sync
-- **🗃️ Performance Optimized**: Proper indexing, partitioning, and parallel processing
-- **🖥️ Multi-Machine Support**: Track Claude usage across different machines with automatic merging
-- **🔄 Dual Source Import**: Unified support for both ccusage and OpenCode usage data with source tracking
+See `docs/schema.sql` for the full DDL.
 
-## Multi-Machine Support 🆕
-
-Track Claude Code usage across multiple machines seamlessly:
-
-- **Automatic Machine Detection**: Uses hostname to identify each machine automatically
-- **Data Isolation**: Each machine's data is stored separately with `machine_name` field
-- **Cross-Machine Analytics**: 13 new SQL queries for comparing usage across machines
-- **Unified Dashboard**: View combined statistics from all your machines
-- **Machine-Specific Filtering**: Filter reports by specific machines when needed
-- **Zero Configuration**: Works out of the box, or customize machine names via environment variables
-
-### Multi-Machine Analytics Included:
-- Machine cost rankings and comparisons
-- Cross-machine project analysis (projects used on multiple machines)
-- Machine efficiency metrics (tokens per dollar)
-- Machine utilization trends over time
-- Data freshness monitoring per machine
-
-## OpenCode Integration
-
-The importer now supports **OpenCode** usage data alongside ccusage, providing a unified view of all AI usage across both tools.
-
-### OpenCode Data Source
-
-- **Storage Path**: `~/.local/share/opencode/storage/message/`
-- **Data Format**: Individual JSON message files (msg_*.json)
-- **Granularity**: Message-level -> Aggregated to daily/monthly/session
-- **Models Tracked**: glm-4.7, claude-haiku-4-5, gemini-3-pro-preview, etc.
-
-### Unified Schema
-
-All tables include a `source` column to distinguish data sources:
-- `ccusage` - Data from ccusage CLI
-- `opencode` - Data from OpenCode storage
-
-### CLI Options
+## Setup
 
 ```bash
-# Import both ccusage and OpenCode (default)
-uv run python ccusage_importer.py
-
-# Skip OpenCode import (ccusage only)
-uv run python ccusage_importer.py --skip-opencode
-
-# Use custom OpenCode storage path
-uv run python ccusage_importer.py --opencode-path /custom/path/to/storage
+bun install
+cp .env.example .env  # fill in ClickHouse credentials
 ```
 
-### Query Examples
+### Environment variables
 
-```sql
--- All AI usage (both sources)
-SELECT source, date, sum(total_tokens)
-FROM ccusage_usage_daily
-GROUP BY source, date
-ORDER BY date DESC;
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `CH_HOST` | yes | ClickHouse hostname |
+| `CH_PORT` | yes | HTTP port (8123 or 8443 for HTTPS) |
+| `CH_USER` | yes | Username |
+| `CH_PASSWORD` | yes | Password |
+| `CH_DATABASE` | yes | Database name |
+| `DUCKDB_PATH` | no | DuckDB path (default: `md:ccusage` for MotherDuck) |
+| `MOTHERDUCK_TOKEN` | no | MotherDuck auth token |
 
--- ccusage only
-SELECT * FROM ccusage_usage_daily WHERE source = 'ccusage';
-
--- OpenCode only
-SELECT * FROM ccusage_usage_daily WHERE source = 'opencode';
-
--- Compare usage by source
-SELECT
-    source,
-    sum(total_cost) as total_cost,
-    sum(total_tokens) as total_tokens
-FROM ccusage_usage_daily
-GROUP BY source;
-```
-
-### Token Mapping
-
-OpenCode token fields are mapped to ccusage format:
-- `cache.read` -> `cache_read_tokens`
-- `cache.write` -> `cache_creation_tokens`
-- `reasoning` -> included in `total_tokens`
-
-## Data Sources Supported
-
-| Source | Command/Path | Description | ClickHouse Table |
-|--------|-------------|-------------|------------------|
-| **ccusage** | `ccusage daily` | Daily usage aggregation | `ccusage_usage_daily` |
-| **ccusage** | `ccusage monthly` | Monthly usage aggregation | `ccusage_usage_monthly` |
-| **ccusage** | `ccusage session` | Session-based usage | `ccusage_usage_sessions` |
-| **ccusage** | `ccusage blocks` | 5-hour billing windows | `ccusage_usage_blocks` |
-| **ccusage** | `ccusage daily --instances` | Project-level daily data | `ccusage_usage_projects_daily` |
-| **OpenCode** | `~/.local/share/opencode/storage/message/` | Message-level JSON files | All tables (source='opencode') |
-
-## Quick Start
-
-### 1. Setup ClickHouse Schema
+## Usage
 
 ```bash
-# Create database and tables on your ClickHouse server
-clickhouse-client --host YOUR_HOST --user YOUR_USER --password YOUR_PASSWORD --database YOUR_DATABASE < ccusage_clickhouse_schema.sql
+# Run full import (ccusage + codex + opencode → ClickHouse + DuckDB)
+bun run src/scripts/import-all.ts --verbose
+
+# With custom DuckDB path
+bun run src/scripts/import-all.ts --duckdb-path=md:ccusage
+
+# Backfill DuckDB from ClickHouse
+bun run src/scripts/backfill-duckdb.ts
 ```
 
-### 2. Setup Environment and Dependencies
+## Architecture
+
+```
+Sources                  Pipeline               Sinks
+┌──────────┐           ┌──────────┐          ┌────────────┐
+│ ccusage  │──fetch──→ │          │──write──→ │ ClickHouse │
+│ codex    │──fetch──→ │  runner  │──write──→ │ DuckDB     │
+│ opencode │──fetch──→ │          │          │ (MotherDuck)│
+└──────────┘           └──────────┘          └────────────┘
+```
+
+- `src/sources/` — fetch raw data from each provider
+- `src/parsers/` — transform into flat event rows
+- `src/pipeline/` — orchestrate sources → sinks
+- `src/sinks/` — write to ClickHouse and DuckDB
+- `src/scripts/` — CLI entry points
+
+## Cronjob
 
 ```bash
-# Copy environment template
-cp .env.example .env
-
-# Edit .env with your ClickHouse credentials
-vi .env
-
-# Install dependencies with uv
-uv sync
+# Runs hourly at :17
+./run-import.sh
 ```
 
-### 3. Run Initial Data Import
+Setup via `crontab -e`:
+```
+17 * * * * /path/to/ccusage-import/run-import.sh 2>&1 | tee -a ~/.local/log/ccusage/import.log
+```
+
+## Development
 
 ```bash
-uv run python ccusage_importer.py
+bun test              # run tests
+bunx tsc --noEmit     # type check
+bun run src/cli.ts    # run CLI
 ```
 
-### 4. Setup Automated Import (Optional)
+## Data sources
 
-```bash
-chmod +x setup_cronjob.sh
-./setup_cronjob.sh
-```
+**ccusage** reads local Claude Code JSONL files via the `ccusage` CLI.
 
-This sets up an hourly cronjob to keep your data synchronized.
+**codex** reads local Codex session files via `@ccusage/codex`. Token counts come from local logs; costs are calculated from published pricing (not OpenAI billing).
 
-## Example Script Output
+**opencode** reads local OpenCode data via `@ccusage/opencode`.
 
-The enhanced importer provides a beautiful, interactive experience:
+Token counting conventions differ between sources:
+- Claude: `inputTokens` and `cacheReadTokens` are separate additive categories
+- Codex: `inputTokens` includes `cachedInputTokens` (nested, not additive)
 
-```
-✓ Connected to ClickHouse at your-host:8124
+## License
 
-══════════════════════════════════════════════════════════════════════
-  🚀 CCUSAGE DATA IMPORTER
-══════════════════════════════════════════════════════════════════════
-   Target: your_database at your-host:8124
-   Machine: my-machine.local
-   Started: 2025-09-01 16:34:38
-
-1️⃣  Fetching ccusage data
-   Executing 5 ccusage commands concurrently...
-⠋ Fetching data from ccusage...
-✅ session data fetched (1/5)
-✅ daily data fetched (2/5)  
-✅ monthly data fetched (3/5)
-✅ blocks data fetched (4/5)
-✅ projects data fetched (5/5)
-
-✅ All data sources fetched in 22.4s
-
-2️⃣  Processing and importing data
-   Converting data types and inserting into ClickHouse...
-✅ Daily data processed
-✅ Monthly data processed
-✅ Session data processed
-✅ Blocks data processed
-✅ Projects data processed
-
-3️⃣  Generating analytics
-   Computing usage statistics and insights...
-✅ Statistics generated
-
-✅ Import completed successfully!
-   Processing time: 13.2s
-   Total time: 35.6s
-
-══════════════════════════════════════════════════════════════════════
-  📊 IMPORT SUMMARY & STATISTICS
-══════════════════════════════════════════════════════════════════════
-
-──────────────────────────────────────────────────────────────────────
-  📋 Database Records
-──────────────────────────────────────────────────────────────────────
-  • Usage Daily                              60 records
-  • Usage Monthly                             2 records
-  • Usage Sessions                           13 records
-  • Usage Blocks                            126 records
-  • Usage Projects Daily                     67 records
-  • Model Breakdowns                        846 records
-  • Models Used                             985 records
-
-──────────────────────────────────────────────────────────────────────
-  💰 Usage Analytics
-──────────────────────────────────────────────────────────────────────
-  • Total Cost                                $4,262.55
-  • Total Tokens                                   5.6B
-  • Input Tokens                                 560.0K
-  • Output Tokens                                  8.5M
-  • Cache Creation Tokens                        243.1M
-  • Cache Read Tokens                              5.4B
-  • Date Range                          2025-08-02 → 2025-09-01
-  • Days with Usage                             30 days
-
-──────────────────────────────────────────────────────────────────────
-  🤖 Top Models by Cost
-──────────────────────────────────────────────────────────────────────
-  • 1. sonnet-4                         $1,127.75 (2.4B tokens)
-  • 2. opus-4-1-20250805                $925.83 (410.7M tokens)
-  • 3. opus-4                           $77.70 (43.5M tokens)
-
-──────────────────────────────────────────────────────────────────────
-  💼 Session Insights
-──────────────────────────────────────────────────────────────────────
-  • Total Sessions                                   13
-  • Avg Cost per Session                        $163.94
-  • Max Cost Session                          $1,615.97
-  • Total Session Tokens                           2.8B
-
-──────────────────────────────────────────────────────────────────────
-  🧱 Real-time Status
-──────────────────────────────────────────────────────────────────────
-  • Active Blocks                                     1
-
-──────────────────────────────────────────────────────────────────────
-  🖥️  Machine Info
-──────────────────────────────────────────────────────────────────────
-  • Current Machine                              my-machine.local
-══════════════════════════════════════════════════════════════════════
-```
-
-### Key Features Demonstrated:
-- **🎬 Animated Progress**: Spinners show real-time fetching progress 
-- **⚡ Parallel Processing**: All 5 data sources fetched concurrently in ~22 seconds
-- **📊 Beautiful Analytics**: Clean sectioned display with smart number formatting (5.6B, 560.0K)
-- **🎯 Performance Metrics**: Clear timing breakdown and completion status
-- **📈 Comprehensive Stats**: Usage patterns, model costs, and operational insights
-- **🖥️ Multi-Machine Display**: Shows current machine and will display breakdown when multiple machines detected
-
-## Database Schema
-
-### Core Tables
-
-- **`ccusage_usage_daily`** - Daily cost and token usage aggregated by date
-- **`ccusage_usage_monthly`** - Monthly aggregations with year/month breakdown
-- **`ccusage_usage_sessions`** - Usage grouped by project/session directory
-- **`ccusage_usage_blocks`** - Claude's 5-hour billing window data with projections
-- **`ccusage_usage_projects_daily`** - Daily usage broken down by individual projects
-- **`ccusage_model_breakdowns`** - Detailed token/cost breakdown by AI model
-- **`ccusage_models_used`** - Tracking which models were used in each session
-
-### Views
-
-- **`ccusage_v_daily_summary`** - Clean daily summary with calculated metrics
-- **`ccusage_v_session_summary`** - Session data with friendly project names
-
-## Usage Analytics Queries
-
-The `queries.sql` file contains 40+ pre-built queries organized by category:
-
-### Daily Analysis
-- Cost trends and percentage changes
-- Highest spending days
-- Token usage patterns
-
-### Model Analysis  
-- Cost breakdown by AI model (GPT-4, Claude, etc.)
-- Model usage trends over time
-- Most expensive operations
-
-### Project Analysis
-- Project cost rankings
-- Activity timelines
-- Efficiency metrics (tokens per dollar)
-
-### Time-based Analysis
-- Hourly usage patterns
-- Weekly/monthly trends
-- Day-of-week patterns
-
-### Performance Analytics
-- Cache efficiency analysis
-- Cost optimization opportunities
-- Anomaly detection
-
-### Real-time Monitoring
-- Active billing blocks
-- Recent high-cost operations
-- Data freshness checks
-
-### Multi-Machine Analytics 🆕
-- Machine cost rankings and efficiency comparisons
-- Daily usage comparison across machines
-- Cross-machine project analysis (projects used on multiple machines)
-- Machine utilization trends over time
-- Active blocks monitoring by machine
-- Monthly trends with machine breakdowns
-- Data freshness monitoring per machine
-- Top models by machine
-- Machine-specific session analytics
-
-## Example Queries
-
-### Top 10 Most Expensive Days
-```sql
-SELECT 
-    date,
-    total_cost,
-    total_tokens,
-    total_cost / total_tokens * 1000000 as cost_per_million_tokens
-FROM ccusage_usage_daily 
-ORDER BY total_cost DESC 
-LIMIT 10;
-```
-
-### Model Cost Breakdown
-```sql
-SELECT 
-    model_name,
-    sum(cost) as total_cost,
-    sum(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) as total_tokens,
-    count() as usage_count
-FROM ccusage_model_breakdowns
-GROUP BY model_name
-ORDER BY total_cost DESC;
-```
-
-### Project Efficiency Rankings
-```sql
-SELECT 
-    replaceRegexpOne(session_id, '.*-Users-duet-project-', '') as project_name,
-    total_cost,
-    total_tokens / total_cost as tokens_per_dollar,
-    last_activity
-FROM ccusage_usage_sessions
-WHERE total_cost > 0
-ORDER BY tokens_per_dollar DESC;
-```
-
-### Import OpenCode Data Only
-
-```bash
-# Skip ccusage, import only OpenCode
-# (Note: Currently both sources imported together, use --skip-opencode to exclude)
-```
-
-### Query Data by Source
-
-```sql
--- Get combined statistics
-SELECT source, count(*) as records, sum(total_cost) as cost
-FROM ccusage_usage_daily
-GROUP BY source;
-
--- Get OpenCode-specific model usage
-SELECT model_name, sum(cost) as total_cost
-FROM ccusage_model_breakdowns
-WHERE source = 'opencode'
-GROUP BY model_name
-ORDER BY total_cost DESC;
-```
-
-## Dashboard Integration
-
-This schema is designed for integration with visualization tools:
-
-- **Grafana**: Use ClickHouse data source
-- **Apache Superset**: Direct ClickHouse connection  
-- **Tableau**: Via ClickHouse ODBC driver
-- **Custom Dashboards**: Direct SQL queries via HTTP interface
-
-## Data Pipeline Architecture
-
-```
-ccusage CLI + OpenCode Storage → JSON Output → Python Importer → ClickHouse → Dashboard
-     ↓              ↓                      ↓              ↓              ↓           ↓
-   JSONL Files  → msg_*.json         → JSON Data → SQL Inserts → Tables → Queries
-```
-
-### Data Flow
-
-1. **ccusage** reads local Claude Code JSONL files
-2. **OpenCode** reads message storage JSON files (msg_*.json)
-3. **Python importer** calls ccusage with `--json` flag and reads OpenCode files
-4. **ClickHouse** stores data in optimized tables with source tracking
-5. **SQL queries** power dashboards and analytics
-
-## File Structure
-
-```
-ccusage-import/
-├── README.md                     # This file
-├── ccusage_clickhouse_schema.sql # Complete ClickHouse schema
-├── ccusage_importer.py           # Python data import script
-├── queries.sql                   # 27 ready-to-use SQL queries
-├── setup_cronjob.sh              # Automated cronjob setup
-└── verify_setup.sh               # Setup verification script
-```
-
-## Configuration
-
-### ClickHouse Connection Settings
-
-Create a `.env` file in the project root (copy from `.env.example`):
-
-```bash
-# ClickHouse Configuration
-CH_HOST=your_clickhouse_host
-CH_PORT=8123
-CH_USER=your_username
-CH_PASSWORD=your_password_here
-CH_DATABASE=your_database
-
-# Multi-Machine Configuration (Optional)
-# Override machine name for identification across different machines
-# Default: Uses hostname automatically (socket.gethostname())
-MACHINE_NAME=my-custom-machine-name
-
-# OpenCode Configuration (Optional)
-# Path to OpenCode message storage
-# Default: ~/.local/share/opencode/storage/message/
-OPENCODE_PATH=/custom/path/to/opencode/storage/message
-```
-
-### Cronjob Schedule
-
-Default: Every hour at minute 0 with automatic PATH and environment setup
-```bash
-# Example crontab entry (auto-generated by setup_cronjob.sh)
-0 * * * * cd /path/to/ccusage-import && PATH=/path/to/node/bin:$PATH CH_HOST=your_host CH_PORT=8123 CH_USER=your_user CH_DATABASE=your_database /path/to/uv run python ccusage_importer.py >> ~/.local/log/ccusage/import.log 2>&1
-```
-
-
-## Performance Considerations
-
-- **Partitioning**: Tables partitioned by date for fast time-range queries
-- **Indexing**: Optimized indexes on frequently queried columns
-- **Compression**: ClickHouse's native compression reduces storage
-- **Batch Inserts**: Efficient bulk data loading
-- **Idempotent**: Safe to run imports multiple times
-
-## Troubleshooting
-
-### Check Data Import Status
-```bash
-# View logs
-tail -f /var/log/ccusage/import.log
-
-# Check table row counts
-clickhouse-client --query "
-SELECT 'ccusage_usage_daily' as table_name, count() as rows FROM your_database.ccusage_usage_daily
-"
-```
-
-### Verify Setup
-```bash
-# HTTP-based verification (no clickhouse-client required)
-./verify_setup.sh
-```
-
-### Manual Data Import
-```bash
-python3 ccusage_importer.py
-```
-
-## Requirements
-
-- **ccusage**: `npm install -g ccusage` or `npx ccusage@latest`
-- **ClickHouse**: Server with your_database
-- **Python 3.8+**: With dependencies managed by `uv`
-- **Environment file**: `.env` with ClickHouse credentials
-
-## 🤝 Contributing
-
-Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details on:
-
-- Development setup
-- Code style guidelines
-- Testing requirements
-- Pull request process
-
-### Quick Start for Contributors
-
-```bash
-# Fork and clone the repository
-git clone https://github.com/YOUR_USERNAME/ccusage-import.git
-cd ccusage-import
-
-# Install dependencies
-uv sync
-
-# Install pre-commit hooks (optional but recommended)
-pip install pre-commit
-pre-commit install
-
-# Run tests
-uv run pytest tests/ -v
-
-# Format and lint code
-uv run ruff format .
-uv run ruff check --fix .
-```
-
-### Continuous Integration
-
-We use GitHub Actions for CI/CD with:
-- **Automated Linting**: Ruff checks on every push/PR
-- **Multi-Python Testing**: Tests run on Python 3.8, 3.9, 3.10, 3.11, and 3.12
-- **Code Coverage**: Coverage reports uploaded to Codecov
-- **Security Scanning**: Automated security checks with bandit and safety
-- **Pre-commit Hooks**: Optional local validation before commits
-
-## 🔒 Security
-
-For security best practices and reporting vulnerabilities, please see our [Security Policy](SECURITY.md).
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT

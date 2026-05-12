@@ -77,13 +77,11 @@ export async function fetchAllCompanionData(
   const runner = await detectPackageRunner(packageRunner);
   const env = dataPath ? { [SOURCE_PATH_ENV[source]]: dataPath } : {};
 
-  const [daily, monthly, session] = await Promise.all([
-    fetchCompanionCommand(source, 'daily', runner, timeout, maxRetries, env, verbose, executor),
-    fetchCompanionCommand(source, 'monthly', runner, timeout, maxRetries, env, verbose, executor),
-    fetchCompanionCommand(source, 'session', runner, timeout, maxRetries, env, verbose, executor),
-  ]);
+  // Sequential to reduce concurrent npm process memory
+  const daily = await fetchCompanionCommand(source, 'daily', runner, timeout, maxRetries, env, verbose, executor);
+  const session = await fetchCompanionCommand(source, 'session', runner, timeout, maxRetries, env, verbose, executor);
 
-  return { daily, monthly, session };
+  return { daily, monthly: [], session };
 }
 
 export async function checkCompanionAvailable(source: CompanionSource): Promise<boolean> {
@@ -150,7 +148,12 @@ async function executeCompanionCommand({
     throw new Error(stderr.trim() || `${source} ${command} exited with ${exitCode}`);
   }
 
-  return JSON.parse(stdout);
+  // Companion packages may print log lines to stdout before JSON (e.g. "[@ccusage/opencode] ℹ ...")
+  const jsonStart = stdout.search(/[{[]/);
+  if (jsonStart === -1) {
+    throw new Error(`No JSON in ${source} ${command} output: ${stdout.slice(0, 200)}`);
+  }
+  return JSON.parse(stdout.slice(jsonStart));
 }
 
 async function detectPackageRunner(preferred: PackageRunner): Promise<Exclude<PackageRunner, 'auto'>> {
@@ -205,7 +208,8 @@ function normalizeUsageRow(command: CompanionCommand, row: unknown): CompanionUs
   }
 
   const value = row as Record<string, any>;
-  const modelBreakdowns = normalizeModelBreakdowns(value.modelBreakdowns ?? value.models ?? []);
+  const rawModels = value.modelBreakdowns ?? value.models ?? [];
+  const modelBreakdowns = normalizeModelBreakdowns(rawModels);
   const modelsUsed = Array.isArray(value.modelsUsed)
     ? value.modelsUsed
     : modelBreakdowns.map(model => model.modelName);
@@ -215,7 +219,7 @@ function normalizeUsageRow(command: CompanionCommand, row: unknown): CompanionUs
     inputTokens: value.inputTokens ?? value.input_tokens ?? 0,
     outputTokens: value.outputTokens ?? value.output_tokens ?? 0,
     cacheCreationTokens: value.cacheCreationTokens ?? value.cacheCreationInputTokens ?? value.cache_creation_tokens ?? 0,
-    cacheReadTokens: value.cacheReadTokens ?? value.cacheReadInputTokens ?? value.cache_read_tokens ?? 0,
+    cacheReadTokens: value.cacheReadTokens ?? value.cacheReadInputTokens ?? value.cache_read_tokens ?? value.cachedInputTokens ?? 0,
     totalTokens: value.totalTokens ?? value.total_tokens ?? 0,
     totalCost: value.totalCost ?? value.costUSD ?? value.cost ?? value.total_cost ?? 0,
     modelsUsed,
@@ -236,32 +240,36 @@ function normalizeUsageRow(command: CompanionCommand, row: unknown): CompanionUs
 }
 
 function normalizeModelBreakdowns(raw: unknown): CompanionModelBreakdown[] {
-  if (!Array.isArray(raw)) {
-    return [];
+  if (Array.isArray(raw)) {
+    return raw.map(item => {
+      if (typeof item === 'string') {
+        return { modelName: item, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cost: 0 };
+      }
+      const value = item as Record<string, any>;
+      return {
+        modelName: value.modelName ?? value.model ?? value.name ?? 'unknown',
+        inputTokens: value.inputTokens ?? value.input_tokens ?? 0,
+        outputTokens: value.outputTokens ?? value.output_tokens ?? 0,
+        cacheCreationTokens: value.cacheCreationTokens ?? value.cacheCreationInputTokens ?? value.cache_creation_tokens ?? 0,
+        cacheReadTokens: value.cacheReadTokens ?? value.cacheReadInputTokens ?? value.cache_read_tokens ?? value.cachedInputTokens ?? 0,
+        cost: value.cost ?? value.costUSD ?? value.totalCost ?? 0,
+      };
+    });
   }
 
-  return raw.map(item => {
-    if (typeof item === 'string') {
-      return {
-        modelName: item,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 0,
-        cost: 0,
-      };
-    }
-
-    const value = item as Record<string, any>;
-    return {
-      modelName: value.modelName ?? value.model ?? value.name ?? 'unknown',
+  // Handle object format: { "model-name": { inputTokens, outputTokens, ... } }
+  if (raw && typeof raw === 'object') {
+    return Object.entries(raw as Record<string, any>).map(([modelName, value]) => ({
+      modelName,
       inputTokens: value.inputTokens ?? value.input_tokens ?? 0,
       outputTokens: value.outputTokens ?? value.output_tokens ?? 0,
       cacheCreationTokens: value.cacheCreationTokens ?? value.cacheCreationInputTokens ?? value.cache_creation_tokens ?? 0,
-      cacheReadTokens: value.cacheReadTokens ?? value.cacheReadInputTokens ?? value.cache_read_tokens ?? 0,
-      cost: value.cost ?? value.costUSD ?? value.totalCost ?? 0,
-    };
-  });
+      cacheReadTokens: value.cacheReadTokens ?? value.cacheReadInputTokens ?? value.cache_read_tokens ?? value.cachedInputTokens ?? 0,
+      cost: value.cost ?? value.costUSD ?? 0,
+    }));
+  }
+
+  return [];
 }
 
 async function withTimeout<T>(

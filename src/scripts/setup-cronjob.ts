@@ -91,15 +91,22 @@ function detectShellConfig(): string {
 }
 
 /**
- * Detect Node.js runtime
+ * Resolve Bun command path for cron execution.
  */
-function detectRuntime(): 'bun' | 'node' {
-  // Check if bun is available
+function resolveBunCommand(): string {
+  const bunInHome = path.join(os.homedir(), '.bun', 'bin', 'bun');
+  if (existsSync(bunInHome)) {
+    return bunInHome;
+  }
+
   try {
-    execSync('which bun', { stdio: 'ignore' });
-    return 'bun';
+    const resolved = execSync('which bun', { encoding: 'utf-8' }).trim();
+    if (resolved) {
+      return resolved;
+    }
+    throw new Error('bun runtime not found in PATH');
   } catch {
-    return 'node';
+    throw new Error('bun runtime not found. Install bun or add it to PATH before setting up cronjob.');
   }
 }
 
@@ -174,11 +181,11 @@ function getCronPath(): string {
 /**
  * Build cron entry
  */
-function buildCronEntry(runtime: 'bun' | 'node'): string {
+function buildCronEntry(bunCommand: string): string {
   const cronPath = getCronPath();
-  const cliPath = path.join(PROJECT_DIR, 'src', 'cli.ts');
+  const scriptPath = path.join(PROJECT_DIR, 'src', 'scripts', 'import-all.ts');
 
-  return `0 * * * * PATH="${cronPath}" cd "${PROJECT_DIR}" && ${runtime} run "${cliPath}" import --quiet >> "${LOG_FILE}" 2>&1`;
+  return `0 * * * * PATH="${cronPath}" cd "${PROJECT_DIR}" && "${bunCommand}" run "${scriptPath}" >> "${LOG_FILE}" 2>&1`;
 }
 
 /**
@@ -240,16 +247,16 @@ async function installCronjob(options: Options): Promise<void> {
     }
   }
 
-  // Detect runtime
-  const runtime = await detectRuntime();
-  success(`Detected ${runtime} runtime`);
+  // Resolve Bun runtime for cron
+  const bunCommand = resolveBunCommand();
+  success(`Using bun runtime: ${bunCommand}`);
 
   // Create log directory
   await mkdir(LOG_DIR, { recursive: true });
   info(`Log file: ${LOG_FILE}\n`);
 
   // Build cron entry
-  const cronEntry = await buildCronEntry(runtime);
+  const cronEntry = buildCronEntry(bunCommand);
 
   console.log('Cron entry to be added:');
   console.log(`  ${cronEntry}\n`);
