@@ -6,11 +6,14 @@ TypeScript + Bun pipeline importing Claude Code usage analytics into ClickHouse 
 
 **Single table**: `ccusage_events`. All record types (daily, session, block, project_daily) in one flat table with model breakdowns exploded inline.
 
+Docs index: `docs/INDEX.md` (core memory: `docs/knowledge/core-memory.md`).
+
 ## Commands
 
 ```bash
 bun test                          # run tests
 bunx tsc --noEmit                 # typecheck
+git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # recent-change audit window
 rg -n "<symbol>" src tests -g '!**/*.test.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import
 bun run src/scripts/backfill-duckdb.ts       # backfill DuckDB from ClickHouse

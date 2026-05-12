@@ -29,11 +29,6 @@ interface Options {
   help?: boolean;
 }
 
-interface CronEntry {
-  schedule: string;
-  command: string;
-}
-
 // Constants
 const PROJECT_DIR = path.resolve(__dirname, '..', '..');
 const LOG_DIR = path.join(PROJECT_DIR, 'logs');
@@ -48,7 +43,6 @@ const colors = {
   green: '\x1b[32m',
   yellow: '\x1b[33m',
   blue: '\x1b[34m',
-  dim: '\x1b[2m',
 };
 
 function log(color: string, emoji: string, message: string) {
@@ -126,8 +120,8 @@ function getCrontab(): string[] {
  * Set crontab entries
  */
 function setCrontab(entries: string[]): void {
-  const content = entries.join('\n');
-  execSync(`echo '${content}' | crontab -`, { stdio: 'pipe' });
+  const content = `${entries.join('\n')}\n`;
+  execSync('crontab -', { input: content, stdio: ['pipe', 'ignore', 'pipe'] });
 }
 
 /**
