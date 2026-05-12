@@ -10,6 +10,10 @@ import { CHClient } from '../database/client.js';
 import { ClickHouseConfig } from '../config/clickhouse.js';
 import type { DataSink, SinkResult, EventsSnapshotData } from '../pipeline/types.js';
 
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 export class ClickHouseSink implements DataSink {
   readonly name = 'clickhouse';
   private client!: CHClient;
@@ -49,7 +53,7 @@ export class ClickHouseSink implements DataSink {
     for (let i = 0; i < scopeArr.length; i += batchSize) {
       const batch = scopeArr.slice(i, i + batchSize);
       const conditions = batch.map(s =>
-        `(date = '${s.date}' AND record_type = '${s.record_type}' AND source = '${s.source}' AND machine_name = '${s.machine_name}')`
+        `(date = '${escapeSqlLiteral(s.date)}' AND record_type = '${escapeSqlLiteral(s.record_type)}' AND source = '${escapeSqlLiteral(s.source)}' AND machine_name = '${escapeSqlLiteral(s.machine_name)}')`
       );
       await this.client.command(`ALTER TABLE ccusage_events DELETE WHERE ${conditions.join(' OR ')}`);
     }

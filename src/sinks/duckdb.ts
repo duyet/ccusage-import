@@ -12,6 +12,10 @@ import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import type { DataSink, SinkResult, EventsSnapshotData } from '../pipeline/types.js';
 
+function escapeSqlLiteral(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
 const EVENTS_DDL = `CREATE TABLE IF NOT EXISTS ccusage_events (
   date DATE NOT NULL,
   record_type VARCHAR NOT NULL,
@@ -122,7 +126,7 @@ export class DuckDBSink implements DataSink {
 
     for (const scope of scopes.values()) {
       await this.db.exec(
-        `DELETE FROM ccusage_events WHERE date = '${scope.date}' AND record_type = '${scope.record_type}' AND source = '${scope.source}' AND machine_name = '${scope.machine_name}'`
+        `DELETE FROM ccusage_events WHERE date = '${escapeSqlLiteral(scope.date)}' AND record_type = '${escapeSqlLiteral(scope.record_type)}' AND source = '${escapeSqlLiteral(scope.source)}' AND machine_name = '${escapeSqlLiteral(scope.machine_name)}'`
       );
     }
     // Free scope map memory

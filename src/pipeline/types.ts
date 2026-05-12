@@ -9,17 +9,6 @@ export interface EventsSnapshotData {
   events: Record<string, unknown>[];
 }
 
-/** @deprecated Use EventsSnapshotData instead */
-export interface SnapshotData {
-  daily: Record<string, unknown>[];
-  monthly: Record<string, unknown>[];
-  sessions: Record<string, unknown>[];
-  blocks: Record<string, unknown>[];
-  projectsDaily: Record<string, unknown>[];
-  modelBreakdowns: Record<string, unknown>[];
-  modelsUsed: Record<string, unknown>[];
-}
-
 /** Result from a source fetch */
 export interface SourceResult {
   sourceName: string;
