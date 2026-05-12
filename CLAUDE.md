@@ -11,6 +11,7 @@ TypeScript + Bun pipeline importing Claude Code usage analytics into ClickHouse 
 ```bash
 bun test                          # run tests
 bunx tsc --noEmit                 # typecheck
+rg -n "<symbol>" src tests -g '!**/*.test.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import
 bun run src/scripts/backfill-duckdb.ts       # backfill DuckDB from ClickHouse
 ```
