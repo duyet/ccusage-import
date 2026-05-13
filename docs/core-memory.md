@@ -11,7 +11,7 @@ Small, durable runbook for recurring maintenance in this repo.
 ## Token accounting rules
 
 - Claude rows: `total_tokens = input + output + cache_creation + cache_read`.
-- Codex/OpenCode companion rows: `inputTokens` already includes cached input, so `total_tokens = input + output + cache_creation`.
+- Codex/OpenCode companion rows: `inputTokens` already includes cached input, so `total_tokens = input + output` (no cache double-count).
 
 ## Cron/import workflow
 
@@ -27,4 +27,3 @@ Small, durable runbook for recurring maintenance in this repo.
   - `rg -n "<symbol>" src tests -g '!**/*.test.ts'`
 - Regression check:
   - `bun test`
-
