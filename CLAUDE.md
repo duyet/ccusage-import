@@ -14,6 +14,7 @@ bunx tsc --noEmit                 # typecheck
 rg -n "<symbol>" src tests -g '!**/*.test.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import
 bun run src/scripts/backfill-duckdb.ts       # backfill DuckDB from ClickHouse
+git log --since='7 days ago' --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
 
 ## Config
@@ -38,3 +39,7 @@ Sources → parsers → pipeline runner → sinks (ClickHouse, DuckDB).
 ## Code style
 
 No comments unless WHY is non-obvious. Surgical changes only. No AI slop.
+
+## Core memory
+
+See `docs/core-memory.md` for the compact maintenance runbook.

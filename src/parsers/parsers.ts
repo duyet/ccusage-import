@@ -10,7 +10,6 @@ import type {
   SessionUsage,
   BlockUsage,
   ProjectDailyUsage,
-  OpenCodeMessage,
   ModelBreakdown,
 } from './types.js';
 import type { CompanionData, CompanionUsageRow } from '../fetchers/companion.js';

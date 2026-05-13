@@ -28,6 +28,13 @@ ccusage_events
 
 See `docs/schema.sql` for the full DDL.
 
+## Docs index
+
+- `docs/core-memory.md` - compact maintenance runbook for recurring automation tasks
+- `docs/schema.sql` - ClickHouse schema for `ccusage_events`
+- `docs/queries.sql` - query examples
+- `docs/migrate_add_source.sql` - migration SQL
+
 ## Setup
 
 ```bash

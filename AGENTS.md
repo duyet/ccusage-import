@@ -13,6 +13,8 @@ bun test                # tests
 bunx tsc --noEmit       # typecheck (expect @types/bun errors)
 rg -n "<symbol>" src tests -g '!**/*.test.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import
+bun run src/scripts/backfill-duckdb.ts       # backfill DuckDB from ClickHouse
+git log --since='7 days ago' --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
 
 ## Architecture
@@ -32,3 +34,7 @@ Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 - Cost distributed across models when per-model costs missing (`distributeCost()`)
 - Companion packages may print log lines before JSON — parser skips to first `{`/`[`
 - Monthly not fetched — derivable via `toYYYYMM(date)` SQL
+
+## Core memory
+
+See `docs/core-memory.md` for the compact maintenance runbook.

@@ -29,11 +29,6 @@ interface Options {
   help?: boolean;
 }
 
-interface CronEntry {
-  schedule: string;
-  command: string;
-}
-
 // Constants
 const PROJECT_DIR = path.resolve(__dirname, '..', '..');
 const LOG_DIR = path.join(PROJECT_DIR, 'logs');
@@ -262,7 +257,7 @@ async function installCronjob(options: Options): Promise<void> {
   console.log(`  ${cronEntry}\n`);
 
   // Get current crontab
-  let crontab = await getCrontab();
+  let crontab = getCrontab();
 
   // Filter out existing ccusage-import entries
   const existingEntries = crontab.filter(line => line.includes('ccusage-import'));
@@ -274,14 +269,14 @@ async function installCronjob(options: Options): Promise<void> {
       info('Force mode: replacing existing cronjob(s)');
       crontab = crontab.filter(line => !line.includes('ccusage-import'));
       crontab.push(cronEntry);
-      await setCrontab(crontab);
+      setCrontab(crontab);
       success('Cronjob updated');
     } else {
       const answer = prompt('Replace it? (y/N): ');
       if (answer?.toLowerCase() === 'y') {
         crontab = crontab.filter(line => !line.includes('ccusage-import'));
         crontab.push(cronEntry);
-        await setCrontab(crontab);
+        setCrontab(crontab);
         success('Cronjob updated');
       } else {
         info('Skipped cronjob setup');
@@ -290,7 +285,7 @@ async function installCronjob(options: Options): Promise<void> {
     }
   } else {
     crontab.push(cronEntry);
-    await setCrontab(crontab);
+    setCrontab(crontab);
     success('Cronjob installed');
   }
 
@@ -314,7 +309,7 @@ async function installCronjob(options: Options): Promise<void> {
 
   if (!crontab.some(line => line.includes('logrotate') && line.includes('ccusage-import'))) {
     crontab.push(logrotateEntry);
-    await setCrontab(crontab);
+    setCrontab(crontab);
     success('Log rotation cronjob added');
   }
 
