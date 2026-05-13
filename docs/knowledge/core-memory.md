@@ -15,6 +15,13 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 - `run-import.sh` is Bun-only; do not add npm/yarn fallback.
 - `src/scripts/setup-cronjob.ts` must write crontab via stdin (`crontab -`), not shell-quoted `echo`.
 - Keep sink dedup delete filters SQL-escaped in both ClickHouse and DuckDB sinks.
+- Companion (`codex`/`opencode`) totals must avoid cache double-count: `total_tokens = inputTokens + outputTokens`.
+- Claude totals must keep cache components separate: `total_tokens = input + output + cacheCreation + cacheRead`.
+
+## Routine operations
+
+- Full import: `bun run src/scripts/import-all.ts --verbose`
+- DuckDB backfill from ClickHouse: `bun run src/scripts/backfill-duckdb.ts`
 
 ## CI and archived Python docs
 
