@@ -45,4 +45,4 @@ No comments unless WHY is non-obvious. Surgical changes only. No AI slop.
 
 ## Core memory
 
-See `docs/core-memory.md` for the compact maintenance runbook.
+See `docs/knowledge/core-memory.md` for the compact maintenance runbook.

@@ -40,4 +40,4 @@ Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 
 ## Core memory
 
-See `docs/core-memory.md` for the compact maintenance runbook.
+See `docs/knowledge/core-memory.md` for the compact maintenance runbook.
