@@ -5,8 +5,10 @@
 import { describe, expect, it, mock } from 'bun:test';
 import {
   fetchAllCompanionData,
+  type CompanionData,
   type CompanionCommandExecutor,
 } from '../../src/fetchers/companion';
+import { buildCompanionEventRows } from '../../src/parsers/parsers';
 
 describe('fetchAllCompanionData', () => {
   it('parses wrapped daily and session JSON', async () => {
@@ -99,5 +101,41 @@ describe('fetchAllCompanionData', () => {
     expect(data.daily).toEqual([]);
     expect(data.monthly).toEqual([]);
     expect(data.session).toEqual([]);
+  });
+});
+
+describe('buildCompanionEventRows', () => {
+  it('does not double-count companion cache tokens in total_tokens', () => {
+    const rows = buildCompanionEventRows(
+      {
+        daily: [{
+          date: '2026-05-13',
+          inputTokens: 100,
+          outputTokens: 50,
+          cacheCreationTokens: 10,
+          cacheReadTokens: 20,
+          totalCost: 0.01,
+          modelsUsed: ['gpt-5'],
+          modelBreakdowns: [{
+            modelName: 'gpt-5',
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheCreationTokens: 10,
+            cacheReadTokens: 20,
+            cost: 0.01,
+          }],
+        }],
+        monthly: [],
+        session: [],
+      } satisfies CompanionData,
+      'machine-1',
+      'codex',
+      false
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].total_tokens).toBe(150);
+    expect(rows[0].cache_creation_tokens).toBe(10);
+    expect(rows[0].cache_read_tokens).toBe(20);
   });
 });
