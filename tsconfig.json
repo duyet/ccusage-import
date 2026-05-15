@@ -19,7 +19,7 @@
     "resolveJsonModule": true,
     "allowJs": true,
     "checkJs": false,
-    "types": [],
+    "types": ["bun", "node"],
 
     // Emit
     "declaration": true,

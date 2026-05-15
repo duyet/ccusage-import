@@ -5,6 +5,7 @@ Small durable notes for ongoing maintenance automation.
 ## Scan scope commands
 
 ```bash
+bun install --frozen-lockfile
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only
 git log --since='7 days ago' --pretty=format:'%h %cI %s'
 rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
@@ -18,6 +19,7 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 - Companion (`codex`/`opencode`) totals must avoid cache double-count: `total_tokens = inputTokens + outputTokens`.
 - Claude totals must keep cache components separate: `total_tokens = input + output + cacheCreation + cacheRead`.
 - TypeScript 6: avoid `baseUrl` in `tsconfig.json`; keep path aliases with explicit `./src/...` prefixes.
+- In fresh clones/worktrees without `node_modules`, run `bun install --frozen-lockfile` before `bunx tsc --noEmit` to avoid false missing-module/type errors.
 - In restricted environments where Bun cannot write temp files, run checks with `BUN_TMPDIR="$PWD/.tmp/bun-tmp"` and `BUN_INSTALL_CACHE_DIR="$PWD/.tmp/bun-install-cache"`.
 
 ## Routine operations

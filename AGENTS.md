@@ -11,11 +11,12 @@ Docs index: `docs/INDEX.md` (core memory: `docs/knowledge/core-memory.md`).
 ## Commands
 
 ```bash
+bun install --frozen-lockfile  # install deps in fresh worktree before checks
 bun test                # tests
 bunx tsc --noEmit       # typecheck
 BUN_TMPDIR="$PWD/.tmp/bun-tmp" BUN_INSTALL_CACHE_DIR="$PWD/.tmp/bun-install-cache" bunx tsc --noEmit  # fallback in restricted tempdir envs
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # recent-change audit window
-rg -n "<symbol>" src tests -g '!**/*.test.ts'  # dead-code evidence (non-test refs)
+rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import
 bun run src/scripts/backfill-duckdb.ts       # backfill DuckDB from ClickHouse
 git log --since='7 days ago' --name-only --pretty=format:'--- %h %ad %s' --date=short
