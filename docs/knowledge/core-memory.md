@@ -17,6 +17,8 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 - Keep sink dedup delete filters SQL-escaped in both ClickHouse and DuckDB sinks.
 - Companion (`codex`/`opencode`) totals must avoid cache double-count: `total_tokens = inputTokens + outputTokens`.
 - Claude totals must keep cache components separate: `total_tokens = input + output + cacheCreation + cacheRead`.
+- TypeScript 6: avoid `baseUrl` in `tsconfig.json`; keep path aliases with explicit `./src/...` prefixes.
+- In restricted environments where Bun cannot write temp files, run checks with `BUN_TMPDIR="$PWD/.tmp/bun-tmp"` and `BUN_INSTALL_CACHE_DIR="$PWD/.tmp/bun-install-cache"`.
 
 ## Routine operations
 

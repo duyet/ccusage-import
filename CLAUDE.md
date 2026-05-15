@@ -13,6 +13,7 @@ Docs index: `docs/INDEX.md` (core memory: `docs/knowledge/core-memory.md`).
 ```bash
 bun test                          # run tests
 bunx tsc --noEmit                 # typecheck
+BUN_TMPDIR="$PWD/.tmp/bun-tmp" BUN_INSTALL_CACHE_DIR="$PWD/.tmp/bun-install-cache" bunx tsc --noEmit  # fallback in restricted tempdir envs
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # recent-change audit window
 rg -n "<symbol>" src tests -g '!**/*.test.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import

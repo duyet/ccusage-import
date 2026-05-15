@@ -43,15 +43,14 @@
     "jsxImportSource": "react",
 
     // Path Aliases
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@/config/*": ["src/config/*"],
-      "@/database/*": ["src/database/*"],
-      "@/fetchers/*": ["src/fetchers/*"],
-      "@/parsers/*": ["src/parsers/*"],
-      "@/ui/*": ["src/ui/*"],
-      "@/utils/*": ["src/utils/*"]
+      "@/*": ["./src/*"],
+      "@/config/*": ["./src/config/*"],
+      "@/database/*": ["./src/database/*"],
+      "@/fetchers/*": ["./src/fetchers/*"],
+      "@/parsers/*": ["./src/parsers/*"],
+      "@/ui/*": ["./src/ui/*"],
+      "@/utils/*": ["./src/utils/*"]
     },
 
     // Completeness
