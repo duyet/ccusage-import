@@ -7,6 +7,7 @@ Small durable notes for ongoing maintenance automation.
 ```bash
 bun install --frozen-lockfile
 git switch -c automation/<topic> origin/master
+git worktree list --porcelain
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only
 git log --since='7 days ago' --pretty=format:'%h %cI %s'
 rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
@@ -23,6 +24,7 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 - In fresh clones/worktrees without `node_modules`, run `bun install --frozen-lockfile` before `bunx tsc --noEmit` to avoid false missing-module/type errors.
 - In restricted environments where Bun cannot write temp files, run checks with `BUN_TMPDIR="$PWD/.tmp/bun-tmp"` and `BUN_INSTALL_CACHE_DIR="$PWD/.tmp/bun-install-cache"`.
 - In Codex worktrees that start on detached `HEAD`, create a branch from `origin/master` before making automation commits/PRs.
+- If git operations fail in a linked worktree with `.git/worktrees/.../*.lock` permission errors, run branch/fetch/push from the owning checkout identified by `git worktree list --porcelain`.
 
 ## Routine operations
 
