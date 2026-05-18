@@ -9,7 +9,7 @@ bun install --frozen-lockfile
 git switch -c automation/<topic> origin/master
 git worktree list --porcelain
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only
-git log --since='7 days ago' --pretty=format:'%h %cI %s'
+git log --since='7 days ago' --no-merges --pretty=format:'%h %cI %s'
 rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 ```
 
