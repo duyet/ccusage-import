@@ -21,7 +21,7 @@ git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # rece
 rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'  # dead-code evidence (non-test refs)
 bun run src/scripts/import-all.ts --verbose  # full import
 bun run src/scripts/backfill-duckdb.ts       # backfill DuckDB from ClickHouse
-git log --since='7 days ago' --name-only --pretty=format:'--- %h %ad %s' --date=short
+git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
 
 ## Config
