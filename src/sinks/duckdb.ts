@@ -29,6 +29,7 @@ const EVENTS_DDL = `CREATE TABLE IF NOT EXISTS ccusage_events (
   output_tokens BIGINT DEFAULT 0,
   cache_creation_tokens BIGINT DEFAULT 0,
   cache_read_tokens BIGINT DEFAULT 0,
+  reasoning_tokens BIGINT DEFAULT 0,
   total_tokens BIGINT DEFAULT 0,
   cost DOUBLE DEFAULT 0,
   block_id VARCHAR DEFAULT '',
@@ -104,6 +105,7 @@ export class DuckDBSink implements DataSink {
   private async ensureTables(): Promise<void> {
     if (!this.db || this.tablesEnsured) return;
     await this.db.exec(EVENTS_DDL);
+    await this.db.exec('ALTER TABLE ccusage_events ADD COLUMN IF NOT EXISTS reasoning_tokens BIGINT DEFAULT 0');
     this.tablesEnsured = true;
   }
 

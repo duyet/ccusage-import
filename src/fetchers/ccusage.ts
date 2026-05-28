@@ -37,11 +37,14 @@ export async function fetchAllCcusageData(
   const runner = await detectPackageRunner(packageRunner);
   const fetch = (cmd: string) => fetchCcusageCommand(cmd, runner, timeout, maxRetries, verbose);
 
-  // Sequential to avoid 5 concurrent npm processes spiking memory
-  const daily = await fetch('daily');
-  const session = await fetch('session');
-  const blocks = await fetch('blocks');
-  const projects = await fetch('daily --instances').then(r => {
+  // ccusage 20.x: the bare `ccusage daily` aggregates across ALL agents
+  // (agent:"all", no per-day date). The Claude-specific data lives under the
+  // `claude` subcommand, which keeps the date + modelBreakdowns shape.
+  // Sequential to avoid concurrent npm processes spiking memory.
+  const daily = await fetch('claude daily');
+  const session = await fetch('claude session');
+  const blocks = await fetch('claude blocks');
+  const projects = await fetch('claude daily --instances').then(r => {
     if (r && 'projects' in r) {
       return (r as CcusageProjectsResponse).projects;
     }

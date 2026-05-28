@@ -1,13 +1,55 @@
 /**
- * ccusage companion CLI fetcher
+ * ccusage agent CLI fetcher
  *
- * Fetches usage reports from companion packages such as @ccusage/codex
- * and @ccusage/opencode. These packages emit ccusage-shaped JSON.
+ * ccusage 20.x is a unified CLI: every agent is a subcommand
+ * (`ccusage <source> <view> --json`). This fetcher invokes any such
+ * subcommand and normalizes its ccusage-shaped JSON.
  */
 
-export type CompanionSource = 'codex' | 'opencode';
+export type CompanionSource =
+  | 'codex'
+  | 'opencode'
+  | 'gemini'
+  | 'hermes'
+  | 'openclaw'
+  | 'amp'
+  | 'droid'
+  | 'codebuff'
+  | 'pi'
+  | 'goose'
+  | 'kilo'
+  | 'copilot'
+  | 'kimi'
+  | 'qwen';
 export type PackageRunner = 'npx' | 'bunx' | 'auto';
 export type CompanionCommand = 'daily' | 'monthly' | 'session';
+
+export interface AgentSourceMeta {
+  id: CompanionSource;
+  /** Env var to point the agent at a custom data dir, when supported. */
+  pathEnv?: string;
+}
+
+/**
+ * All ccusage agent subcommands to import (Claude is handled separately by
+ * CcusageSource, which uniquely provides blocks + projects:daily).
+ */
+export const CCUSAGE_AGENT_SOURCES: AgentSourceMeta[] = [
+  { id: 'codex', pathEnv: 'CODEX_HOME' },
+  { id: 'opencode', pathEnv: 'OPENCODE_DATA_DIR' },
+  { id: 'gemini', pathEnv: 'GEMINI_DATA_DIR' },
+  { id: 'hermes', pathEnv: 'HERMES_HOME' },
+  { id: 'openclaw', pathEnv: 'OPENCLAW_DIR' },
+  { id: 'amp' },
+  { id: 'droid' },
+  { id: 'codebuff' },
+  { id: 'pi' },
+  { id: 'goose' },
+  { id: 'kilo' },
+  { id: 'copilot' },
+  { id: 'kimi' },
+  { id: 'qwen' },
+];
 
 export interface CompanionFetchOptions {
   timeout?: number;
@@ -36,15 +78,11 @@ export type CompanionCommandExecutor = (
   options: CompanionCommandExecutorOptions
 ) => Promise<unknown>;
 
-const SOURCE_PACKAGES: Record<CompanionSource, string> = {
-  codex: '@ccusage/codex@latest',
-  opencode: '@ccusage/opencode@latest',
-};
+const CCUSAGE_PACKAGE = 'ccusage@latest';
 
-const SOURCE_PATH_ENV: Record<CompanionSource, string> = {
-  codex: 'CODEX_HOME',
-  opencode: 'OPENCODE_DATA_DIR',
-};
+const SOURCE_PATH_ENV: Partial<Record<CompanionSource, string>> = Object.fromEntries(
+  CCUSAGE_AGENT_SOURCES.filter(s => s.pathEnv).map(s => [s.id, s.pathEnv!])
+);
 
 interface CompanionModelBreakdown {
   modelName: string;
@@ -52,6 +90,7 @@ interface CompanionModelBreakdown {
   outputTokens: number;
   cacheCreationTokens: number;
   cacheReadTokens: number;
+  reasoningTokens: number;
   cost: number;
 }
 
@@ -75,7 +114,8 @@ export async function fetchAllCompanionData(
   } = options;
 
   const runner = await detectPackageRunner(packageRunner);
-  const env = dataPath ? { [SOURCE_PATH_ENV[source]]: dataPath } : {};
+  const pathEnv = SOURCE_PATH_ENV[source];
+  const env = dataPath && pathEnv ? { [pathEnv]: dataPath } : {};
 
   // Sequential to reduce concurrent npm process memory
   const daily = await fetchCompanionCommand(source, 'daily', runner, timeout, maxRetries, env, verbose, executor);
@@ -87,7 +127,7 @@ export async function fetchAllCompanionData(
 export async function checkCompanionAvailable(source: CompanionSource): Promise<boolean> {
   try {
     const runner = await detectPackageRunner('auto');
-    const proc = Bun.spawn([runner, SOURCE_PACKAGES[source], '--help'], {
+    const proc = Bun.spawn([runner, CCUSAGE_PACKAGE, source, '--help'], {
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -126,6 +166,15 @@ async function fetchCompanionCommand(
   return [];
 }
 
+/** Build the ccusage CLI argv for a given agent subcommand + view. */
+export function buildAgentCommandArgs(
+  runner: Exclude<PackageRunner, 'auto'>,
+  source: CompanionSource,
+  command: CompanionCommand
+): string[] {
+  return [runner, CCUSAGE_PACKAGE, source, command, '--breakdown', '--json'];
+}
+
 async function executeCompanionCommand({
   source,
   command,
@@ -133,7 +182,7 @@ async function executeCompanionCommand({
   timeout,
   env,
 }: CompanionCommandExecutorOptions): Promise<unknown> {
-  const proc = Bun.spawn([runner, SOURCE_PACKAGES[source], command, '--json'], {
+  const proc = Bun.spawn(buildAgentCommandArgs(runner, source, command), {
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, ...env },
@@ -220,6 +269,7 @@ function normalizeUsageRow(command: CompanionCommand, row: unknown): CompanionUs
     outputTokens: value.outputTokens ?? value.output_tokens ?? 0,
     cacheCreationTokens: value.cacheCreationTokens ?? value.cacheCreationInputTokens ?? value.cache_creation_tokens ?? 0,
     cacheReadTokens: value.cacheReadTokens ?? value.cacheReadInputTokens ?? value.cache_read_tokens ?? value.cachedInputTokens ?? 0,
+    reasoningTokens: value.reasoningTokens ?? value.reasoningOutputTokens ?? value.thoughtsTokens ?? value.reasoning_tokens ?? 0,
     totalTokens: value.totalTokens ?? value.total_tokens ?? 0,
     totalCost: value.totalCost ?? value.costUSD ?? value.cost ?? value.total_cost ?? 0,
     modelsUsed,
@@ -243,7 +293,7 @@ function normalizeModelBreakdowns(raw: unknown): CompanionModelBreakdown[] {
   if (Array.isArray(raw)) {
     return raw.map(item => {
       if (typeof item === 'string') {
-        return { modelName: item, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, cost: 0 };
+        return { modelName: item, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, reasoningTokens: 0, cost: 0 };
       }
       const value = item as Record<string, any>;
       return {
@@ -252,6 +302,7 @@ function normalizeModelBreakdowns(raw: unknown): CompanionModelBreakdown[] {
         outputTokens: value.outputTokens ?? value.output_tokens ?? 0,
         cacheCreationTokens: value.cacheCreationTokens ?? value.cacheCreationInputTokens ?? value.cache_creation_tokens ?? 0,
         cacheReadTokens: value.cacheReadTokens ?? value.cacheReadInputTokens ?? value.cache_read_tokens ?? value.cachedInputTokens ?? 0,
+        reasoningTokens: value.reasoningTokens ?? value.reasoningOutputTokens ?? value.thoughtsTokens ?? value.reasoning_tokens ?? 0,
         cost: value.cost ?? value.costUSD ?? value.totalCost ?? 0,
       };
     });
@@ -265,6 +316,7 @@ function normalizeModelBreakdowns(raw: unknown): CompanionModelBreakdown[] {
       outputTokens: value.outputTokens ?? value.output_tokens ?? 0,
       cacheCreationTokens: value.cacheCreationTokens ?? value.cacheCreationInputTokens ?? value.cache_creation_tokens ?? 0,
       cacheReadTokens: value.cacheReadTokens ?? value.cacheReadInputTokens ?? value.cache_read_tokens ?? value.cachedInputTokens ?? 0,
+      reasoningTokens: value.reasoningTokens ?? value.reasoningOutputTokens ?? value.thoughtsTokens ?? value.reasoning_tokens ?? 0,
       cost: value.cost ?? value.costUSD ?? 0,
     }));
   }

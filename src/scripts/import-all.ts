@@ -5,7 +5,10 @@
  * Plugin architecture: registers sources and sinks,
  * then runs the pipeline (fetch all → fanout to all sinks).
  *
- * Sources: ccusage, codex, opencode
+ * Sources: ccusage (Claude Code) + every ccusage agent subcommand
+ *   (codex, opencode, gemini, hermes, openclaw, amp, droid, codebuff,
+ *   pi, goose, kilo, copilot, kimi, qwen). Agents with no data on this
+ *   machine simply contribute 0 rows.
  * Sinks: ClickHouse, DuckDB (local or MotherDuck)
  */
 
@@ -16,14 +19,13 @@ import { hostname } from 'node:os';
 import { ImportRunner } from '../pipeline/runner.js';
 import { CcusageSource } from '../sources/ccusage.js';
 import { CompanionDataSource } from '../sources/companion.js';
+import { CCUSAGE_AGENT_SOURCES } from '../fetchers/companion.js';
 import { ClickHouseSink } from '../sinks/clickhouse.js';
 import { DuckDBSink } from '../sinks/duckdb.js';
 
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose') || args.includes('-v');
 const skipCcusage = args.includes('--skip-ccusage');
-const skipCodex = args.includes('--skip-codex');
-const skipOpencode = args.includes('--skip-opencode');
 const skipClickhouse = args.includes('--skip-clickhouse');
 const duckdbPath = process.env.DUCKDB_PATH || args.find(a => a.startsWith('--duckdb-path='))?.split('=')[1];
 
@@ -38,11 +40,9 @@ const runner = new ImportRunner();
 if (!skipCcusage) {
   runner.addSource(new CcusageSource({ machineName, hashProjects, timeout: 180_000, verbose }));
 }
-if (!skipCodex) {
-  runner.addSource(new CompanionDataSource({ type: 'codex', machineName, hashProjects, timeout: 120_000, verbose }));
-}
-if (!skipOpencode) {
-  runner.addSource(new CompanionDataSource({ type: 'opencode', machineName, hashProjects, timeout: 120_000, verbose }));
+for (const agent of CCUSAGE_AGENT_SOURCES) {
+  if (args.includes(`--skip-${agent.id}`)) continue;
+  runner.addSource(new CompanionDataSource({ type: agent.id, machineName, hashProjects, timeout: 120_000, verbose }));
 }
 
 // Register sinks

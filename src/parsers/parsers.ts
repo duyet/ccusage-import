@@ -185,6 +185,7 @@ export function buildCcusageEventRows(
         session_id: '', project_path: '',
         input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
         cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
+        reasoning_tokens: 0,
         total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
         cost: bd.cost,
         block_id: '', start_time: null, end_time: null, actual_end_time: null,
@@ -213,6 +214,7 @@ export function buildCcusageEventRows(
         session_id: sid, project_path: pp,
         input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
         cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
+        reasoning_tokens: 0,
         total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
         cost: bd.cost,
         block_id: '', start_time: null, end_time: null, actual_end_time: null,
@@ -236,6 +238,7 @@ export function buildCcusageEventRows(
       output_tokens: item.tokenCounts.outputTokens,
       cache_creation_tokens: item.tokenCounts.cacheCreationInputTokens,
       cache_read_tokens: item.tokenCounts.cacheReadInputTokens,
+      reasoning_tokens: 0,
       total_tokens: item.totalTokens,
       cost: item.costUSD,
       block_id: item.id,
@@ -270,6 +273,7 @@ export function buildCcusageEventRows(
           session_id: '', project_path: pp,
           input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
           cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
+          reasoning_tokens: 0,
           total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
           cost: bd.cost,
           block_id: '', start_time: null, end_time: null, actual_end_time: null,
@@ -315,7 +319,8 @@ export function buildCompanionEventRows(
         session_id: '', project_path: '',
         input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
         cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
-        total_tokens: bd.inputTokens + bd.outputTokens,
+        reasoning_tokens: bd.reasoningTokens,
+        total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
         cost: bd.cost,
         block_id: '', start_time: null, end_time: null, actual_end_time: null,
         is_active: 0, is_gap: 0, entries: 0,
@@ -346,7 +351,8 @@ export function buildCompanionEventRows(
         session_id: sid, project_path: pp,
         input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
         cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
-        total_tokens: bd.inputTokens + bd.outputTokens,
+        reasoning_tokens: bd.reasoningTokens,
+        total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
         cost: bd.cost,
         block_id: '', start_time: null, end_time: null, actual_end_time: null,
         is_active: 0, is_gap: 0, entries: 0,
@@ -375,13 +381,14 @@ function fallbackBreakdown(
   };
 }
 
-function fallbackCompanionBreakdown(row: CompanionUsageRow): { modelName: string; inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number; cost: number } {
+function fallbackCompanionBreakdown(row: CompanionUsageRow): { modelName: string; inputTokens: number; outputTokens: number; cacheCreationTokens: number; cacheReadTokens: number; reasoningTokens: number; cost: number } {
   return {
     modelName: row.modelsUsed?.[0] ?? 'unknown',
     inputTokens: (row.inputTokens ?? 0) as number,
     outputTokens: (row.outputTokens ?? 0) as number,
     cacheCreationTokens: (row.cacheCreationTokens ?? 0) as number,
     cacheReadTokens: (row.cacheReadTokens ?? 0) as number,
+    reasoningTokens: (row.reasoningTokens ?? 0) as number,
     cost: (row.totalCost ?? 0) as number,
   };
 }
