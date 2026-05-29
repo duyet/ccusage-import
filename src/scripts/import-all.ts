@@ -22,6 +22,7 @@ import { CompanionDataSource } from '../sources/companion.js';
 import { CCUSAGE_AGENT_SOURCES } from '../fetchers/companion.js';
 import { ClickHouseSink } from '../sinks/clickhouse.js';
 import { DuckDBSink } from '../sinks/duckdb.js';
+import { TIMEOUTS } from '../constants.js';
 
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose') || args.includes('-v');
@@ -38,11 +39,11 @@ const runner = new ImportRunner();
 
 // Register sources
 if (!skipCcusage) {
-  runner.addSource(new CcusageSource({ machineName, hashProjects, timeout: 180_000, verbose }));
+  runner.addSource(new CcusageSource({ machineName, hashProjects, timeout: TIMEOUTS.ccusage, verbose }));
 }
 for (const agent of CCUSAGE_AGENT_SOURCES) {
   if (args.includes(`--skip-${agent.id}`)) continue;
-  runner.addSource(new CompanionDataSource({ type: agent.id, machineName, hashProjects, timeout: 120_000, verbose }));
+  runner.addSource(new CompanionDataSource({ type: agent.id, machineName, hashProjects, timeout: TIMEOUTS.companion, verbose }));
 }
 
 // Register sinks

@@ -5,6 +5,9 @@
  */
 
 import type { CcusageDailyResponse, CcusageSessionResponse, CcusageBlocksResponse, CcusageProjectsResponse } from '../parsers/types.js';
+import { detectPackageRunner } from './runner.js';
+import { withTimeout } from '../utils/timeout.js';
+import { TIMEOUTS } from '../constants.js';
 
 export interface CcusageFetchOptions {
   timeout?: number;
@@ -34,7 +37,7 @@ export async function fetchAllCcusageData(
     verbose = false,
   } = options;
 
-  const runner = await detectPackageRunner(packageRunner);
+  const runner = await detectPackageRunner(packageRunner, ['npx', 'bunx']);
   const fetch = (cmd: string) => fetchCcusageCommand(cmd, runner, timeout, maxRetries, verbose);
 
   // ccusage 20.x: the bare `ccusage daily` aggregates across ALL agents
@@ -52,30 +55,6 @@ export async function fetchAllCcusageData(
   });
 
   return { daily, session, blocks, projects };
-}
-
-/**
- * Detect available package runner
- */
-async function detectPackageRunner(
-  preferred: 'npx' | 'bunx' | 'auto'
-): Promise<'npx' | 'bunx'> {
-  if (preferred !== 'auto') return preferred;
-
-  // Prefer npx with -y for auto-accept, avoids interactive prompts
-  try {
-    const proc = Bun.spawn(['npx', '--version'], { stdout: 'pipe', stderr: 'pipe' });
-    const exit = await withTimeout(proc.exited, 5_000, () => proc.kill());
-    if (exit === 0) return 'npx';
-  } catch { /* fall through */ }
-
-  try {
-    const proc = Bun.spawn(['bunx', '--version'], { stdout: 'pipe', stderr: 'pipe' });
-    const exit = await withTimeout(proc.exited, 5_000, () => proc.kill());
-    if (exit === 0) return 'bunx';
-  } catch { /* fall through */ }
-
-  throw new Error('No package runner found (npx or bunx required)');
 }
 
 /**
@@ -142,30 +121,9 @@ export async function checkCcusageAvailable(): Promise<boolean> {
       stdout: 'pipe',
       stderr: 'pipe',
     });
-    const exit = await withTimeout(proc.exited, 10_000, () => proc.kill());
+    const exit = await withTimeout(proc.exited, TIMEOUTS.availability, () => proc.kill());
     return exit === 0;
   } catch {
     return false;
-  }
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeout: number,
-  onTimeout: () => void
-): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          onTimeout();
-          reject(new Error(`Command timed out after ${timeout}ms`));
-        }, timeout);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) clearTimeout(timeoutId);
   }
 }

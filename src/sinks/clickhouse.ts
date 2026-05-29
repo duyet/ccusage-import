@@ -8,11 +8,10 @@
 
 import { CHClient } from '../database/client.js';
 import { ClickHouseConfig } from '../config/clickhouse.js';
+import { escapeSqlLiteral } from '../utils/sql.js';
+import { CH_DELETE_BATCH } from '../constants.js';
+import { clickHouseCreateSql, clickHouseAlterStatements } from './schema.js';
 import type { DataSink, SinkResult, EventsSnapshotData } from '../pipeline/types.js';
-
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
 
 export class ClickHouseSink implements DataSink {
   readonly name = 'clickhouse';
@@ -49,9 +48,8 @@ export class ClickHouseSink implements DataSink {
 
     // Batch DELETE: combine scopes into fewer queries using OR
     const scopeArr = [...scopes.values()];
-    const batchSize = 20;
-    for (let i = 0; i < scopeArr.length; i += batchSize) {
-      const batch = scopeArr.slice(i, i + batchSize);
+    for (let i = 0; i < scopeArr.length; i += CH_DELETE_BATCH) {
+      const batch = scopeArr.slice(i, i + CH_DELETE_BATCH);
       const conditions = batch.map(s =>
         `(date = '${escapeSqlLiteral(s.date)}' AND record_type = '${escapeSqlLiteral(s.record_type)}' AND source = '${escapeSqlLiteral(s.source)}' AND machine_name = '${escapeSqlLiteral(s.machine_name)}')`
       );
@@ -59,7 +57,7 @@ export class ClickHouseSink implements DataSink {
     }
 
     // Insert all events
-    await this.client.insert('ccusage_events', data.events as Record<string, any>[]);
+    await this.client.insert('ccusage_events', data.events);
     result.tablesWritten.push('ccusage_events');
     result.rowsWritten['ccusage_events'] = data.events.length;
     result.durationMs = Date.now() - start;
@@ -71,13 +69,12 @@ export class ClickHouseSink implements DataSink {
   }
 
   private async ensureTable(): Promise<void> {
-    // CH v26 parser bug: can't have two consecutive Nullable(Float64) in CREATE TABLE
-    // Create without projection/usage_limit_reset_time, then ALTER ADD
-    await this.client.command(
-      "CREATE TABLE IF NOT EXISTS ccusage_events (date Date, record_type String, record_key String, source String DEFAULT 'ccusage', machine_name String, model_name String DEFAULT '', session_id String DEFAULT '', project_path String DEFAULT '', input_tokens UInt64 DEFAULT 0, output_tokens UInt64 DEFAULT 0, cache_creation_tokens UInt64 DEFAULT 0, cache_read_tokens UInt64 DEFAULT 0, reasoning_tokens UInt64 DEFAULT 0, total_tokens UInt64 DEFAULT 0, cost Float64 DEFAULT 0, block_id String DEFAULT '', start_time Nullable(DateTime), end_time Nullable(DateTime), actual_end_time Nullable(DateTime), is_active UInt8 DEFAULT 0, is_gap UInt8 DEFAULT 0, entries UInt32 DEFAULT 0, burn_rate Nullable(Float64), created_at DateTime DEFAULT now(), updated_at DateTime DEFAULT now()) ENGINE = ReplacingMergeTree(updated_at) PARTITION BY toYYYYMM(date) ORDER BY (source, machine_name, record_type, date, model_name, record_key)"
-    );
-    try { await this.client.command('ALTER TABLE ccusage_events ADD COLUMN reasoning_tokens UInt64 DEFAULT 0 AFTER cache_read_tokens'); } catch { /* already exists */ }
-    try { await this.client.command('ALTER TABLE ccusage_events ADD COLUMN projection Nullable(Float64) AFTER burn_rate'); } catch { /* already exists */ }
-    try { await this.client.command('ALTER TABLE ccusage_events ADD COLUMN usage_limit_reset_time Nullable(DateTime) AFTER projection'); } catch { /* already exists */ }
+    // CH v26 parser bug: can't have two consecutive Nullable(Float64) in CREATE
+    // TABLE. Deferred columns (projection, usage_limit_reset_time) are added via
+    // ALTER. See src/sinks/schema.ts.
+    await this.client.command(clickHouseCreateSql());
+    for (const stmt of clickHouseAlterStatements()) {
+      try { await this.client.command(stmt); } catch { /* already exists */ }
+    }
   }
 }

@@ -10,41 +10,12 @@ import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { escapeSqlLiteral } from '../utils/sql.js';
+import { toCsvLine } from './csv.js';
+import { duckDbCreateSql } from './schema.js';
 import type { DataSink, SinkResult, EventsSnapshotData } from '../pipeline/types.js';
 
-function escapeSqlLiteral(value: string): string {
-  return value.replace(/'/g, "''");
-}
-
-const EVENTS_DDL = `CREATE TABLE IF NOT EXISTS ccusage_events (
-  date DATE NOT NULL,
-  record_type VARCHAR NOT NULL,
-  record_key VARCHAR NOT NULL,
-  source VARCHAR NOT NULL DEFAULT 'ccusage',
-  machine_name VARCHAR NOT NULL,
-  model_name VARCHAR DEFAULT '',
-  session_id VARCHAR DEFAULT '',
-  project_path VARCHAR DEFAULT '',
-  input_tokens BIGINT DEFAULT 0,
-  output_tokens BIGINT DEFAULT 0,
-  cache_creation_tokens BIGINT DEFAULT 0,
-  cache_read_tokens BIGINT DEFAULT 0,
-  reasoning_tokens BIGINT DEFAULT 0,
-  total_tokens BIGINT DEFAULT 0,
-  cost DOUBLE DEFAULT 0,
-  block_id VARCHAR DEFAULT '',
-  start_time TIMESTAMP,
-  end_time TIMESTAMP,
-  actual_end_time TIMESTAMP,
-  is_active SMALLINT DEFAULT 0,
-  is_gap SMALLINT DEFAULT 0,
-  entries INTEGER DEFAULT 0,
-  burn_rate DOUBLE DEFAULT 0,
-  projection DOUBLE DEFAULT 0,
-  usage_limit_reset_time TIMESTAMP,
-  created_at TIMESTAMP DEFAULT current_timestamp,
-  updated_at TIMESTAMP DEFAULT current_timestamp
-)`;
+const EVENTS_DDL = duckDbCreateSql();
 
 export interface DuckDBSinkOptions {
   dbPath: string;
@@ -87,7 +58,7 @@ export class DuckDBSink implements DataSink {
       return result;
     }
 
-    const count = await this.writeEvents(data.events as Record<string, unknown>[]);
+    const count = await this.writeEvents(data.events);
     result.tablesWritten.push('ccusage_events');
     result.rowsWritten['ccusage_events'] = count;
 
@@ -139,18 +110,7 @@ export class DuckDBSink implements DataSink {
     const csvLines: string[] = [columns.join(',')];
 
     for (const row of rows) {
-      const values = columns.map(col => {
-        const v = row[col];
-        if (v === null || v === undefined) return '';
-        if (typeof v === 'number' && !Number.isFinite(v)) return '0';
-        if (v instanceof Date) return v.toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
-        const s = String(v);
-        if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-          return `"${s.replace(/"/g, '""')}"`;
-        }
-        return s;
-      });
-      csvLines.push(values.join(','));
+      csvLines.push(toCsvLine(columns, row));
     }
 
     const tmpPath = join(tmpdir(), `ccusage-events-${randomUUID()}.csv`);

@@ -219,7 +219,7 @@ if (!skipDuckdb && duckdbPath) {
   console.log(`\nWriting to ${duckdbPath}...`);
   const sink = new DuckDBSink({ dbPath: duckdbPath });
   await sink.connect();
-  const data: EventsSnapshotData = { events };
+  const data: EventsSnapshotData = { events: events as EventsSnapshotData['events'] };
   const result = await sink.write(data);
   await sink.close();
   console.log(`  ${duckdbPath}: ${Object.values(result.rowsWritten).reduce((a, b) => a + b, 0)} rows in ${result.durationMs}ms`);

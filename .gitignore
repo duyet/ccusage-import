@@ -6,3 +6,4 @@ dist/
 .ccusage_import.lock
 .coverage
 __pycache__/
+.tmp/

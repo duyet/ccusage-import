@@ -13,6 +13,7 @@ import type {
   ModelBreakdown,
 } from './types.js';
 import type { CompanionData, CompanionUsageRow } from '../fetchers/companion.js';
+import { totalTokens } from '../utils/tokens.js';
 
 /**
  * Hash project name for privacy
@@ -87,13 +88,15 @@ export function parseDateTime(dateTimeStr: string | null): Date | null {
 /**
  * Extract burn rate from complex data structure
  */
-export function extractBurnRate(burnRateData: any): number | null {
+export function extractBurnRate(
+  burnRateData: number | { costPerHour?: number } | null | undefined
+): number | null {
   if (typeof burnRateData === 'number') {
     return burnRateData;
   }
 
   if (burnRateData && typeof burnRateData === 'object' && 'costPerHour' in burnRateData) {
-    return burnRateData.costPerHour;
+    return burnRateData.costPerHour ?? null;
   }
 
   return null;
@@ -102,13 +105,15 @@ export function extractBurnRate(burnRateData: any): number | null {
 /**
  * Extract projection from complex data structure
  */
-export function extractProjection(projectionData: any): number | null {
+export function extractProjection(
+  projectionData: number | { totalCost?: number } | null | undefined
+): number | null {
   if (typeof projectionData === 'number') {
     return projectionData;
   }
 
   if (projectionData && typeof projectionData === 'object' && 'totalCost' in projectionData) {
-    return projectionData.totalCost;
+    return projectionData.totalCost ?? null;
   }
 
   return null;
@@ -119,7 +124,7 @@ export function extractProjection(projectionData: any): number | null {
  * Codex/ccusage models often lack per-model cost — only parent has totalCost.
  * Distribute proportionally by outputTokens (or inputTokens as fallback).
  */
-function distributeCost(
+export function distributeCost(
   breakdowns: { cost: number; outputTokens: number; inputTokens: number }[],
   parentCost: number
 ): void {
@@ -148,6 +153,148 @@ function distributeCost(
   }
 }
 
+/** Flat event row — the single shape written to ccusage_events. */
+export interface EventRow {
+  [key: string]: string | number | null;
+  date: string;
+  record_type: string;
+  record_key: string;
+  source: string;
+  machine_name: string;
+  model_name: string;
+  session_id: string;
+  project_path: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_tokens: number;
+  cache_read_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+  cost: number;
+  block_id: string;
+  start_time: string | null;
+  end_time: string | null;
+  actual_end_time: string | null;
+  is_active: number;
+  is_gap: number;
+  entries: number;
+  burn_rate: number;
+  projection: number;
+  usage_limit_reset_time: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Build the 27-field default row shape, overlaying `partial`. Key order here is
+ * authoritative: it must match the ccusage_events column order (DuckDB COPY
+ * relies on Object.keys; schema.test.ts asserts the 1:1 invariant).
+ */
+export function makeEventRow(now: string, partial: Partial<EventRow>): EventRow {
+  return {
+    date: '',
+    record_type: '',
+    record_key: '',
+    source: '',
+    machine_name: '',
+    model_name: '',
+    session_id: '',
+    project_path: '',
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_tokens: 0,
+    cache_read_tokens: 0,
+    reasoning_tokens: 0,
+    total_tokens: 0,
+    cost: 0,
+    block_id: '',
+    start_time: null,
+    end_time: null,
+    actual_end_time: null,
+    is_active: 0,
+    is_gap: 0,
+    entries: 0,
+    burn_rate: 0,
+    projection: 0,
+    usage_limit_reset_time: null,
+    created_at: now,
+    updated_at: now,
+    ...partial,
+  };
+}
+
+interface BreakdownInput {
+  modelName: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  cost: number;
+}
+
+interface RowScope {
+  date: string;
+  record_type: string;
+  record_key: string;
+  source: string;
+  machine_name: string;
+  session_id?: string;
+  project_path?: string;
+}
+
+/** Row for daily/session/project breakdowns. reasoningTokens is 0 for ccusage,
+ * bd.reasoningTokens for companion. total_tokens excludes reasoning. */
+function breakdownRow(now: string, scope: RowScope, bd: BreakdownInput, reasoningTokens: number): EventRow {
+  return makeEventRow(now, {
+    date: scope.date,
+    record_type: scope.record_type,
+    record_key: scope.record_key,
+    source: scope.source,
+    machine_name: scope.machine_name,
+    model_name: bd.modelName,
+    session_id: scope.session_id ?? '',
+    project_path: scope.project_path ?? '',
+    input_tokens: bd.inputTokens,
+    output_tokens: bd.outputTokens,
+    cache_creation_tokens: bd.cacheCreationTokens,
+    cache_read_tokens: bd.cacheReadTokens,
+    reasoning_tokens: reasoningTokens,
+    total_tokens: totalTokens(bd),
+    cost: bd.cost,
+  });
+}
+
+/** Block row — uses the source's own item.totalTokens (NOT the formula). */
+function blockRow(now: string, source: string, machineName: string, item: BlockUsage): EventRow {
+  const startParsed = parseDateTime(item.startTime);
+  const date = startParsed
+    ? startParsed.toISOString().split('T')[0]
+    : new Date().toISOString().split('T')[0];
+  return makeEventRow(now, {
+    date,
+    record_type: 'block',
+    record_key: item.id,
+    source,
+    machine_name: machineName,
+    input_tokens: item.tokenCounts.inputTokens,
+    output_tokens: item.tokenCounts.outputTokens,
+    cache_creation_tokens: item.tokenCounts.cacheCreationInputTokens,
+    cache_read_tokens: item.tokenCounts.cacheReadInputTokens,
+    total_tokens: item.totalTokens,
+    cost: item.costUSD,
+    block_id: item.id,
+    start_time: chDateTime(startParsed),
+    end_time: chDateTime(parseDateTime(item.endTime)),
+    actual_end_time: chDateTime(parseDateTime(item.actualEndTime)),
+    is_active: item.isActive ? 1 : 0,
+    is_gap: item.isGap ? 1 : 0,
+    entries: item.entries,
+    burn_rate: extractBurnRate(item.burnRate) ?? 0,
+    projection: extractProjection(item.projection) ?? 0,
+    usage_limit_reset_time: chDateTime(parseDateTime(item.usageLimitResetTime)),
+  });
+}
+
 /**
  * Build flat event rows from ccusage data.
  *
@@ -164,98 +311,39 @@ export function buildCcusageEventRows(
   },
   machineName: string,
   hashProjects: boolean
-): Record<string, unknown>[] {
+): EventRow[] {
   const now = chNow();
-  const events: Record<string, unknown>[] = [];
+  const events: EventRow[] = [];
   const source = 'ccusage';
 
-  // Daily: one row per model breakdown
   for (const item of data.daily ?? []) {
     const date = parseDate(item.date).toISOString().split('T')[0];
-    const recordKey = date;
     const breakdowns = item.modelBreakdowns?.length
       ? item.modelBreakdowns.map(bd => ({ ...bd }))
       : [fallbackBreakdown(item)];
     distributeCost(breakdowns, item.totalCost);
     for (const bd of breakdowns) {
-      events.push({
-        date, record_type: 'daily', record_key: recordKey,
-        source, machine_name: machineName,
-        model_name: bd.modelName,
-        session_id: '', project_path: '',
-        input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
-        cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
-        reasoning_tokens: 0,
-        total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
-        cost: bd.cost,
-        block_id: '', start_time: null, end_time: null, actual_end_time: null,
-        is_active: 0, is_gap: 0, entries: 0,
-        burn_rate: 0, projection: 0, usage_limit_reset_time: null,
-        created_at: now, updated_at: now,
-      });
+      events.push(breakdownRow(now, { date, record_type: 'daily', record_key: date, source, machine_name: machineName }, bd, 0));
     }
   }
 
-  // Session: one row per model breakdown
   for (const item of data.session ?? []) {
     const sid = hashProjectName(item.sessionId, hashProjects);
     const pp = hashProjectName(item.projectPath, hashProjects);
-    const recordKey = sid;
     const date = parseDate(item.lastActivity).toISOString().split('T')[0];
     const breakdowns = item.modelBreakdowns?.length
       ? item.modelBreakdowns.map(bd => ({ ...bd }))
       : [fallbackBreakdown(item)];
     distributeCost(breakdowns, item.totalCost);
     for (const bd of breakdowns) {
-      events.push({
-        date, record_type: 'session', record_key: recordKey,
-        source, machine_name: machineName,
-        model_name: bd.modelName,
-        session_id: sid, project_path: pp,
-        input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
-        cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
-        reasoning_tokens: 0,
-        total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
-        cost: bd.cost,
-        block_id: '', start_time: null, end_time: null, actual_end_time: null,
-        is_active: 0, is_gap: 0, entries: 0,
-        burn_rate: 0, projection: 0, usage_limit_reset_time: null,
-        created_at: now, updated_at: now,
-      });
+      events.push(breakdownRow(now, { date, record_type: 'session', record_key: sid, source, machine_name: machineName, session_id: sid, project_path: pp }, bd, 0));
     }
   }
 
-  // Blocks: single row, no model breakdown
   for (const item of data.blocks ?? []) {
-    const startParsed = parseDateTime(item.startTime);
-    const date = startParsed ? startParsed.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
-    events.push({
-      date, record_type: 'block', record_key: item.id,
-      source, machine_name: machineName,
-      model_name: '',
-      session_id: '', project_path: '',
-      input_tokens: item.tokenCounts.inputTokens,
-      output_tokens: item.tokenCounts.outputTokens,
-      cache_creation_tokens: item.tokenCounts.cacheCreationInputTokens,
-      cache_read_tokens: item.tokenCounts.cacheReadInputTokens,
-      reasoning_tokens: 0,
-      total_tokens: item.totalTokens,
-      cost: item.costUSD,
-      block_id: item.id,
-      start_time: chDateTime(startParsed),
-      end_time: chDateTime(parseDateTime(item.endTime)),
-      actual_end_time: chDateTime(parseDateTime(item.actualEndTime)),
-      is_active: item.isActive ? 1 : 0,
-      is_gap: item.isGap ? 1 : 0,
-      entries: item.entries,
-      burn_rate: extractBurnRate(item.burnRate) ?? 0,
-      projection: extractProjection(item.projection) ?? 0,
-      usage_limit_reset_time: chDateTime(parseDateTime(item.usageLimitResetTime)),
-      created_at: now, updated_at: now,
-    });
+    events.push(blockRow(now, source, machineName, item));
   }
 
-  // Projects daily: Record<string, ProjectDailyUsage[]>
   for (const [projectId, items] of Object.entries(data.projects ?? {})) {
     const pp = hashProjectName(projectId, hashProjects);
     for (const item of items) {
@@ -266,21 +354,7 @@ export function buildCcusageEventRows(
         : [fallbackBreakdown(item)];
       distributeCost(breakdowns, item.totalCost);
       for (const bd of breakdowns) {
-        events.push({
-          date, record_type: 'project_daily', record_key: recordKey,
-          source, machine_name: machineName,
-          model_name: bd.modelName,
-          session_id: '', project_path: pp,
-          input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
-          cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
-          reasoning_tokens: 0,
-          total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
-          cost: bd.cost,
-          block_id: '', start_time: null, end_time: null, actual_end_time: null,
-          is_active: 0, is_gap: 0, entries: 0,
-          burn_rate: 0, projection: 0, usage_limit_reset_time: null,
-          created_at: now, updated_at: now,
-        });
+        events.push(breakdownRow(now, { date, record_type: 'project_daily', record_key: recordKey, source, machine_name: machineName, project_path: pp }, bd, 0));
       }
     }
   }
@@ -296,41 +370,24 @@ export function buildCompanionEventRows(
   machineName: string,
   source: string,
   hashProjects: boolean
-): Record<string, unknown>[] {
+): EventRow[] {
   const now = chNow();
-  const events: Record<string, unknown>[] = [];
+  const events: EventRow[] = [];
 
-  // Daily
   for (const item of data.daily ?? []) {
     const row = item as CompanionUsageRow;
     const dateStr = (row.date ?? row.lastActivity ?? '') as string;
     if (!dateStr) continue;
     const date = parseDate(dateStr).toISOString().split('T')[0];
-    const recordKey = date;
     const breakdowns = row.modelBreakdowns?.length
       ? row.modelBreakdowns.map(bd => ({ ...bd }))
       : [fallbackCompanionBreakdown(row)];
     distributeCost(breakdowns, (row.totalCost ?? 0) as number);
     for (const bd of breakdowns) {
-      events.push({
-        date, record_type: 'daily', record_key: recordKey,
-        source, machine_name: machineName,
-        model_name: bd.modelName,
-        session_id: '', project_path: '',
-        input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
-        cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
-        reasoning_tokens: bd.reasoningTokens,
-        total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
-        cost: bd.cost,
-        block_id: '', start_time: null, end_time: null, actual_end_time: null,
-        is_active: 0, is_gap: 0, entries: 0,
-        burn_rate: 0, projection: 0, usage_limit_reset_time: null,
-        created_at: now, updated_at: now,
-      });
+      events.push(breakdownRow(now, { date, record_type: 'daily', record_key: date, source, machine_name: machineName }, bd, bd.reasoningTokens));
     }
   }
 
-  // Session
   for (const item of data.session ?? []) {
     const row = item as CompanionUsageRow;
     const sid = hashProjectName(String(row.sessionId ?? 'unknown'), hashProjects);
@@ -338,27 +395,12 @@ export function buildCompanionEventRows(
     const dateStr = String(row.lastActivity ?? row.date ?? '');
     if (!dateStr) continue;
     const date = parseDate(dateStr).toISOString().split('T')[0];
-    const recordKey = sid;
     const breakdowns = row.modelBreakdowns?.length
       ? row.modelBreakdowns.map(bd => ({ ...bd }))
       : [fallbackCompanionBreakdown(row)];
     distributeCost(breakdowns, (row.totalCost ?? 0) as number);
     for (const bd of breakdowns) {
-      events.push({
-        date, record_type: 'session', record_key: recordKey,
-        source, machine_name: machineName,
-        model_name: bd.modelName,
-        session_id: sid, project_path: pp,
-        input_tokens: bd.inputTokens, output_tokens: bd.outputTokens,
-        cache_creation_tokens: bd.cacheCreationTokens, cache_read_tokens: bd.cacheReadTokens,
-        reasoning_tokens: bd.reasoningTokens,
-        total_tokens: bd.inputTokens + bd.outputTokens + bd.cacheCreationTokens + bd.cacheReadTokens,
-        cost: bd.cost,
-        block_id: '', start_time: null, end_time: null, actual_end_time: null,
-        is_active: 0, is_gap: 0, entries: 0,
-        burn_rate: 0, projection: 0, usage_limit_reset_time: null,
-        created_at: now, updated_at: now,
-      });
+      events.push(breakdownRow(now, { date, record_type: 'session', record_key: sid, source, machine_name: machineName, session_id: sid, project_path: pp }, bd, bd.reasoningTokens));
     }
   }
 

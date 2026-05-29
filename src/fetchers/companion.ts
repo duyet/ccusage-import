@@ -6,6 +6,10 @@
  * subcommand and normalizes its ccusage-shaped JSON.
  */
 
+import { detectPackageRunner } from './runner.js';
+import { withTimeout } from '../utils/timeout.js';
+import { TIMEOUTS } from '../constants.js';
+
 export type CompanionSource =
   | 'codex'
   | 'opencode'
@@ -113,7 +117,7 @@ export async function fetchAllCompanionData(
     executor = executeCompanionCommand,
   } = options;
 
-  const runner = await detectPackageRunner(packageRunner);
+  const runner = await detectPackageRunner(packageRunner, ['bunx', 'npx']);
   const pathEnv = SOURCE_PATH_ENV[source];
   const env = dataPath && pathEnv ? { [pathEnv]: dataPath } : {};
 
@@ -126,12 +130,12 @@ export async function fetchAllCompanionData(
 
 export async function checkCompanionAvailable(source: CompanionSource): Promise<boolean> {
   try {
-    const runner = await detectPackageRunner('auto');
+    const runner = await detectPackageRunner('auto', ['bunx', 'npx']);
     const proc = Bun.spawn([runner, CCUSAGE_PACKAGE, source, '--help'], {
       stdout: 'pipe',
       stderr: 'pipe',
     });
-    const exited = await withTimeout(proc.exited, 10_000, () => proc.kill());
+    const exited = await withTimeout(proc.exited, TIMEOUTS.availability, () => proc.kill());
     return exited === 0;
   } catch {
     return false;
@@ -205,32 +209,6 @@ async function executeCompanionCommand({
   return JSON.parse(stdout.slice(jsonStart));
 }
 
-async function detectPackageRunner(preferred: PackageRunner): Promise<Exclude<PackageRunner, 'auto'>> {
-  if (preferred !== 'auto') {
-    return preferred;
-  }
-
-  try {
-    const proc = Bun.spawn(['bunx', '--version'], { stdout: 'pipe', stderr: 'pipe' });
-    if (await withTimeout(proc.exited, 5_000, () => proc.kill()) === 0) {
-      return 'bunx';
-    }
-  } catch {
-    // Try npx below.
-  }
-
-  try {
-    const proc = Bun.spawn(['npx', '--version'], { stdout: 'pipe', stderr: 'pipe' });
-    if (await withTimeout(proc.exited, 5_000, () => proc.kill()) === 0) {
-      return 'npx';
-    }
-  } catch {
-    // Throw below.
-  }
-
-  throw new Error('No package runner found (npx or bunx required)');
-}
-
 function normalizeCompanionRows(command: CompanionCommand, raw: unknown): any[] {
   const key = command === 'session' ? 'sessions' : command;
   const rows = Array.isArray(raw)
@@ -248,7 +226,7 @@ function normalizeCompanionRows(command: CompanionCommand, raw: unknown): any[] 
   return rows.map(row => normalizeUsageRow(command, row));
 }
 
-function normalizeUsageRow(command: CompanionCommand, row: unknown): CompanionUsageRow {
+export function normalizeUsageRow(command: CompanionCommand, row: unknown): CompanionUsageRow {
   if (!row || typeof row !== 'object') {
     return {
       modelsUsed: [],
@@ -289,7 +267,7 @@ function normalizeUsageRow(command: CompanionCommand, row: unknown): CompanionUs
   return normalized;
 }
 
-function normalizeModelBreakdowns(raw: unknown): CompanionModelBreakdown[] {
+export function normalizeModelBreakdowns(raw: unknown): CompanionModelBreakdown[] {
   if (Array.isArray(raw)) {
     return raw.map(item => {
       if (typeof item === 'string') {
@@ -322,27 +300,4 @@ function normalizeModelBreakdowns(raw: unknown): CompanionModelBreakdown[] {
   }
 
   return [];
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  timeout: number,
-  onTimeout: () => void
-): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          onTimeout();
-          reject(new Error(`Command timed out after ${timeout}ms`));
-        }, timeout);
-      }),
-    ]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
 }
