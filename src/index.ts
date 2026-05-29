@@ -19,16 +19,9 @@ export {
   checkCcusageAvailable,
 } from './fetchers/ccusage.js';
 export {
-  fetchOpenCodeMessages,
-  checkOpenCodePath,
-} from './fetchers/opencode.js';
-export {
   hashProjectName,
   parseDate,
   parseDateTime,
   extractBurnRate,
   extractProjection,
 } from './parsers/parsers.js';
-export {
-  aggregateOpenCodeMessages,
-} from './parsers/aggregators.js';

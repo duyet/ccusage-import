@@ -4,9 +4,11 @@
  * Plugin interfaces for sources and sinks.
  */
 
+import type { EventRow } from '../parsers/parsers.js';
+
 /** Flat event rows for the single ccusage_events table */
 export interface EventsSnapshotData {
-  events: Record<string, unknown>[];
+  events: EventRow[];
 }
 
 /** Result from a source fetch */

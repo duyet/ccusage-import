@@ -7,6 +7,7 @@
 
 import { fetchAllCcusageData } from '../fetchers/ccusage.js';
 import { buildCcusageEventRows } from '../parsers/parsers.js';
+import { TIMEOUTS } from '../constants.js';
 import type { DataSource, SourceResult, EventsSnapshotData } from '../pipeline/types.js';
 
 export interface CcusageSourceOptions {
@@ -25,7 +26,7 @@ export class CcusageSource implements DataSource {
   }
 
   async fetch(): Promise<SourceResult> {
-    const { machineName, hashProjects = true, timeout = 180_000, verbose } = this.opts;
+    const { machineName, hashProjects = true, timeout = TIMEOUTS.ccusage, verbose } = this.opts;
     const raw = await fetchAllCcusageData({ verbose, timeout });
     const events = buildCcusageEventRows(raw, machineName, hashProjects);
     const data: EventsSnapshotData = { events };

@@ -7,6 +7,7 @@
 
 import { fetchAllCompanionData, type CompanionSource } from '../fetchers/companion.js';
 import { buildCompanionEventRows } from '../parsers/parsers.js';
+import { TIMEOUTS } from '../constants.js';
 import type { DataSource, SourceResult, EventsSnapshotData } from '../pipeline/types.js';
 
 export interface CompanionSourceOptions {
@@ -28,7 +29,7 @@ export class CompanionDataSource implements DataSource {
   }
 
   async fetch(): Promise<SourceResult> {
-    const { type, machineName, hashProjects = true, timeout = 120_000, verbose, dataPath } = this.opts;
+    const { type, machineName, hashProjects = true, timeout = TIMEOUTS.companion, verbose, dataPath } = this.opts;
     const raw = await fetchAllCompanionData(type, { verbose, timeout, dataPath });
     const events = buildCompanionEventRows(raw, machineName, type, hashProjects);
     const data: EventsSnapshotData = { events };

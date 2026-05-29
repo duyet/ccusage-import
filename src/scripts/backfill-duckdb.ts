@@ -29,7 +29,7 @@ await client.close();
 
 console.log(`  ccusage_events: ${rows.length} rows`);
 
-const data: EventsSnapshotData = { events: rows };
+const data: EventsSnapshotData = { events: rows as EventsSnapshotData['events'] };
 
 console.log(`\nWriting ${rows.length} rows to ${duckdbPath}...`);
 const sink = new DuckDBSink({ dbPath: duckdbPath });
