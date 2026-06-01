@@ -16,6 +16,9 @@ export interface ImporterConfigOptions {
   commandTimeout?: number;
   maxParallelWorkers?: number;
   duckdbPath?: string;
+  daysBack?: number;
+  since?: string;
+  endDate?: string;
 }
 
 export class ImporterConfig {
@@ -30,6 +33,9 @@ export class ImporterConfig {
   readonly commandTimeout: number;
   readonly maxParallelWorkers: number;
   readonly duckdbPath: string | null;
+  readonly daysBack: number;
+  readonly since: string | null;
+  readonly endDate: string | null;
 
   constructor(options: ImporterConfigOptions = {}) {
     this.hashProjectNames =
@@ -49,6 +55,9 @@ export class ImporterConfig {
     this.commandTimeout = options.commandTimeout ?? 120; // seconds
     this.maxParallelWorkers = options.maxParallelWorkers ?? 3;
     this.duckdbPath = options.duckdbPath ?? process.env.DUCKDB_PATH ?? null;
+    this.daysBack = options.daysBack ?? parseInt(process.env.IMPORT_DAYS_BACK ?? '7', 10);
+    this.since = options.since ?? process.env.IMPORT_SINCE ?? null;
+    this.endDate = options.endDate ?? process.env.IMPORT_END_DATE ?? null;
   }
 
   private getDefaultOpenCodePath(): string | null {

@@ -67,6 +67,8 @@ describe('buildCcusageEventRows — golden rows', () => {
       reasoning_tokens: 0,
       total_tokens: 3300,
       cost: 0.05,
+      dedup_key: '2989cf7bd2e15426',
+      import_id: '',
       block_id: '',
       start_time: null,
       end_time: null,
@@ -123,6 +125,8 @@ describe('buildCcusageEventRows — golden rows', () => {
       reasoning_tokens: 0,
       total_tokens: 1650,
       cost: 0.025,
+      dedup_key: '89a672922d64efe9',
+      import_id: '',
       block_id: '',
       start_time: null,
       end_time: null,
@@ -136,7 +140,7 @@ describe('buildCcusageEventRows — golden rows', () => {
     });
   });
 
-  it('block: uses source totalTokens (NOT the formula) and block-specific fields', () => {
+  it('project_daily: record_key is `${date}:${projectPath}`', () => {
     const rows = buildCcusageEventRows(
       {
         blocks: [
@@ -235,6 +239,8 @@ describe('buildCcusageEventRows — golden rows', () => {
       reasoning_tokens: 0,
       total_tokens: 1650,
       cost: 0.025,
+      dedup_key: '07450000e75f0bb1',
+      import_id: '',
       block_id: '',
       start_time: null,
       end_time: null,

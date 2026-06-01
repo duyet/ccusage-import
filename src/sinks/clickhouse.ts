@@ -56,10 +56,16 @@ export class ClickHouseSink implements DataSink {
       await this.client.command(`ALTER TABLE ccusage_events DELETE WHERE ${conditions.join(' OR ')}`);
     }
 
-    // Insert all events
-    await this.client.insert('ccusage_events', data.events);
+    // Insert in batches to reduce memory pressure
+    const CHUNK_SIZE = 1000;
+    let inserted = 0;
+    for (let i = 0; i < data.events.length; i += CHUNK_SIZE) {
+      const chunk = data.events.slice(i, i + CHUNK_SIZE);
+      await this.client.insert('ccusage_events', chunk);
+      inserted += chunk.length;
+    }
     result.tablesWritten.push('ccusage_events');
-    result.rowsWritten['ccusage_events'] = data.events.length;
+    result.rowsWritten['ccusage_events'] = inserted;
     result.durationMs = Date.now() - start;
     return result;
   }

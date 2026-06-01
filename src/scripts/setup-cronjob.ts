@@ -2,13 +2,15 @@
 /**
  * Cronjob Setup Script (TypeScript)
  *
- * Sets up automated hourly imports for ccusage-import
+ * Sets up automated imports for ccusage-import with configurable interval.
  *
  * Usage:
- *   bun run setup-cronjob           # Interactive setup
- *   bun run setup-cronjob -f        # Force overwrite
- *   bun run setup-cronjob -s        # Show status
- *   bun run setup-cronjob -h        # Show help
+ *   bun run setup-cronjob                        # Interactive setup (hourly)
+ *   bun run setup-cronjob --every=30             # Every 30 minutes
+ *   bun run setup-cronjob --days-back=1          # Import last 1 day
+ *   bun run setup-cronjob -f                     # Force overwrite
+ *   bun run setup-cronjob -s                     # Show status
+ *   bun run setup-cronjob -h                     # Show help
  */
 
 import { execSync } from 'node:child_process';
@@ -27,6 +29,8 @@ interface Options {
   force?: boolean;
   status?: boolean;
   help?: boolean;
+  everyMinutes?: number;
+  daysBack?: number;
 }
 
 // Constants
@@ -186,13 +190,36 @@ function getCronPath(): string {
 }
 
 /**
+ * Convert minutes to cron schedule expression.
+ */
+function minutesToCronSchedule(everyMinutes: number): string {
+  if (everyMinutes <= 0) everyMinutes = 60;
+  if (everyMinutes < 60) {
+    return `*/${everyMinutes} * * * *`;
+  }
+  if (everyMinutes % 60 === 0) {
+    const hours = everyMinutes / 60;
+    if (hours <= 24) {
+      return `0 */${hours} * * *`;
+    }
+    const days = Math.floor(hours / 24);
+    return `0 0 */${days} * *`;
+  }
+  // Fallback: nearest hour approximation
+  return `0 */${Math.round(everyMinutes / 60)} * * *`;
+}
+
+/**
  * Build cron entry
  */
-function buildCronEntry(bunCommand: string): string {
+function buildCronEntry(bunCommand: string, everyMinutes = 60, daysBack?: number): string {
   const cronPath = getCronPath();
   const scriptPath = path.join(PROJECT_DIR, 'src', 'scripts', 'import-all.ts');
 
-  return `0 * * * * PATH="${cronPath}" cd "${PROJECT_DIR}" && "${bunCommand}" run "${scriptPath}" >> "${LOG_FILE}" 2>&1`;
+  const extraFlags = [`--days-back=${daysBack ?? 2}`];
+  const schedule = minutesToCronSchedule(everyMinutes);
+
+  return `${schedule} PATH="${cronPath}" cd "${PROJECT_DIR}" && "${bunCommand}" run "${scriptPath}" ${extraFlags.join(' ')} >> "${LOG_FILE}" 2>&1`;
 }
 
 /**
@@ -263,7 +290,9 @@ async function installCronjob(options: Options): Promise<void> {
   info(`Log file: ${LOG_FILE}\n`);
 
   // Build cron entry
-  const cronEntry = buildCronEntry(bunCommand);
+  const everyMinutes = options.everyMinutes ?? 60;
+  const daysBack = options.daysBack;
+  const cronEntry = buildCronEntry(bunCommand, everyMinutes, daysBack);
 
   console.log('Cron entry to be added:');
   console.log(`  ${cronEntry}\n`);
@@ -382,6 +411,24 @@ async function main() {
   const options: Options = {};
 
   for (const arg of args) {
+    if (arg.startsWith('--every=')) {
+      const val = parseInt(arg.split('=')[1], 10);
+      if (isNaN(val) || val < 1) {
+        error(`Invalid --every value: ${arg.split('=')[1]}. Must be a positive number (minutes).`);
+        process.exit(1);
+      }
+      options.everyMinutes = val;
+      continue;
+    }
+    if (arg.startsWith('--days-back=')) {
+      const val = parseInt(arg.split('=')[1], 10);
+      if (isNaN(val) || val < 0) {
+        error(`Invalid --days-back value: ${arg.split('=')[1]}. Must be a non-negative number.`);
+        process.exit(1);
+      }
+      options.daysBack = val;
+      continue;
+    }
     switch (arg) {
       case '-f':
       case '--force':
@@ -397,7 +444,7 @@ async function main() {
         break;
       default:
         error(`Unknown option: ${arg}`);
-        console.log('Usage: bun run setup-cronjob [-f|--force] [-s|--status] [-h|--help]');
+        console.log('Usage: bun run setup-cronjob [-f|--force] [-s|--status] [-h|--help] [--every=N] [--days-back=N]');
         process.exit(1);
     }
   }

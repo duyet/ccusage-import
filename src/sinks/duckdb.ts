@@ -102,29 +102,35 @@ export class DuckDBSink implements DataSink {
         `DELETE FROM ccusage_events WHERE date = '${escapeSqlLiteral(scope.date)}' AND record_type = '${escapeSqlLiteral(scope.record_type)}' AND source = '${escapeSqlLiteral(scope.source)}' AND machine_name = '${escapeSqlLiteral(scope.machine_name)}'`
       );
     }
-    // Free scope map memory
-    scopes.clear();
 
-    // Build CSV and COPY FROM
+    // Batch CSV writes in chunks to avoid building one giant CSV in memory
+    const CHUNK_SIZE = 1000;
     const columns = Object.keys(rows[0]);
-    const csvLines: string[] = [columns.join(',')];
+    const columnsList = columns.join(', ');
+    let total = 0;
 
-    for (const row of rows) {
-      csvLines.push(toCsvLine(columns, row));
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      const csvLines: string[] = [columns.join(',')];
+
+      for (const row of chunk) {
+        csvLines.push(toCsvLine(columns, row));
+      }
+
+      const tmpPath = join(tmpdir(), `ccusage-events-${randomUUID()}.csv`);
+      writeFileSync(tmpPath, csvLines.join('\n'), 'utf-8');
+
+      try {
+        await this.db.exec(
+          `COPY ccusage_events (${columnsList}) FROM '${tmpPath}' (HEADER, DELIMITER ',', FORMAT csv)`
+        );
+      } finally {
+        try { unlinkSync(tmpPath); } catch { /* ignore */ }
+      }
+
+      total += chunk.length;
     }
 
-    const tmpPath = join(tmpdir(), `ccusage-events-${randomUUID()}.csv`);
-    writeFileSync(tmpPath, csvLines.join('\n'), 'utf-8');
-
-    try {
-      const columnsList = columns.join(', ');
-      await this.db.exec(
-        `COPY ccusage_events (${columnsList}) FROM '${tmpPath}' (HEADER, DELIMITER ',', FORMAT csv)`
-      );
-    } finally {
-      try { unlinkSync(tmpPath); } catch { /* ignore */ }
-    }
-
-    return rows.length;
+    return total;
   }
 }

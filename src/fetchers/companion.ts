@@ -62,6 +62,8 @@ export interface CompanionFetchOptions {
   verbose?: boolean;
   dataPath?: string;
   executor?: CompanionCommandExecutor;
+  since?: string;
+  endDate?: string;
 }
 
 export interface CompanionData {
@@ -76,6 +78,7 @@ export interface CompanionCommandExecutorOptions {
   runner: Exclude<PackageRunner, 'auto'>;
   timeout: number;
   env: Record<string, string>;
+  dateFlags?: string[];
 }
 
 export type CompanionCommandExecutor = (
@@ -115,15 +118,18 @@ export async function fetchAllCompanionData(
     verbose = false,
     dataPath,
     executor = executeCompanionCommand,
+    since,
+    endDate,
   } = options;
 
   const runner = await detectPackageRunner(packageRunner, ['bunx', 'npx']);
   const pathEnv = SOURCE_PATH_ENV[source];
   const env = dataPath && pathEnv ? { [pathEnv]: dataPath } : {};
+  const dateFlags = [since ? `--since=${since}` : '', endDate ? `--end-date=${endDate}` : ''].filter(Boolean);
 
   // Sequential to reduce concurrent npm process memory
-  const daily = await fetchCompanionCommand(source, 'daily', runner, timeout, maxRetries, env, verbose, executor);
-  const session = await fetchCompanionCommand(source, 'session', runner, timeout, maxRetries, env, verbose, executor);
+  const daily = await fetchCompanionCommand(source, 'daily', runner, timeout, maxRetries, env, verbose, executor, dateFlags);
+  const session = await fetchCompanionCommand(source, 'session', runner, timeout, maxRetries, env, verbose, executor, dateFlags);
 
   return { daily, monthly: [], session };
 }
@@ -150,11 +156,12 @@ async function fetchCompanionCommand(
   maxRetries: number,
   env: Record<string, string>,
   verbose: boolean,
-  executor: CompanionCommandExecutor
+  executor: CompanionCommandExecutor,
+  dateFlags: string[] = [],
 ): Promise<any[]> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const raw = await executor({ source, command, runner, timeout, env });
+      const raw = await executor({ source, command, runner, timeout, env, dateFlags });
       return normalizeCompanionRows(command, raw);
     } catch (error) {
       if (attempt === maxRetries - 1) {
@@ -174,9 +181,10 @@ async function fetchCompanionCommand(
 export function buildAgentCommandArgs(
   runner: Exclude<PackageRunner, 'auto'>,
   source: CompanionSource,
-  command: CompanionCommand
+  command: CompanionCommand,
+  dateFlags?: string[]
 ): string[] {
-  return [runner, CCUSAGE_PACKAGE, source, command, '--breakdown', '--json'];
+  return [runner, CCUSAGE_PACKAGE, source, command, '--breakdown', '--json', ...(dateFlags ?? [])];
 }
 
 async function executeCompanionCommand({
@@ -185,8 +193,9 @@ async function executeCompanionCommand({
   runner,
   timeout,
   env,
+  dateFlags,
 }: CompanionCommandExecutorOptions): Promise<unknown> {
-  const proc = Bun.spawn(buildAgentCommandArgs(runner, source, command), {
+  const proc = Bun.spawn(buildAgentCommandArgs(runner, source, command, dateFlags), {
     stdout: 'pipe',
     stderr: 'pipe',
     env: { ...process.env, ...env },

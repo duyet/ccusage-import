@@ -60,12 +60,31 @@ cp .env.example .env  # fill in ClickHouse credentials
 # Run full import (ccusage + codex + opencode → ClickHouse + DuckDB)
 bun run src/scripts/import-all.ts --verbose
 
+# Import only the last N days (faster, less memory)
+bun run src/scripts/import-all.ts --days-back=7
+
+# Import a specific date range
+bun run src/scripts/import-all.ts --since=2025-01-01 --end-date=2025-12-31
+
 # With custom DuckDB path
 bun run src/scripts/import-all.ts --duckdb-path=md:ccusage
 
 # Backfill DuckDB from ClickHouse
 bun run src/scripts/backfill-duckdb.ts
 ```
+
+### CLI Options
+
+| Flag | Description |
+|------|-------------|
+| `--verbose` | Detailed logging |
+| `--days-back=N` | Import last N days (overrides env `IMPORT_DAYS_BACK`) |
+| `--since=YYYY-MM-DD` | Start date (overrides `--days-back`) |
+| `--end-date=YYYY-MM-DD` | End date (inclusive) |
+| `--duckdb-path=PATH` | DuckDB connection string |
+| `--skip-ccusage` | Skip Claude Code data |
+| `--skip-clickhouse` | Skip ClickHouse |
+| `--skip-<agent>` | Skip specific agent (e.g. `--skip-codex`) |
 
 ## Architecture
 
@@ -87,13 +106,30 @@ Sources                  Pipeline               Sinks
 ## Cronjob
 
 ```bash
-# Runs hourly at :17
+# Runs with automatic setup script (IMPORT_DAYS_BACK env or --days-back flag)
 ./run-import.sh
 ```
 
-Setup via `crontab -e`:
+The runner script uses `--days-back=2` by default (configurable via `IMPORT_DAYS_BACK` env var) so each
+run only fetches recent data — faster and lighter than a full import each time.
+
+### Automated setup
+
+```bash
+# Interactive setup (hourly, imports last 2 days)
+bun run src/scripts/setup-cronjob.ts
+
+# Every 30 minutes, import last 1 day
+bun run src/scripts/setup-cronjob.ts --every=30 --days-back=1
+
+# Force overwrite existing cronjob
+bun run src/scripts/setup-cronjob.ts -f --every=15
 ```
-17 * * * * /path/to/ccusage-import/run-import.sh 2>&1 | tee -a ~/.local/log/ccusage/import.log
+
+### Manual crontab
+
+```
+*/30 * * * * /path/to/ccusage-import/run-import.sh 2>&1 | tee -a ~/.local/log/ccusage/import.log
 ```
 
 ## Development

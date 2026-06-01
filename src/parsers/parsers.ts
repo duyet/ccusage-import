@@ -181,6 +181,8 @@ export interface EventRow {
   burn_rate: number;
   projection: number;
   usage_limit_reset_time: string | null;
+  dedup_key: string;
+  import_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -207,6 +209,8 @@ export function makeEventRow(now: string, partial: Partial<EventRow>): EventRow 
     reasoning_tokens: 0,
     total_tokens: 0,
     cost: 0,
+    dedup_key: '',
+    import_id: '',
     block_id: '',
     start_time: null,
     end_time: null,
@@ -244,7 +248,9 @@ interface RowScope {
 
 /** Row for daily/session/project breakdowns. reasoningTokens is 0 for ccusage,
  * bd.reasoningTokens for companion. total_tokens excludes reasoning. */
-function breakdownRow(now: string, scope: RowScope, bd: BreakdownInput, reasoningTokens: number): EventRow {
+function breakdownRow(now: string, scope: RowScope, bd: BreakdownInput, reasoningTokens: number, importId = ''): EventRow {
+  const rawKey = [scope.source, scope.machine_name, scope.record_type, scope.date, bd.modelName, scope.record_key].join('|');
+  const dedupKey = createHash('sha256').update(rawKey).digest('hex').slice(0, 16);
   return makeEventRow(now, {
     date: scope.date,
     record_type: scope.record_type,
@@ -261,6 +267,8 @@ function breakdownRow(now: string, scope: RowScope, bd: BreakdownInput, reasonin
     reasoning_tokens: reasoningTokens,
     total_tokens: totalTokens(bd),
     cost: bd.cost,
+    dedup_key: dedupKey,
+    import_id: importId,
   });
 }
 
@@ -310,7 +318,8 @@ export function buildCcusageEventRows(
     projects?: Record<string, ProjectDailyUsage[]>;
   },
   machineName: string,
-  hashProjects: boolean
+  hashProjects: boolean,
+  importId = ''
 ): EventRow[] {
   const now = chNow();
   const events: EventRow[] = [];
@@ -323,7 +332,7 @@ export function buildCcusageEventRows(
       : [fallbackBreakdown(item)];
     distributeCost(breakdowns, item.totalCost);
     for (const bd of breakdowns) {
-      events.push(breakdownRow(now, { date, record_type: 'daily', record_key: date, source, machine_name: machineName }, bd, 0));
+      events.push(breakdownRow(now, { date, record_type: 'daily', record_key: date, source, machine_name: machineName }, bd, 0, importId));
     }
   }
 
@@ -336,7 +345,7 @@ export function buildCcusageEventRows(
       : [fallbackBreakdown(item)];
     distributeCost(breakdowns, item.totalCost);
     for (const bd of breakdowns) {
-      events.push(breakdownRow(now, { date, record_type: 'session', record_key: sid, source, machine_name: machineName, session_id: sid, project_path: pp }, bd, 0));
+      events.push(breakdownRow(now, { date, record_type: 'session', record_key: sid, source, machine_name: machineName, session_id: sid, project_path: pp }, bd, 0, importId));
     }
   }
 
@@ -354,7 +363,7 @@ export function buildCcusageEventRows(
         : [fallbackBreakdown(item)];
       distributeCost(breakdowns, item.totalCost);
       for (const bd of breakdowns) {
-        events.push(breakdownRow(now, { date, record_type: 'project_daily', record_key: recordKey, source, machine_name: machineName, project_path: pp }, bd, 0));
+        events.push(breakdownRow(now, { date, record_type: 'project_daily', record_key: recordKey, source, machine_name: machineName, project_path: pp }, bd, 0, importId));
       }
     }
   }
@@ -369,7 +378,8 @@ export function buildCompanionEventRows(
   data: CompanionData,
   machineName: string,
   source: string,
-  hashProjects: boolean
+  hashProjects: boolean,
+  importId = ''
 ): EventRow[] {
   const now = chNow();
   const events: EventRow[] = [];
@@ -384,7 +394,7 @@ export function buildCompanionEventRows(
       : [fallbackCompanionBreakdown(row)];
     distributeCost(breakdowns, (row.totalCost ?? 0) as number);
     for (const bd of breakdowns) {
-      events.push(breakdownRow(now, { date, record_type: 'daily', record_key: date, source, machine_name: machineName }, bd, bd.reasoningTokens));
+      events.push(breakdownRow(now, { date, record_type: 'daily', record_key: date, source, machine_name: machineName }, bd, bd.reasoningTokens, importId));
     }
   }
 
@@ -400,7 +410,7 @@ export function buildCompanionEventRows(
       : [fallbackCompanionBreakdown(row)];
     distributeCost(breakdowns, (row.totalCost ?? 0) as number);
     for (const bd of breakdowns) {
-      events.push(breakdownRow(now, { date, record_type: 'session', record_key: sid, source, machine_name: machineName, session_id: sid, project_path: pp }, bd, bd.reasoningTokens));
+      events.push(breakdownRow(now, { date, record_type: 'session', record_key: sid, source, machine_name: machineName, session_id: sid, project_path: pp }, bd, bd.reasoningTokens, importId));
     }
   }
 

@@ -17,6 +17,10 @@ export interface CompanionSourceOptions {
   timeout?: number;
   verbose?: boolean;
   dataPath?: string;
+  daysBack?: number;
+  since?: string;
+  endDate?: string;
+  importId?: string;
 }
 
 export class CompanionDataSource implements DataSource {
@@ -29,9 +33,15 @@ export class CompanionDataSource implements DataSource {
   }
 
   async fetch(): Promise<SourceResult> {
-    const { type, machineName, hashProjects = true, timeout = TIMEOUTS.companion, verbose, dataPath } = this.opts;
-    const raw = await fetchAllCompanionData(type, { verbose, timeout, dataPath });
-    const events = buildCompanionEventRows(raw, machineName, type, hashProjects);
+    const { type, machineName, hashProjects = true, timeout = TIMEOUTS.companion, verbose, dataPath, daysBack, since, endDate, importId = '' } = this.opts;
+    let effectiveSince = since;
+    if (!effectiveSince && daysBack != null && daysBack > 0) {
+      const d = new Date();
+      d.setDate(d.getDate() - daysBack);
+      effectiveSince = d.toISOString().split('T')[0];
+    }
+    const raw = await fetchAllCompanionData(type, { verbose, timeout, dataPath, since: effectiveSince, endDate });
+    const events = buildCompanionEventRows(raw, machineName, type, hashProjects, importId);
     const data: EventsSnapshotData = { events };
     return { sourceName: this.name, data, fetchedAt: new Date() };
   }

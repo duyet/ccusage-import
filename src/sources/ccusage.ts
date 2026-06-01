@@ -15,6 +15,10 @@ export interface CcusageSourceOptions {
   hashProjects?: boolean;
   timeout?: number;
   verbose?: boolean;
+  daysBack?: number;
+  since?: string;
+  endDate?: string;
+  importId?: string;
 }
 
 export class CcusageSource implements DataSource {
@@ -26,9 +30,16 @@ export class CcusageSource implements DataSource {
   }
 
   async fetch(): Promise<SourceResult> {
-    const { machineName, hashProjects = true, timeout = TIMEOUTS.ccusage, verbose } = this.opts;
-    const raw = await fetchAllCcusageData({ verbose, timeout });
-    const events = buildCcusageEventRows(raw, machineName, hashProjects);
+    const { machineName, hashProjects = true, timeout = TIMEOUTS.ccusage, verbose, daysBack, since, endDate, importId = '' } = this.opts;
+    // Compute since from daysBack if not explicitly provided
+    let effectiveSince = since;
+    if (!effectiveSince && daysBack != null && daysBack > 0) {
+      const d = new Date();
+      d.setDate(d.getDate() - daysBack);
+      effectiveSince = d.toISOString().split('T')[0];
+    }
+    const raw = await fetchAllCcusageData({ verbose, timeout, since: effectiveSince, endDate });
+    const events = buildCcusageEventRows(raw, machineName, hashProjects, importId);
     const data: EventsSnapshotData = { events };
     return { sourceName: this.name, data, fetchedAt: new Date() };
   }

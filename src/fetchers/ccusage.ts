@@ -14,6 +14,8 @@ export interface CcusageFetchOptions {
   maxRetries?: number;
   packageRunner?: 'npx' | 'bunx' | 'auto';
   verbose?: boolean;
+  since?: string;
+  endDate?: string;
 }
 
 export interface CcusageData {
@@ -35,7 +37,12 @@ export async function fetchAllCcusageData(
     maxRetries = 2,
     packageRunner = 'auto',
     verbose = false,
+    since,
+    endDate,
   } = options;
+
+  const dateFlags = [since ? `--since=${since}` : '', endDate ? `--end-date=${endDate}` : ''].filter(Boolean).join(' ');
+  const dateSuffix = dateFlags ? ` ${dateFlags}` : '';
 
   const runner = await detectPackageRunner(packageRunner, ['npx', 'bunx']);
   const fetch = (cmd: string) => fetchCcusageCommand(cmd, runner, timeout, maxRetries, verbose);
@@ -44,10 +51,10 @@ export async function fetchAllCcusageData(
   // (agent:"all", no per-day date). The Claude-specific data lives under the
   // `claude` subcommand, which keeps the date + modelBreakdowns shape.
   // Sequential to avoid concurrent npm processes spiking memory.
-  const daily = await fetch('claude daily');
-  const session = await fetch('claude session');
-  const blocks = await fetch('claude blocks');
-  const projects = await fetch('claude daily --instances').then(r => {
+  const daily = await fetch(`claude daily${dateSuffix}`);
+  const session = await fetch(`claude session${dateSuffix}`);
+  const blocks = await fetch(`claude blocks${dateSuffix}`);
+  const projects = await fetch(`claude daily --instances${dateSuffix}`).then(r => {
     if (r && 'projects' in r) {
       return (r as CcusageProjectsResponse).projects;
     }

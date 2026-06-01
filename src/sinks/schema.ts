@@ -39,6 +39,8 @@ export const EVENTS_COLUMNS: ColumnSpec[] = [
   { name: 'reasoning_tokens', ch: 'UInt64 DEFAULT 0', duck: 'BIGINT DEFAULT 0', chAlterAfter: 'cache_read_tokens' },
   { name: 'total_tokens', ch: 'UInt64 DEFAULT 0', duck: 'BIGINT DEFAULT 0' },
   { name: 'cost', ch: 'Float64 DEFAULT 0', duck: 'DOUBLE DEFAULT 0' },
+  { name: 'dedup_key', ch: "String DEFAULT ''", duck: "VARCHAR DEFAULT ''" },
+  { name: 'import_id', ch: "String DEFAULT ''", duck: "VARCHAR DEFAULT ''" },
   { name: 'block_id', ch: "String DEFAULT ''", duck: "VARCHAR DEFAULT ''" },
   { name: 'start_time', ch: 'Nullable(DateTime)', duck: 'TIMESTAMP' },
   { name: 'end_time', ch: 'Nullable(DateTime)', duck: 'TIMESTAMP' },

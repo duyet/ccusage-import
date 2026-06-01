@@ -14,7 +14,7 @@ import { makeEventRow } from '../../src/parsers/parsers';
 
 // Captured verbatim from clickhouse.ts (pre-refactor baseline).
 const CH_CREATE =
-  "CREATE TABLE IF NOT EXISTS ccusage_events (date Date, record_type String, record_key String, source String DEFAULT 'ccusage', machine_name String, model_name String DEFAULT '', session_id String DEFAULT '', project_path String DEFAULT '', input_tokens UInt64 DEFAULT 0, output_tokens UInt64 DEFAULT 0, cache_creation_tokens UInt64 DEFAULT 0, cache_read_tokens UInt64 DEFAULT 0, reasoning_tokens UInt64 DEFAULT 0, total_tokens UInt64 DEFAULT 0, cost Float64 DEFAULT 0, block_id String DEFAULT '', start_time Nullable(DateTime), end_time Nullable(DateTime), actual_end_time Nullable(DateTime), is_active UInt8 DEFAULT 0, is_gap UInt8 DEFAULT 0, entries UInt32 DEFAULT 0, burn_rate Nullable(Float64), created_at DateTime DEFAULT now(), updated_at DateTime DEFAULT now()) ENGINE = ReplacingMergeTree(updated_at) PARTITION BY toYYYYMM(date) ORDER BY (source, machine_name, record_type, date, model_name, record_key)";
+  "CREATE TABLE IF NOT EXISTS ccusage_events (date Date, record_type String, record_key String, source String DEFAULT 'ccusage', machine_name String, model_name String DEFAULT '', session_id String DEFAULT '', project_path String DEFAULT '', input_tokens UInt64 DEFAULT 0, output_tokens UInt64 DEFAULT 0, cache_creation_tokens UInt64 DEFAULT 0, cache_read_tokens UInt64 DEFAULT 0, reasoning_tokens UInt64 DEFAULT 0, total_tokens UInt64 DEFAULT 0, cost Float64 DEFAULT 0, dedup_key String DEFAULT '', import_id String DEFAULT '', block_id String DEFAULT '', start_time Nullable(DateTime), end_time Nullable(DateTime), actual_end_time Nullable(DateTime), is_active UInt8 DEFAULT 0, is_gap UInt8 DEFAULT 0, entries UInt32 DEFAULT 0, burn_rate Nullable(Float64), created_at DateTime DEFAULT now(), updated_at DateTime DEFAULT now()) ENGINE = ReplacingMergeTree(updated_at) PARTITION BY toYYYYMM(date) ORDER BY (source, machine_name, record_type, date, model_name, record_key)";
 
 const CH_ALTERS = [
   'ALTER TABLE ccusage_events ADD COLUMN reasoning_tokens UInt64 DEFAULT 0 AFTER cache_read_tokens',
@@ -39,6 +39,8 @@ const DUCK_CREATE = `CREATE TABLE IF NOT EXISTS ccusage_events (
   reasoning_tokens BIGINT DEFAULT 0,
   total_tokens BIGINT DEFAULT 0,
   cost DOUBLE DEFAULT 0,
+  dedup_key VARCHAR DEFAULT '',
+  import_id VARCHAR DEFAULT '',
   block_id VARCHAR DEFAULT '',
   start_time TIMESTAMP,
   end_time TIMESTAMP,
@@ -69,6 +71,6 @@ describe('schema generators', () => {
   it('column names are 1:1 with the builder row shape', () => {
     const builderKeys = Object.keys(makeEventRow('2025-01-01 00:00:00', {}));
     expect(EVENTS_COLUMNS.map(c => c.name)).toEqual(builderKeys);
-    expect(EVENTS_COLUMNS).toHaveLength(27);
+    expect(EVENTS_COLUMNS).toHaveLength(29);
   });
 });
