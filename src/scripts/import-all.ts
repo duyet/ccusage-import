@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { ImportRunner } from '../pipeline/runner.js';
 import { CcusageSource } from '../sources/ccusage.js';
 import { CompanionDataSource } from '../sources/companion.js';
+import { AntigravitySource } from '../sources/antigravity.js';
 import { CCUSAGE_AGENT_SOURCES } from '../fetchers/companion.js';
 import { ClickHouseSink } from '../sinks/clickhouse.js';
 import { DuckDBSink } from '../sinks/duckdb.js';
@@ -28,6 +29,7 @@ import { TIMEOUTS } from '../constants.js';
 const args = process.argv.slice(2);
 const verbose = args.includes('--verbose') || args.includes('-v');
 const skipCcusage = args.includes('--skip-ccusage');
+const skipAntigravity = args.includes('--skip-antigravity');
 const skipClickhouse = args.includes('--skip-clickhouse');
 const duckdbPath = process.env.DUCKDB_PATH || args.find(a => a.startsWith('--duckdb-path='))?.split('=')[1];
 
@@ -57,6 +59,9 @@ const runner = new ImportRunner();
 // Register sources
 if (!skipCcusage) {
   runner.addSource(new CcusageSource({ machineName, hashProjects, timeout: TIMEOUTS.ccusage, verbose, daysBack, since: effectiveSince, endDate, importId }));
+}
+if (!skipAntigravity) {
+  runner.addSource(new AntigravitySource({ machineName, hashProjects, verbose, daysBack, since: effectiveSince, endDate, importId }));
 }
 for (const agent of CCUSAGE_AGENT_SOURCES) {
   if (args.includes(`--skip-${agent.id}`)) continue;
