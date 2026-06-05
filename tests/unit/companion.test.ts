@@ -120,7 +120,7 @@ describe('CCUSAGE_AGENT_SOURCES', () => {
     expect(ids).toContain('codex');
     expect(ids).toContain('opencode');
     expect(ids).toContain('gemini');
-    expect(ids).toContain('hermes');
+    expect(ids).not.toContain('hermes');
     expect(ids).toContain('openclaw');
     expect(ids).not.toContain('claude');
   });

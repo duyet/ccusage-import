@@ -42,7 +42,6 @@ export const CCUSAGE_AGENT_SOURCES: AgentSourceMeta[] = [
   { id: 'codex', pathEnv: 'CODEX_HOME' },
   { id: 'opencode', pathEnv: 'OPENCODE_DATA_DIR' },
   { id: 'gemini', pathEnv: 'GEMINI_DATA_DIR' },
-  { id: 'hermes', pathEnv: 'HERMES_HOME' },
   { id: 'openclaw', pathEnv: 'OPENCLAW_DIR' },
   { id: 'amp' },
   { id: 'droid' },

@@ -21,6 +21,7 @@ import { ImportRunner } from '../pipeline/runner.js';
 import { CcusageSource } from '../sources/ccusage.js';
 import { CompanionDataSource } from '../sources/companion.js';
 import { AntigravitySource } from '../sources/antigravity.js';
+import { HermesSource } from '../sources/hermes.js';
 import { CCUSAGE_AGENT_SOURCES } from '../fetchers/companion.js';
 import { ClickHouseSink } from '../sinks/clickhouse.js';
 import { DuckDBSink } from '../sinks/duckdb.js';
@@ -30,9 +31,9 @@ const args = process.argv.slice(2);
 const verbose = args.includes('--verbose') || args.includes('-v');
 const skipCcusage = args.includes('--skip-ccusage');
 const skipAntigravity = args.includes('--skip-antigravity');
+const skipHermes = args.includes('--skip-hermes');
 const skipClickhouse = args.includes('--skip-clickhouse');
 const duckdbPath = process.env.DUCKDB_PATH || args.find(a => a.startsWith('--duckdb-path='))?.split('=')[1];
-
 // Time-window options (priority: explicit --since/--end-date > env vars > --days-back)
 const daysBackArg = args.find(a => a.startsWith('--days-back='))?.split('=')[1];
 const daysBack = daysBackArg ? parseInt(daysBackArg, 10) : (process.env.IMPORT_DAYS_BACK ? parseInt(process.env.IMPORT_DAYS_BACK, 10) : undefined);
@@ -62,6 +63,9 @@ if (!skipCcusage) {
 }
 if (!skipAntigravity) {
   runner.addSource(new AntigravitySource({ machineName, hashProjects, verbose, daysBack, since: effectiveSince, endDate, importId }));
+}
+if (!skipHermes) {
+  runner.addSource(new HermesSource({ machineName, hashProjects, verbose, daysBack, since: effectiveSince, endDate, importId }));
 }
 for (const agent of CCUSAGE_AGENT_SOURCES) {
   if (args.includes(`--skip-${agent.id}`)) continue;
