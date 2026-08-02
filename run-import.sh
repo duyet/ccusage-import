@@ -1,6 +1,9 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
+# Ensure cargo is available even in minimal cron environments
+export PATH="/Users/duet/.cargo/bin:$PATH"
+
 # Configurable duckdb path via ENV, default to md:ccusage
 DUCKDB_PATH="${DUCKDB_PATH:-md:ccusage}"
 
@@ -13,4 +16,10 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
-cargo run -- import --duckdb-path="$DUCKDB_PATH" --days-back="$DAYS_BACK" 2>&1
+# Use release binary if available to avoid rebuilds in cron
+BINARY="target/release/ccusage-import"
+if [ -x "$BINARY" ]; then
+    "$BINARY" import --duckdb-path="$DUCKDB_PATH" --days-back="$DAYS_BACK" 2>&1
+else
+    cargo run -- import --duckdb-path="$DUCKDB_PATH" --days-back="$DAYS_BACK" 2>&1
+fi
