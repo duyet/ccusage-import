@@ -1,0 +1,70 @@
+[package]
+name = "ccusage-import"
+version = "3.0.0"
+edition = "2021"
+license = "MIT"
+description = "Import ccusage, Codex, and OpenCode data into ClickHouse and DuckDB for analytics"
+license-file = "LICENSE"
+repository = "https://github.com/duyet/ccusage-import"
+
+[[bin]]
+name = "ccusage-import"
+path = "src/main.rs"
+
+[lib]
+name = "ccusage_import"
+path = "src/lib.rs"
+
+[dependencies]
+# Runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Serialization & config
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Cryptography
+sha2 = "0.11"
+
+# Databases
+duckdb = { version = "1", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# HTTP (ClickHouse HTTP API)
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUIDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# File utilities
+walkdir = "2"
+dotenvy = "0.15"
+regex = "1"
+dirs = "5"
+
+# Random (for retry jitter)
+rand = "0.10"
+
+# Temp files for tests
+tempfile = "3"
+
+[dev-dependencies]
+assert-json-diff = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
