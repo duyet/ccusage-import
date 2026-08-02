@@ -4,23 +4,21 @@ Data pipeline importing Claude Code usage analytics into ClickHouse and DuckDB.
 
 ## Status
 
-TypeScript + Bun. Python removed. Single `ccusage_events` table.
+Rust migration in progress. Single `ccusage_events` table.
 
 Docs index: `docs/INDEX.md` (core memory: `docs/knowledge/core-memory.md`).
 
 ## Commands
 
 ```bash
-bun install --frozen-lockfile  # install deps in fresh worktree before checks
-bun test                # tests
-bunx tsc --noEmit       # typecheck
-BUN_TMPDIR="$PWD/.tmp/bun-tmp" BUN_INSTALL_CACHE_DIR="$PWD/.tmp/bun-install-cache" bunx tsc --noEmit  # fallback in restricted tempdir envs
+cargo test                              # tests
+cargo check                             # typecheck
 git switch -c automation/<topic> origin/master  # create branch first when worktree is on detached HEAD
 git worktree list --porcelain  # find owning worktree when .git/worktrees/.../*.lock errors appear
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # recent-change audit window
 rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'  # dead-code evidence (non-test refs)
-bun run src/scripts/import-all.ts --verbose  # full import
-bun run src/scripts/backfill-duckdb.ts       # backfill DuckDB from ClickHouse
+cargo run -- import --verbose           # full import
+cargo run -- backfill-duckdb            # backfill DuckDB from ClickHouse
 git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
 
@@ -28,10 +26,10 @@ git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad
 
 Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 
-- Sources: `src/sources/{ccusage,companion}.ts`
-- Parsers: `src/parsers/parsers.ts` — `buildCcusageEventRows()`, `buildCompanionEventRows()`
-- Sinks: `src/sinks/{clickhouse,duckdb}.ts`
-- Types: `src/pipeline/types.ts` — `EventsSnapshotData { events: [] }`
+- Sources: `src/source/{ccusage,companion,antigravity,hermes}.rs`
+- Parsers: `src/parser/{rows,cost,schema,companion}.rs`
+- Sinks: `src/sink/{clickhouse,duckdb,csv}.rs`
+- Types: `src/model.rs` — `EventRow`, pipeline result types
 
 ## Key conventions
 

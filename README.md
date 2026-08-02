@@ -38,7 +38,7 @@ See `docs/schema.sql` for the full DDL.
 ## Setup
 
 ```bash
-bun install
+cargo build --release
 cp .env.example .env  # fill in ClickHouse credentials
 ```
 
@@ -58,19 +58,19 @@ cp .env.example .env  # fill in ClickHouse credentials
 
 ```bash
 # Run full import (ccusage + codex + opencode → ClickHouse + DuckDB)
-bun run src/scripts/import-all.ts --verbose
+cargo run -- import --verbose
 
 # Import only the last N days (faster, less memory)
-bun run src/scripts/import-all.ts --days-back=7
+cargo run -- import --days-back=7
 
 # Import a specific date range
-bun run src/scripts/import-all.ts --since=2025-01-01 --end-date=2025-12-31
+cargo run -- import --since=2025-01-01 --end-date=2025-12-31
 
 # With custom DuckDB path
-bun run src/scripts/import-all.ts --duckdb-path=md:ccusage
+cargo run -- import --duckdb-path=md:ccusage
 
 # Backfill DuckDB from ClickHouse
-bun run src/scripts/backfill-duckdb.ts
+cargo run -- backfill-duckdb
 ```
 
 ### CLI Options
@@ -117,13 +117,13 @@ run only fetches recent data — faster and lighter than a full import each time
 
 ```bash
 # Interactive setup (hourly, imports last 2 days)
-bun run src/scripts/setup-cronjob.ts
+cargo run -- setup-cronjob
 
 # Every 30 minutes, import last 1 day
-bun run src/scripts/setup-cronjob.ts --every=30 --days-back=1
+cargo run -- setup-cronjob --every=30 --days-back=1
 
 # Force overwrite existing cronjob
-bun run src/scripts/setup-cronjob.ts -f --every=15
+cargo run -- setup-cronjob -f --every=15
 ```
 
 ### Manual crontab
@@ -135,9 +135,9 @@ bun run src/scripts/setup-cronjob.ts -f --every=15
 ## Development
 
 ```bash
-bun test              # run tests
-bunx tsc --noEmit     # type check
-bun run src/cli.ts    # run CLI
+cargo test            # run tests
+cargo check           # type check
+cargo run -- import   # run CLI
 ```
 
 ## Data sources
