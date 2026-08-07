@@ -52,7 +52,7 @@ impl HermesSource {
 #[async_trait]
 impl DataSource for HermesSource {
     fn name(&self) -> &'static str {
-        self.name()
+        "hermes"
     }
 
     async fn fetch(&self) -> anyhow::Result<SourceResult> {

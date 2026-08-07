@@ -12,14 +12,16 @@ impl ImportRunner {
         let start = std::time::Instant::now();
 
         // 1. Fetch all sources in parallel; continue even if individual sources fail.
-        let fetch_futures = self.sources.iter_mut().map(|s| s.fetch());
+        // Capture source names first so error rows stay attributable after failure.
+        let names: Vec<&'static str> = self.sources.iter().map(|s| s.name()).collect();
+        let fetch_futures = self.sources.iter().map(|s| s.fetch());
         let raw_results: Vec<anyhow::Result<SourceResult>> = join_all(fetch_futures).await;
         let mut source_results = Vec::with_capacity(raw_results.len());
-        for res in raw_results {
+        for (name, res) in names.into_iter().zip(raw_results) {
             match res {
                 Ok(r) => source_results.push(r),
                 Err(e) => source_results.push(SourceResult {
-                    source_name: "unknown".to_string(),
+                    source_name: name.to_string(),
                     data: EventsSnapshotData::default(),
                     fetched_at: ch_now(),
                     error: Some(e.to_string()),

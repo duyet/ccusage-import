@@ -31,7 +31,7 @@ impl CompanionSource {
 #[async_trait]
 impl DataSource for CompanionSource {
     fn name(&self) -> &'static str {
-        "companion"
+        self.opts.source.as_str()
     }
 
     async fn fetch(&self) -> anyhow::Result<SourceResult> {

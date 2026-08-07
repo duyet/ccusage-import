@@ -11,6 +11,7 @@ pub mod fetcher;
 pub mod model;
 pub mod parser;
 pub mod pipeline;
+pub mod script;
 pub mod sink;
 pub mod source;
 pub mod util;

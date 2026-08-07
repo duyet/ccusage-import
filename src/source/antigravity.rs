@@ -54,9 +54,13 @@ fn parse_varint(data: &[u8], mut pos: usize) -> (u64, usize) {
 
 fn decode_proto(data: &[u8], start: usize, end: usize) -> DecodedProto {
     let mut res: HashMap<u32, Vec<ProtoField>> = HashMap::new();
-    let mut pos = start;
+    let end = end.min(data.len());
+    let mut pos = start.min(end);
     while pos < end {
         let (key, next_pos) = parse_varint(data, pos);
+        if next_pos <= pos || next_pos > end {
+            break;
+        }
         pos = next_pos;
         let wire_type = (key & 0x7) as u32;
         let field_num = (key >> 3) as u32;
@@ -64,12 +68,18 @@ fn decode_proto(data: &[u8], start: usize, end: usize) -> DecodedProto {
         match wire_type {
             0 => {
                 let (val, next_pos2) = parse_varint(data, pos);
+                if next_pos2 <= pos || next_pos2 > end {
+                    break;
+                }
                 pos = next_pos2;
                 res.entry(field_num)
                     .or_default()
                     .push(ProtoField { _type: "varint", value: ProtoValue::Varint(val) });
             }
             1 => {
+                if pos + 8 > end {
+                    break;
+                }
                 let val = data[pos..pos + 8].to_vec();
                 pos += 8;
                 res.entry(field_num)
@@ -78,12 +88,15 @@ fn decode_proto(data: &[u8], start: usize, end: usize) -> DecodedProto {
             }
             2 => {
                 let (len, content_pos) = parse_varint(data, pos);
+                if content_pos < pos || content_pos > end {
+                    break;
+                }
                 let len_usize = len as usize;
                 if content_pos + len_usize > end {
                     break;
                 }
                 let slice = data[content_pos..content_pos + len_usize].to_vec();
-                pos = content_pos + len_usize; // pos now after content
+                pos = content_pos + len_usize;
                 let sub = if len > 0 {
                     let decoded = decode_proto(&slice, 0, len_usize);
                     if !decoded.is_empty() {
@@ -99,6 +112,9 @@ fn decode_proto(data: &[u8], start: usize, end: usize) -> DecodedProto {
                     .push(ProtoField { _type: "bytes", value: sub });
             }
             5 => {
+                if pos + 4 > end {
+                    break;
+                }
                 let val = data[pos..pos + 4].to_vec();
                 pos += 4;
                 res.entry(field_num)
@@ -231,7 +247,7 @@ impl AntigravitySource {
 #[async_trait]
 impl DataSource for AntigravitySource {
     fn name(&self) -> &'static str {
-        self.name()
+        "antigravity"
     }
 
     async fn fetch(&self) -> anyhow::Result<SourceResult> {

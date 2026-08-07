@@ -1,74 +1,62 @@
-use crate::config::{ClickHouseConfig, Config};
-use crate::fetcher::companion::CCUSAGE_AGENT_SOURCES;
-use crate::pipeline::{ImportRunner, PipelineOptions};
+//! Full import: register sources/sinks, run pipeline, print summary.
+//!
+//! Exit policy (cron-friendly): exit 0 when at least one sink completes
+//! without error. ClickHouse may be down while MotherDuck/local DuckDB
+//! still succeeds — that is a successful run for the hourly job.
+
+use crate::cli::ImportArgs;
+use crate::fetcher::companion::CompanionSource;
+use crate::pipeline::ImportRunner;
 use crate::sink::clickhouse::ClickHouseSink;
 use crate::sink::duckdb::DuckDbSink;
-use crate::source::antigravity::AntigravitySource;
-use crate::source::ccusage::CcusageSource;
-use crate::source::companion::CompanionDataSource;
-use crate::source::hermes::HermesSource;
-use crate::util::timer::CommandTimeout;
+use crate::source::antigravity::{AntigravitySource, AntigravitySourceOptions};
+use crate::source::ccusage::{CcusageSource, CcusageSourceOptions};
+use crate::source::companion::{CompanionSource as CompanionDataSource, CompanionSourceOptions};
+use crate::source::hermes::{HermesSource, HermesSourceOptions};
+use crate::util::date::resolve_effective_since;
 use std::env;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Run the full import: register sources/sinks, execute pipeline, print summary.
-pub fn run() -> anyhow::Result<()> {
+/// Companion agents registered by default (mirrors TS `CCUSAGE_AGENT_SOURCES`).
+const COMPANION_AGENTS: &[CompanionSource] = &[
+    CompanionSource::Codex,
+    CompanionSource::OpenCode,
+    CompanionSource::Gemini,
+    CompanionSource::OpenClaw,
+    CompanionSource::Amp,
+    CompanionSource::Droid,
+    CompanionSource::Codebuff,
+    CompanionSource::Pi,
+    CompanionSource::Goose,
+    CompanionSource::Kilo,
+    CompanionSource::Copilot,
+    CompanionSource::Kimi,
+    CompanionSource::Qwen,
+];
+
+/// Run the full import pipeline from clap-parsed args.
+pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
+    apply_cli_env_overrides(&args);
 
-    let args: Vec<String> = env::args().collect();
-    let verbose = args.contains(&"--verbose".into()) || args.contains(&"-v".into());
-    let skip_ccusage = args.contains(&"--skip-ccusage".into());
-    let skip_antigravity = args.contains(&"--skip-antigravity".into());
-    let skip_hermes = args.contains(&"--skip-hermes".into());
-    let skip_clickhouse = args.contains(&"--skip-clickhouse".into());
-
-    let duckdb_path = env::var("DUCKDB_PATH")
-        .or_else(|_| {
-            args.iter()
-                .find(|a| a.starts_with("--duckdb-path="))
-                .map(|a| a.split('=').nth(1).unwrap_or("").to_string())
-        })
-        .ok();
-
-    let days_back = env::var("IMPORT_DAYS_BACK")
-        .ok()
-        .and_then(|v| v.parse::<i64>().ok())
-        .or_else(|| {
-            args.iter()
-                .find(|a| a.starts_with("--days-back="))
-                .and_then(|a| a.split('=').nth(1))
-                .and_then(|v| v.parse::<i64>().ok())
-        });
-
-    let since = args.iter()
-        .find(|a| a.starts_with("--since="))
-        .and_then(|a| a.split('=').nth(1))
+    let days_back = args.days_back.or_else(|| {
+        env::var("IMPORT_DAYS_BACK")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+    });
+    let since = args
+        .since
+        .clone()
         .or_else(|| env::var("IMPORT_SINCE").ok())
         .or_else(|| env::var("IMPORT_SINCE_DATE").ok());
-
-    let end_date = args.iter()
-        .find(|a| a.starts_with("--end-date="))
-        .and_then(|a| a.split('=').nth(1))
+    let end_date = args
+        .end_date
+        .clone()
         .or_else(|| env::var("IMPORT_END_DATE").ok());
 
-    let effective_since = if let Some(s) = since {
-        Some(s)
-    } else if let Some(days) = days_back.filter(|d| *d > 0) {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let past = now.saturating_sub((days as u64) * 24 * 60 * 60);
-        Some(chrono::DateTime::from_timestamp(past as i64, 0)
-            .unwrap_or_default()
-            .format("%Y-%m-%d")
-            .to_string())
-    } else {
-        None
-    };
+    let effective_since = resolve_effective_since(since.as_deref(), days_back);
 
     let import_id = uuid::Uuid::new_v4().to_string();
-    let machine_name = hostname::get()
-        .ok()
-        .and_then(|s| s.into_string().ok())
-        .unwrap_or_default();
+    let machine_name = hostname();
     let hash_projects = env::var("HASH_PROJECT_NAMES")
         .map(|v| v != "false")
         .unwrap_or(true);
@@ -87,76 +75,93 @@ pub fn run() -> anyhow::Result<()> {
         import_id
     );
 
-    let mut runner = ImportRunner::new(PipelineOptions {
-        machine_name: machine_name.clone(),
-        hash_projects,
-        import_id: import_id.clone(),
-        since: effective_since.clone(),
-        end_date,
-        command_timeout_ms: env::var("IMPORT_COMMAND_TIMEOUT_MS")
-            .ok()
-            .and_then(|v| v.parse().ok()),
-        max_parallel_workers: env::var("IMPORT_MAX_PARALLEL_WORKERS")
-            .ok()
-            .and_then(|v| v.parse().ok()),
-    });
+    if args.dry_run {
+        println!("dry-run: skipping source fetch and sink writes");
+        println!("\n=== Summary ===");
+        println!("  source (dry-run): 0 rows");
+        println!("  sink (dry-run): 0 rows, 0ms");
+        println!("  total: 0ms");
+        return Ok(());
+    }
 
-    if !skip_ccusage {
-        runner.add_source(Box::new(CcusageSource::new(PipelineOptions {
-            command_timeout_ms: env::var("IMPORT_COMMAND_TIMEOUT_MS")
+    let mut sources: Vec<Box<dyn crate::model::DataSource>> = Vec::new();
+
+    if !args.skip_ccusage {
+        sources.push(Box::new(CcusageSource::new(CcusageSourceOptions {
+            machine_name: machine_name.clone(),
+            hash_projects: Some(hash_projects),
+            timeout: env::var("IMPORT_COMMAND_TIMEOUT_MS")
                 .ok()
                 .and_then(|v| v.parse().ok()),
-            max_parallel_workers: env::var("IMPORT_MAX_PARALLEL_WORKERS")
-                .ok()
-                .and_then(|v| v.parse().ok()),
-            ..runner.options().clone()
+            verbose: Some(verbose),
+            days_back,
+            since: effective_since.clone(),
+            end_date: end_date.clone(),
+            import_id: Some(import_id.clone()),
         })));
     }
-    if !skip_antigravity {
-        runner.add_source(Box::new(AntigravitySource::new(PipelineOptions {
-            command_timeout_ms: env::var("IMPORT_COMMAND_TIMEOUT_MS")
-                .ok()
-                .and_then(|v| v.parse().ok()),
-            max_parallel_workers: env::var("IMPORT_MAX_PARALLEL_WORKERS")
-                .ok()
-                .and_then(|v| v.parse().ok()),
-            ..runner.options().clone()
+
+    if !args.skip_antigravity {
+        sources.push(Box::new(AntigravitySource::new(AntigravitySourceOptions {
+            machine_name: machine_name.clone(),
+            hash_projects,
+            verbose,
+            days_back,
+            since: effective_since.clone(),
+            end_date: end_date.clone(),
+            import_id: import_id.clone(),
         })));
     }
-    if !skip_hermes {
-        runner.add_source(Box::new(HermesSource::new(PipelineOptions {
-            command_timeout_ms: env::var("IMPORT_COMMAND_TIMEOUT_MS")
-                .ok()
-                .and_then(|v| v.parse().ok()),
-            max_parallel_workers: env::var("IMPORT_MAX_PARALLEL_WORKERS")
-                .ok()
-                .and_then(|v| v.parse().ok()),
-            ..runner.options().clone()
+
+    if !args.skip_hermes {
+        sources.push(Box::new(HermesSource::new(HermesSourceOptions {
+            machine_name: machine_name.clone(),
+            hash_projects,
+            verbose,
+            days_back,
+            since: effective_since.clone(),
+            end_date: end_date.clone(),
+            import_id: import_id.clone(),
         })));
     }
-    for agent in CCUSAGE_AGENT_SOURCES {
-        if args.contains(&format!("--skip-{}", agent.id)) {
+
+    for agent in COMPANION_AGENTS {
+        let id = agent.as_str();
+        if should_skip_companion(&args, id) {
             continue;
         }
-        runner.add_source(Box::new(CompanionDataSource::new(agent.id, PipelineOptions {
-            command_timeout_ms: env::var("IMPORT_COMMAND_TIMEOUT_MS")
+        sources.push(Box::new(CompanionDataSource::new(CompanionSourceOptions {
+            source: *agent,
+            machine_name: machine_name.clone(),
+            hash_projects,
+            timeout_ms: env::var("IMPORT_COMMAND_TIMEOUT_MS")
                 .ok()
                 .and_then(|v| v.parse().ok()),
-            max_parallel_workers: env::var("IMPORT_MAX_PARALLEL_WORKERS")
-                .ok()
-                .and_then(|v| v.parse().ok()),
-            ..runner.options().clone()
+            verbose: Some(verbose),
+            data_path: None,
+            since: effective_since.clone(),
+            end_date: end_date.clone(),
+            import_id: import_id.clone(),
         })));
     }
 
-    if !skip_clickhouse {
-        runner.add_sink(Box::new(ClickHouseSink::new()));
-    }
-    if let Some(path) = duckdb_path {
-        runner.add_sink(Box::new(DuckDbSink::new(path)));
+    let mut sinks: Vec<Box<dyn crate::model::DataSink>> = Vec::new();
+
+    if !args.skip_clickhouse {
+        sinks.push(Box::new(ClickHouseSink::new()));
     }
 
-    let result = runner.run_blocking(verbose)?;
+    if !args.skip_duckdb {
+        let duckdb_path = args
+            .duckdb_path
+            .clone()
+            .or_else(|| env::var("DUCKDB_PATH").ok())
+            .unwrap_or_else(|| "md:ccusage".to_string());
+        sinks.push(Box::new(DuckDbSink::new(duckdb_path)));
+    }
+
+    let mut runner = ImportRunner { sources, sinks };
+    let result = runner.run().await?;
 
     println!("\n=== Summary ===");
     for source in &result.sources {
@@ -164,7 +169,11 @@ pub fn run() -> anyhow::Result<()> {
             "  source {}: {} rows{}",
             source.name,
             source.rows,
-            source.error.as_deref().map(|e| format!(" (error: {})", e)).unwrap_or_default()
+            source
+                .error
+                .as_deref()
+                .map(|e| format!(" (error: {})", e))
+                .unwrap_or_default()
         );
     }
     for sink in &result.sinks {
@@ -174,13 +183,108 @@ pub fn run() -> anyhow::Result<()> {
             sink.sink_name,
             total,
             sink.duration_ms,
-            sink.error.as_deref().map(|e| format!(" (error: {})", e)).unwrap_or_default()
+            sink
+                .error
+                .as_deref()
+                .map(|e| format!(" (error: {})", e))
+                .unwrap_or_default()
         );
     }
     println!("  total: {}ms", result.total_duration_ms);
 
-    if result.sinks.iter().any(|s| s.error.is_some()) {
-        std::process::exit(1);
+    // Partial-success: at least one healthy sink is enough for cron exit 0.
+    let any_sink_ok = result.sinks.iter().any(|s| s.error.is_none());
+    if result.sinks.is_empty() || !any_sink_ok {
+        anyhow::bail!("all sinks failed (or no sinks configured)");
     }
     Ok(())
+}
+
+fn should_skip_companion(args: &ImportArgs, id: &str) -> bool {
+    match id {
+        "codex" => args.skip_codex,
+        "opencode" => args.skip_opencode,
+        _ => false,
+    }
+}
+
+fn apply_cli_env_overrides(args: &ImportArgs) {
+    if let Some(ref host) = args.ch_host {
+        env::set_var("CH_HOST", host);
+    }
+    if let Some(port) = args.ch_port {
+        env::set_var("CH_PORT", port.to_string());
+    }
+    if let Some(ref db) = args.ch_database {
+        env::set_var("CH_DATABASE", db);
+    }
+}
+
+fn hostname() -> String {
+    env::var("HOSTNAME")
+        .or_else(|_| env::var("COMPUTERNAME"))
+        .ok()
+        .or_else(|| {
+            std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|o| {
+                    let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                    if s.is_empty() {
+                        None
+                    } else {
+                        Some(s)
+                    }
+                })
+        })
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cli::{Cli, Commands};
+    use clap::Parser;
+
+    #[test]
+    fn clap_accepts_days_back_and_duckdb_path() {
+        let cli = Cli::try_parse_from([
+            "ccusage-import",
+            "import",
+            "--days-back",
+            "2",
+            "--duckdb-path",
+            "md:ccusage",
+        ])
+        .expect("cron argv must parse");
+        match cli.command {
+            Commands::Import(a) => {
+                assert_eq!(a.days_back, Some(2));
+                assert_eq!(a.duckdb_path.as_deref(), Some("md:ccusage"));
+            }
+            _ => panic!("expected Import"),
+        }
+    }
+
+    #[test]
+    fn clap_accepts_since_and_days_back_together() {
+        let cli = Cli::try_parse_from([
+            "ccusage-import",
+            "import",
+            "--since",
+            "2026-08-01",
+            "--days-back",
+            "7",
+        ])
+        .expect("both flags must parse");
+        match cli.command {
+            Commands::Import(a) => {
+                assert_eq!(a.since.as_deref(), Some("2026-08-01"));
+                assert_eq!(a.days_back, Some(7));
+                let eff = resolve_effective_since(a.since.as_deref(), a.days_back);
+                assert_eq!(eff.as_deref(), Some("2026-08-01"));
+            }
+            _ => panic!("expected Import"),
+        }
+    }
 }

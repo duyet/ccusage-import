@@ -81,6 +81,20 @@ pub fn date_from_unix_seconds(seconds: i64) -> String {
     }
 }
 
+/// Resolve the import window start date.
+///
+/// Priority: explicit `since` (YYYY-MM-DD or other non-empty string) over
+/// `days_back`. Pure — no I/O. Used by the import pipeline and unit-tested
+/// so the cron `--days-back=N` path cannot silently ignore the window.
+pub fn resolve_effective_since(since: Option<&str>, days_back: Option<i64>) -> Option<String> {
+    if let Some(s) = since.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(s.to_string());
+    }
+    let days = days_back.filter(|d| *d > 0)?;
+    let d = Utc::now() - chrono::Duration::days(days);
+    Some(d.format("%Y-%m-%d").to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,5 +143,30 @@ mod tests {
     fn from_unix_seconds_invalid_returns_now() {
         let result = from_unix_seconds(-999999999999999);
         assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn resolve_since_prefers_explicit_over_days_back() {
+        assert_eq!(
+            resolve_effective_since(Some("2026-08-01"), Some(2)).as_deref(),
+            Some("2026-08-01")
+        );
+    }
+
+    #[test]
+    fn resolve_since_from_days_back() {
+        let got = resolve_effective_since(None, Some(2)).expect("days_back=2");
+        // Must be a YYYY-MM-DD roughly 2 days before UTC now.
+        let expected = (Utc::now() - chrono::Duration::days(2))
+            .format("%Y-%m-%d")
+            .to_string();
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn resolve_since_none_when_no_window() {
+        assert_eq!(resolve_effective_since(None, None), None);
+        assert_eq!(resolve_effective_since(Some(""), Some(0)), None);
+        assert_eq!(resolve_effective_since(None, Some(0)), None);
     }
 }

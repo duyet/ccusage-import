@@ -2,24 +2,42 @@ use crate::model::{DataSink, EventRow, EventsSnapshotData, SinkResult};
 use crate::sink::csv::{csv_line, csv_value};
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// DuckDB sink: writes flat event rows to `ccusage_events` using COPY FROM.
+/// Supports local files and MotherDuck (`md:…` + `MOTHERDUCK_TOKEN`).
 pub struct DuckDbSink {
     db_path: String,
     tables_ensured: bool,
+    is_motherduck: bool,
 }
 
 impl DuckDbSink {
     pub fn new(db_path: impl Into<String>) -> Self {
+        let db_path = db_path.into();
+        let is_motherduck = db_path.starts_with("md:");
         Self {
-            db_path: db_path.into(),
+            db_path,
             tables_ensured: false,
+            is_motherduck,
         }
     }
 
     fn db_path(&self) -> &str {
         &self.db_path
+    }
+
+    /// Connection string including MotherDuck token when applicable.
+    fn connection_string(&self) -> String {
+        if !self.is_motherduck {
+            return self.db_path.clone();
+        }
+        let token = std::env::var("MOTHERDUCK_TOKEN").unwrap_or_default();
+        if token.is_empty() {
+            return self.db_path.clone();
+        }
+        let sep = if self.db_path.contains('?') { '&' } else { '?' };
+        format!("{}{}motherduck_token={}", self.db_path, sep, token)
     }
 
     fn duckdb_create_sql() -> &'static str {
@@ -69,12 +87,66 @@ impl DuckDbSink {
         Ok(())
     }
 
+    fn open_connection(&self) -> anyhow::Result<duckdb::Connection> {
+        if !self.is_motherduck {
+            if let Some(parent) = Path::new(&self.db_path).parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
+            }
+            return Ok(duckdb::Connection::open(self.connection_string())?);
+        }
+        Self::open_motherduck(&self.connection_string())
+    }
+
+    /// MotherDuck needs its extension loaded. Prefer HTTPS (plain HTTP to
+    /// extensions.duckdb.org fails with HTTP/0.9 on some networks), then open
+    /// the `md:` path. Falls back to auto-install if the local cache is empty.
+    fn open_motherduck(conn_str: &str) -> anyhow::Result<duckdb::Connection> {
+        // duckdb also reads motherduck_token from env (lowercase).
+        if let Ok(token) = std::env::var("MOTHERDUCK_TOKEN") {
+            if !token.is_empty() {
+                std::env::set_var("motherduck_token", &token);
+            }
+        }
+
+        let bootstrap = duckdb::Connection::open_in_memory().map_err(|e| {
+            anyhow::anyhow!("motherduck bootstrap open failed: {e}")
+        })?;
+
+        // Force HTTPS extension repo before INSTALL (HTTP is broken here).
+        let _ = bootstrap.execute_batch(
+            "SET custom_extension_repository = 'https://extensions.duckdb.org';",
+        );
+
+        // LOAD from local cache if present; otherwise INSTALL then LOAD.
+        let load_result = bootstrap.execute_batch("LOAD motherduck;");
+        if load_result.is_err() {
+            bootstrap
+                .execute_batch(
+                    "SET custom_extension_repository = 'https://extensions.duckdb.org';
+                     INSTALL motherduck;
+                     LOAD motherduck;",
+                )
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to INSTALL/LOAD motherduck extension via HTTPS: {e}"
+                    )
+                })?;
+        }
+        drop(bootstrap);
+
+        duckdb::Connection::open(conn_str).map_err(|e| {
+            anyhow::anyhow!("motherduck open `{conn_str}` failed after LOAD: {e}")
+        })
+    }
+
     fn write_events_sync(&mut self, rows: &[EventRow]) -> anyhow::Result<usize> {
         if rows.is_empty() {
             return Ok(0);
         }
 
-        let conn = duckdb::Connection::open(self.db_path())?;
+        let conn = self.open_connection()?;
         self.ensure_tables(&conn)?;
 
         // Dedup: delete by scoped (date, record_type, source, machine_name).
@@ -104,7 +176,8 @@ impl DuckDbSink {
             conn.execute(&sql, [])?;
         }
 
-        // Build CSV in memory and load via COPY FROM.
+        // Build CSV in memory and load via COPY FROM a real temp file
+        // (md: paths cannot host a local CSV next to them).
         let mut csv_lines: Vec<String> = Vec::with_capacity(rows.len() + 1);
         csv_lines.push(csv_line(&vec![
             "date".into(),
@@ -154,7 +227,11 @@ impl DuckDbSink {
                 row.cache_read_tokens.to_string(),
                 row.reasoning_tokens.to_string(),
                 row.total_tokens.to_string(),
-                if row.cost.is_finite() { row.cost.to_string() } else { "0".into() },
+                if row.cost.is_finite() {
+                    row.cost.to_string()
+                } else {
+                    "0".into()
+                },
                 csv_value(&row.dedup_key),
                 csv_value(&row.import_id),
                 csv_value(&row.block_id),
@@ -164,8 +241,16 @@ impl DuckDbSink {
                 row.is_active.to_string(),
                 row.is_gap.to_string(),
                 row.entries.to_string(),
-                if row.burn_rate.is_finite() { row.burn_rate.to_string() } else { "0".into() },
-                if row.projection.is_finite() { row.projection.to_string() } else { "0".into() },
+                if row.burn_rate.is_finite() {
+                    row.burn_rate.to_string()
+                } else {
+                    "0".into()
+                },
+                if row.projection.is_finite() {
+                    row.projection.to_string()
+                } else {
+                    "0".into()
+                },
                 csv_opt_ts(&row.usage_limit_reset_time),
                 csv_value(&row.created_at),
                 csv_value(&row.updated_at),
@@ -174,20 +259,37 @@ impl DuckDbSink {
         }
 
         let csv_data = csv_lines.join("\n");
-
-        // Write CSV to a temp file and COPY FROM it.
-        let tmp_path = Path::new(self.db_path()).with_extension("import.csv");
-        std::fs::write(&tmp_path, csv_data)?;
+        let tmp_path = write_temp_csv(&csv_data)?;
         let tmp_path_str = tmp_path.to_string_lossy().replace('\\', "/");
+        // Explicit column list so COPY maps by name even when the target
+        // table was created with an older column order (e.g. MotherDuck
+        // where reasoning_tokens/dedup_key were ADDed at the end).
+        const COLS: &str = "date, record_type, record_key, source, machine_name, \
+            model_name, session_id, project_path, input_tokens, output_tokens, \
+            cache_creation_tokens, cache_read_tokens, reasoning_tokens, total_tokens, \
+            cost, dedup_key, import_id, block_id, start_time, end_time, actual_end_time, \
+            is_active, is_gap, entries, burn_rate, projection, usage_limit_reset_time, \
+            created_at, updated_at";
         let sql = format!(
-            "COPY ccusage_events FROM '{}' (HEADER, DELIMITER ',', FORMAT csv)",
-            tmp_path_str
+            "COPY ccusage_events ({cols}) FROM '{path}' (HEADER, DELIMITER ',', FORMAT csv, NULL '')",
+            cols = COLS,
+            path = tmp_path_str
         );
-        conn.execute(&sql, [])?;
-        std::fs::remove_file(&tmp_path).ok();
+        let result = conn.execute(&sql, []);
+        let _ = std::fs::remove_file(&tmp_path);
+        result?;
 
         Ok(rows.len())
     }
+}
+
+fn write_temp_csv(csv_data: &str) -> anyhow::Result<PathBuf> {
+    let dir = std::env::temp_dir().join("ccusage-import");
+    std::fs::create_dir_all(&dir)?;
+    let name = format!("import-{}.csv", uuid::Uuid::new_v4());
+    let path = dir.join(name);
+    std::fs::write(&path, csv_data)?;
+    Ok(path)
 }
 
 fn csv_opt_ts(opt: &Option<String>) -> String {
@@ -200,14 +302,31 @@ fn csv_opt_ts(opt: &Option<String>) -> String {
 #[async_trait]
 impl DataSink for DuckDbSink {
     fn name(&self) -> &'static str {
-        "duckdb"
+        if self.is_motherduck {
+            "motherduck"
+        } else {
+            "duckdb"
+        }
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        let db_path = self.db_path().to_string();
+        let conn_str = self.connection_string();
+        let is_md = self.is_motherduck;
+        let local_path = self.db_path.clone();
         tokio::task::spawn_blocking(move || {
-            let conn = duckdb::Connection::open(&db_path)?;
-            Ok::<_, anyhow::Error>(conn)
+            let conn = if is_md {
+                DuckDbSink::open_motherduck(&conn_str)?
+            } else {
+                if let Some(parent) = Path::new(&local_path).parent() {
+                    if !parent.as_os_str().is_empty() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                }
+                duckdb::Connection::open(&conn_str)?
+            };
+            // Touch connection so MotherDuck auth fails early if broken.
+            conn.execute("SELECT 1", [])?;
+            Ok::<_, anyhow::Error>(())
         })
         .await??;
         Ok(())
@@ -239,7 +358,9 @@ impl DataSink for DuckDbSink {
         .await??;
 
         result.tables_written.push("ccusage_events".to_string());
-        result.rows_written.insert("ccusage_events".to_string(), count as u64);
+        result
+            .rows_written
+            .insert("ccusage_events".to_string(), count as u64);
         result.duration_ms = start.elapsed().as_millis() as u64;
         Ok(result)
     }
@@ -252,5 +373,33 @@ impl DataSink for DuckDbSink {
 impl Default for DuckDbSink {
     fn default() -> Self {
         Self::new("")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn motherduck_connection_string_appends_token() {
+        std::env::set_var("MOTHERDUCK_TOKEN", "test-token-xyz");
+        let sink = DuckDbSink::new("md:ccusage");
+        let cs = sink.connection_string();
+        assert!(cs.starts_with("md:ccusage"));
+        assert!(cs.contains("motherduck_token=test-token-xyz"));
+        std::env::remove_var("MOTHERDUCK_TOKEN");
+    }
+
+    #[test]
+    fn local_connection_string_unchanged() {
+        let sink = DuckDbSink::new("/tmp/ccusage-test.duckdb");
+        assert_eq!(sink.connection_string(), "/tmp/ccusage-test.duckdb");
+        assert_eq!(sink.name(), "duckdb");
+    }
+
+    #[test]
+    fn motherduck_name() {
+        let sink = DuckDbSink::new("md:ccusage");
+        assert_eq!(sink.name(), "motherduck");
     }
 }
