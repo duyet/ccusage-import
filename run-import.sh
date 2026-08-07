@@ -5,7 +5,8 @@
 
 cd "$(dirname "$0")" || exit 1
 
-export PATH="/Users/duet/.cargo/bin:/Users/duet/.bun/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+# Portable PATH for macOS + Linux cron (minimal env).
+export PATH="${HOME}/.cargo/bin:${HOME}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 
 # Load project .env (MOTHERDUCK_TOKEN, CH_*, etc.) without printing secrets
 if [ -f .env ]; then
