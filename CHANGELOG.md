@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to **summa** (`summa-import`) are documented here.
+All notable changes to **sumptus** are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
@@ -12,19 +12,21 @@ at the top for curated notes; generated release blocks are inserted above it.
 
 ### Product name
 
-Public name is **summa** (Latin *summa* = sum, total, summary) — a lightweight
-CLI that tallies AI coding-agent usage into analytics stores.
+**sumptus** (Latin *sumptus* = expense, cost, outlay) — the cost of running
+Claude Code (ccusage) and other coding agents, tallied into analytics stores.
 
 | Candidate | Notes |
 |-----------|--------|
-| **summa** (chosen) | Short, Latin, product/binary name. Crate: `summa-import` (`summa` taken on crates.io). |
-| ductus | Latin *conduit* — good pipeline metaphor; longer / less common. |
-| tabula | Latin *table* — data tables; generic. |
-| mensura | Latin *measure* — accurate but heavy. |
-| ratio | Latin *reckoning* — overloaded in English. |
-| ccusage-import | Descriptive legacy name; free on crates.io but long. |
+| **sumptus** (chosen) | Expense/outlay of agent usage; free on crates.io; binary = crate. |
+| usus | Perfect “usage” sense — taken by another AI-usage CLI. |
+| usura | Usage root; “usury” connotation. |
+| tessera | Latin *token* — taken. |
+| census | Counting — taken. |
+| clarus | Stretch toward *Claude* — taken. |
+| summa | Sum/total — taken; weaker link to ccusage spend. |
+| ccusage-import | Legacy descriptive name. |
 
-Binary: `summa` · Config: `~/.config/summa/` · Crate: `summa-import`.
+Binary / crate: `sumptus` · Config: `~/.config/sumptus/` · Events table still `ccusage_events`.
 
 ### Planned / in progress
 
@@ -41,15 +43,15 @@ First public **0.1.x** product line (version reset from internal 3.x).
 
 ### Features
 
-- Rust CLI **summa** importing usage from Claude Code (ccusage), Codex,
+- Rust CLI **sumptus** importing usage from Claude Code (ccusage), Codex,
   OpenCode, Antigravity, Hermes, Grok Build, and other companion agents into a
   single `ccusage_events` table.
-- **Local-first DuckDB**: auto-creates `~/.local/share/summa/summa.duckdb`
+- **Local-first DuckDB**: auto-creates `~/.local/share/sumptus/sumptus.duckdb`
   (or platform data dir) with parent directories when no path is configured.
   MotherDuck (`md:…`) and ClickHouse remain optional for cloud sync / warehouse.
-- **Config discovery**: project `./summa.toml`, XDG `~/.config/summa/config.toml`,
-  legacy paths, and `$SUMMA_CONFIG`.
-- **Credentials separated**: `~/.config/summa/credentials.toml` (or
+- **Config discovery**: project `./sumptus.toml`, XDG `~/.config/sumptus/config.toml`,
+  legacy paths, and `$SUMPTUS_CONFIG`.
+- **Credentials separated**: `~/.config/sumptus/credentials.toml` (or
   `./credentials.toml`) holds `clickhouse_password` / `motherduck_token` so
   main config stays free of secrets. Env vars (`CH_PASSWORD`, `MOTHERDUCK_TOKEN`)
   still work.

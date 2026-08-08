@@ -41,7 +41,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
 }
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "summa")]
+#[command(name = "sumptus")]
 #[command(about = "Import AI coding-agent usage into local DuckDB or ClickHouse")]
 #[command(version)]
 pub struct Cli {
@@ -145,7 +145,7 @@ mod tests {
         let mut cmd = Cli::command();
         let help = cmd.render_long_help().to_string();
         // Subcommand help is nested; try_get_matches style check via parse.
-        let cli = Cli::try_parse_from(["summa", "import", "--help"]);
+        let cli = Cli::try_parse_from(["sumptus", "import", "--help"]);
         // --help causes error with DisplayHelp; just ensure days_back is on the type.
         let _ = cli;
         let _ = help;
@@ -172,13 +172,13 @@ mod tests {
     }
 
     #[test]
-    fn help_names_summa_product() {
+    fn help_names_sumptus_product() {
         use clap::CommandFactory;
         let mut cmd = Cli::command();
         let help = cmd.render_long_help().to_string();
         assert!(
-            help.contains("summa") || help.to_lowercase().contains("duckdb"),
-            "help should brand the summa product: {help}"
+            help.contains("sumptus") || help.to_lowercase().contains("duckdb"),
+            "help should brand the sumptus product: {help}"
         );
     }
 }

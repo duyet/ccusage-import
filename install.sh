@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# summa installer — install the prebuilt binary from GitHub Releases.
+# sumptus installer — install the prebuilt binary from GitHub Releases.
 #
 #   curl -fsSL https://raw.githubusercontent.com/duyet/ccusage-import/master/install.sh | bash
 #
 # Options (env):
-#   SUMMA_INSTALL_DIR   Install directory (default: ~/.local/bin)
-#   SUMMA_VERSION       Tag to install (default: latest release)
-#   SUMMA_REPO          owner/repo (default: duyet/ccusage-import)
-#   SUMMA_DRY_RUN=1     Print actions only; do not download/install
-#   SUMMA_PREFIX        Alias for SUMMA_INSTALL_DIR (compat)
+#   SUMPTUS_INSTALL_DIR   Install directory (default: ~/.local/bin)
+#   SUMPTUS_VERSION       Tag to install (default: latest release)
+#   SUMPTUS_REPO          owner/repo (default: duyet/ccusage-import)
+#   SUMPTUS_DRY_RUN=1     Print actions only; do not download/install
+#   SUMPTUS_PREFIX        Alias for SUMPTUS_INSTALL_DIR (compat)
 set -euo pipefail
 
-REPO="${SUMMA_REPO:-duyet/ccusage-import}"
-BIN_NAME="summa"
-INSTALL_DIR="${SUMMA_INSTALL_DIR:-${SUMMA_PREFIX:-${HOME}/.local/bin}}"
-VERSION="${SUMMA_VERSION:-}"
-DRY_RUN="${SUMMA_DRY_RUN:-0}"
+REPO="${SUMPTUS_REPO:-duyet/ccusage-import}"
+BIN_NAME="sumptus"
+INSTALL_DIR="${SUMPTUS_INSTALL_DIR:-${SUMPTUS_PREFIX:-${HOME}/.local/bin}}"
+VERSION="${SUMPTUS_VERSION:-}"
+DRY_RUN="${SUMPTUS_DRY_RUN:-0}"
 
 info()  { printf '==> %s\n' "$*"; }
 warn()  { printf 'warn: %s\n' "$*" >&2; }
@@ -33,7 +33,7 @@ detect_target() {
   case "$os" in
     linux)  os="unknown-linux-gnu" ;;
     darwin) os="apple-darwin" ;;
-    *) die "unsupported OS: $(uname -s). Build from source: cargo install summa-import" ;;
+    *) die "unsupported OS: $(uname -s). Build from source: cargo install sumptus" ;;
   esac
 
   case "$arch" in
@@ -86,10 +86,10 @@ main() {
     *) VERSION="v${VERSION}" ;;
   esac
 
-  asset="summa-${target}"
+  asset="sumptus-${target}"
   url="https://github.com/${REPO}/releases/download/${VERSION}/${asset}.tar.gz"
 
-  info "summa installer"
+  info "sumptus installer"
   info "  version : ${VERSION}"
   info "  target  : ${target}"
   info "  install : ${INSTALL_DIR}/${BIN_NAME}"
@@ -103,22 +103,22 @@ main() {
     exit 0
   fi
 
-  tmp="$(mktemp -d "${TMPDIR:-/tmp}/summa-install.XXXXXX")"
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/sumptus-install.XXXXXX")"
   # shellcheck disable=SC2064
   trap "rm -rf '${tmp}'" EXIT
 
   info "downloading…"
-  if ! curl -fsSL "$url" -o "${tmp}/summa.tar.gz"; then
+  if ! curl -fsSL "$url" -o "${tmp}/sumptus.tar.gz"; then
     warn "release asset not found at ${url}"
     warn "No prebuilt binary for this platform/tag yet."
     warn "Options:"
-    warn "  1) cargo install summa-import --locked"
+    warn "  1) cargo install sumptus --locked"
     warn "  2) git clone https://github.com/${REPO}.git && cargo build --release"
     warn "  3) Wait for the first GitHub Release after merge of the release-please PR"
     exit 1
   fi
 
-  tar -xzf "${tmp}/summa.tar.gz" -C "${tmp}"
+  tar -xzf "${tmp}/sumptus.tar.gz" -C "${tmp}"
   local found
   found="$(find "${tmp}" -type f -name "${BIN_NAME}" | head -n1)"
   [ -n "$found" ] || die "archive did not contain ${BIN_NAME}"

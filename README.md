@@ -1,29 +1,31 @@
-# summa
+# sumptus
 
-**summa** (*Latin*: sum, total, summary) is a lightweight CLI that imports AI
-coding-agent usage into a local DuckDB file — optionally syncing to ClickHouse
-or MotherDuck.
+**sumptus** (*Latin*: expense, cost, outlay) — lightweight CLI that imports
+Claude Code (**ccusage**), Codex, OpenCode, Grok, and other agent usage into a
+local DuckDB file, optionally syncing to ClickHouse or MotherDuck.
 
 | | |
 |---|---|
-| **Binary** | `summa` |
-| **Crate** | [`summa-import`](https://crates.io/crates/summa-import) |
+| **Binary** | `sumptus` |
+| **Crate** | [`sumptus`](https://crates.io/crates/sumptus) |
 | **Version** | 0.1.x |
 | **License** | MIT |
 
-> Repo path remains `duyet/ccusage-import` for history; the public product name is **summa**.
+> GitHub repo stays `duyet/ccusage-import` for history; public product name is **sumptus**.
 
-### Name brainstorm (shortlist)
+### Name brainstorm
 
-| Name | Why considered |
-|------|----------------|
-| **summa** ✓ | Latin *summa* — sum/total/summary of usage. Short binary. |
-| ductus | Latin *conduit* — pipeline metaphor |
-| tabula | Latin *table* — event tables |
-| mensura | Latin *measure* |
-| ccusage-import | Legacy descriptive name |
-
-Crate is `summa-import` because bare `summa` is taken on crates.io.
+| Name | Latin | Fit for ccusage / Claude | crates.io |
+|------|-------|--------------------------|-----------|
+| **sumptus** ✓ | expense, cost, outlay | What you *spend* on Claude & agents | free |
+| usus | use, usage | Perfect sense, but taken by another AI-usage CLI | taken |
+| usura | use / interest | Usage root; awkward “usury” sense | free |
+| tessera | token, ticket | Token counts | taken |
+| census | enumeration | Counting tokens | taken |
+| clarus | clear / famous | Echo of *Claude* (stretch) | taken |
+| summa | sum, total | Totals of usage | taken |
+| ductus | conduit | Pipeline metaphor | — |
+| ccusage-import | — | Legacy descriptive name | free, long |
 
 ## Install
 
@@ -33,13 +35,13 @@ Crate is `summa-import` because bare `summa` is taken on crates.io.
 curl -fsSL https://raw.githubusercontent.com/duyet/ccusage-import/master/install.sh | bash
 ```
 
-Installs into `~/.local/bin/summa`. Override with `SUMMA_INSTALL_DIR` /
-`SUMMA_VERSION` / `SUMMA_DRY_RUN=1`.
+Installs into `~/.local/bin/sumptus`. Override with `SUMPTUS_INSTALL_DIR` /
+`SUMPTUS_VERSION` / `SUMPTUS_DRY_RUN=1`.
 
 ### Cargo (crates.io)
 
 ```bash
-cargo install summa-import --locked
+cargo install sumptus --locked
 ```
 
 ### From source
@@ -48,7 +50,7 @@ cargo install summa-import --locked
 git clone https://github.com/duyet/ccusage-import.git
 cd ccusage-import
 cargo build --release
-./target/release/summa --help
+./target/release/sumptus --help
 ```
 
 ## Quick start (local-first)
@@ -57,35 +59,35 @@ No cloud credentials required. Import writes a local DuckDB file, creating
 parent directories automatically:
 
 ```bash
-summa import --verbose
-# → ~/.local/share/summa/summa.duckdb   (macOS/Linux XDG data dir)
+sumptus import --verbose
+# → ~/.local/share/sumptus/sumptus.duckdb   (macOS/Linux XDG data dir)
 ```
 
 Optional cloud / warehouse:
 
 ```bash
 # ClickHouse (password via credentials file or CH_PASSWORD)
-summa import --ch-host db.example.com --ch-port 8443
+sumptus import --ch-host db.example.com --ch-port 8443
 
 # MotherDuck only when you opt in
 export MOTHERDUCK_TOKEN=…
-summa import --duckdb-path=md:summa
+sumptus import --duckdb-path=md:sumptus
 ```
 
 ## Config
 
 Discovery order (first existing wins):
 
-1. `$SUMMA_CONFIG` (or legacy `$CCUSAGE_IMPORT_CONFIG`)
-2. `./summa.toml` / `./ccusage-import.toml`
-3. `~/.config/summa/config.toml` (XDG)
-4. `~/.summa/config.toml`
+1. `$SUMPTUS_CONFIG` (or legacy `$CCUSAGE_IMPORT_CONFIG`)
+2. `./sumptus.toml` / `./ccusage-import.toml`
+3. `~/.config/sumptus/config.toml` (XDG)
+4. `~/.sumptus/config.toml`
 5. `~/.ccusage-import.toml` (legacy)
-6. `/etc/summa/config.toml`
+6. `/etc/sumptus/config.toml`
 
 ### Main config (no secrets required)
 
-`~/.config/summa/config.toml`:
+`~/.config/sumptus/config.toml`:
 
 ```toml
 [clickhouse]
@@ -98,20 +100,20 @@ protocol = "http"
 
 [importer]
 # omit duckdb_path for local default; set md:name for MotherDuck
-# duckdb_path = "md:summa"
+# duckdb_path = "md:sumptus"
 days_back = 7
 ```
 
 ### Credentials (separate file)
 
-`~/.config/summa/credentials.toml` (or `./credentials.toml`):
+`~/.config/sumptus/credentials.toml` (or `./credentials.toml`):
 
 ```toml
 clickhouse_password = "…"
 motherduck_token = "…"
 ```
 
-Also: `$SUMMA_CREDENTIALS`, `CH_PASSWORD`, `MOTHERDUCK_TOKEN`.
+Also: `$SUMPTUS_CREDENTIALS`, `CH_PASSWORD`, `MOTHERDUCK_TOKEN`.
 
 ### Environment variables
 
@@ -124,8 +126,8 @@ Also: `$SUMMA_CREDENTIALS`, `CH_PASSWORD`, `MOTHERDUCK_TOKEN`.
 | `CH_DATABASE` | for CH | Database name |
 | `DUCKDB_PATH` | no | Override DuckDB path (`md:…` for MotherDuck) |
 | `MOTHERDUCK_TOKEN` | for MD | MotherDuck token |
-| `SUMMA_CONFIG` | no | Config file path |
-| `SUMMA_CREDENTIALS` | no | Credentials file path |
+| `SUMPTUS_CONFIG` | no | Config file path |
+| `SUMPTUS_CREDENTIALS` | no | Credentials file path |
 
 ## What it does
 
@@ -143,12 +145,12 @@ See `docs/schema.sql` for DDL and `docs/queries.sql` for examples.
 ## Usage
 
 ```bash
-summa import --verbose
-summa import --days-back=7
-summa import --since=2025-01-01 --end-date=2025-12-31
-summa import --duckdb-path=md:summa
-summa import --skip-clickhouse          # local DuckDB only
-cargo run -- backfill-duckdb            # CH → DuckDB
+sumptus import --verbose
+sumptus import --days-back=7
+sumptus import --since=2025-01-01 --end-date=2025-12-31
+sumptus import --duckdb-path=md:sumptus
+sumptus import --skip-clickhouse          # local DuckDB only
+cargo run -- backfill-duckdb              # CH → DuckDB
 ```
 
 | Flag | Description |

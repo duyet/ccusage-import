@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cron entry for summa (Rust; package summa-import).
+# Cron entry for sumptus (Rust; package sumptus).
 # Prefer release binary; fall back to cargo run --release.
 # Emits ISO start/end markers and writes last-run status for monitoring.
 
@@ -16,11 +16,11 @@ if [ -f .env ]; then
   set +a
 fi
 
-# Local-first default; set DUCKDB_PATH=md:summa (and MOTHERDUCK_TOKEN) for cloud.
+# Local-first default; set DUCKDB_PATH=md:sumptus (and MOTHERDUCK_TOKEN) for cloud.
 DUCKDB_PATH="${DUCKDB_PATH:-}"
 DAYS_BACK="${IMPORT_DAYS_BACK:-2}"
 
-LOG_DIR="${HOME}/.local/log/summa"
+LOG_DIR="${HOME}/.local/log/sumptus"
 mkdir -p "$LOG_DIR"
 STATUS_FILE="${LOG_DIR}/last-run.status"
 RUN_CAPTURE="${LOG_DIR}/.last-run.capture"
@@ -28,7 +28,7 @@ RUN_CAPTURE="${LOG_DIR}/.last-run.capture"
 START_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "=== run start ${START_ISO} ==="
 
-BINARY="target/release/summa"
+BINARY="target/release/sumptus"
 EXIT_CODE=0
 
 run_import() {

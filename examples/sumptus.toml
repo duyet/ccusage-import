@@ -1,0 +1,21 @@
+# Example main config for sumptus (no secrets).
+# Copy to ~/.config/sumptus/config.toml or ./sumptus.toml
+#
+# Credentials live separately in:
+#   ~/.config/sumptus/credentials.toml
+
+[clickhouse]
+host = "localhost"
+port = 8123
+user = "default"
+database = "analytics"
+protocol = "http"
+# password = ""  # prefer credentials.toml or CH_PASSWORD
+
+[importer]
+# Omit duckdb_path for local-first default:
+#   macOS: ~/Library/Application Support/sumptus/sumptus.duckdb
+#   Linux: ~/.local/share/sumptus/sumptus.duckdb
+# duckdb_path = "md:sumptus"   # MotherDuck (needs motherduck_token)
+days_back = 7
+hash_project_names = true

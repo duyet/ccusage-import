@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Public product: **summa** (crate `summa-import`, binary `summa`).
+Public product: **sumptus** (crate `sumptus`, binary `sumptus`).
 Data pipeline importing AI coding-agent usage into local DuckDB and optional ClickHouse/MotherDuck.
 
 ## Status
@@ -20,12 +20,12 @@ git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # rece
 rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'  # dead-code evidence (non-test refs)
 cargo run -- import --verbose           # full import (local DuckDB by default)
 cargo run -- backfill-duckdb            # backfill DuckDB from ClickHouse
-cargo build --release                   # stripped LTO binary → target/release/summa
+cargo build --release                   # stripped LTO binary → target/release/sumptus
 git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
 
-Config: `~/.config/summa/config.toml` + `credentials.toml` (secrets separate).
-Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
+Config: `~/.config/sumptus/config.toml` + `credentials.toml` (secrets separate).
+Default DuckDB: `~/.local/share/sumptus/sumptus.duckdb` (auto-created).
 
 ## Architecture
 

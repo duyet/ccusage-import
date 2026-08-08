@@ -284,7 +284,7 @@ impl DuckDbSink {
 }
 
 fn write_temp_csv(csv_data: &str) -> anyhow::Result<PathBuf> {
-    let dir = std::env::temp_dir().join("summa-import");
+    let dir = std::env::temp_dir().join("sumptus");
     std::fs::create_dir_all(&dir)?;
     let name = format!("import-{}.csv", uuid::Uuid::new_v4());
     let path = dir.join(name);
@@ -406,7 +406,7 @@ mod tests {
     #[test]
     fn local_open_creates_parent_dirs_and_file() {
         let dir = tempfile::tempdir().unwrap();
-        let nested = dir.path().join("nested").join("data").join("summa.duckdb");
+        let nested = dir.path().join("nested").join("data").join("sumptus.duckdb");
         assert!(!nested.exists());
         let sink = DuckDbSink::new(nested.to_string_lossy().to_string());
         let conn = sink.open_connection().expect("open local duckdb");
