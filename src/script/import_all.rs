@@ -12,6 +12,7 @@ use crate::sink::duckdb::DuckDbSink;
 use crate::source::antigravity::{AntigravitySource, AntigravitySourceOptions};
 use crate::source::ccusage::{CcusageSource, CcusageSourceOptions};
 use crate::source::companion::{CompanionSource as CompanionDataSource, CompanionSourceOptions};
+use crate::source::grok::{GrokSource, GrokSourceOptions};
 use crate::source::hermes::{HermesSource, HermesSourceOptions};
 use crate::util::date::resolve_effective_since;
 use std::env;
@@ -122,6 +123,19 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
             since: effective_since.clone(),
             end_date: end_date.clone(),
             import_id: import_id.clone(),
+        })));
+    }
+
+    if !args.skip_grok {
+        sources.push(Box::new(GrokSource::new(GrokSourceOptions {
+            machine_name: machine_name.clone(),
+            hash_projects,
+            verbose,
+            days_back,
+            since: effective_since.clone(),
+            end_date: end_date.clone(),
+            import_id: import_id.clone(),
+            base_dir: None,
         })));
     }
 

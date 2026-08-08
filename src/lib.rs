@@ -2,7 +2,7 @@
  * ccusage-import — Rust library.
  *
  * Data pipeline importing Claude Code (ccusage), Codex, OpenCode,
- * Antigravity, and Hermes usage analytics into ClickHouse and DuckDB.
+ * Antigravity, Hermes, and Grok Build usage analytics into ClickHouse and DuckDB.
  */
 
 pub mod cli;

@@ -26,7 +26,7 @@ git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad
 
 Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 
-- Sources: `src/source/{ccusage,companion,antigravity,hermes}.rs`
+- Sources: `src/source/{ccusage,companion,antigravity,hermes,grok}.rs`
 - Parsers: `src/parser/{rows,cost,schema,companion}.rs`
 - Sinks: `src/sink/{clickhouse,duckdb,csv}.rs`
 - Types: `src/model.rs` — `EventRow`, pipeline result types
@@ -38,6 +38,7 @@ Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 - Claude `cacheReadTokens` is separate — total = input + output + cacheCreate + cacheRead
 - Cost distributed across models when per-model costs missing (`distributeCost()`)
 - Companion packages may print log lines before JSON — parser skips to first `{`/`[`
+- Grok Build: `~/.grok` / `GROK_HOME` — `logs/unified.jsonl` (`shell.turn.inference_done`) + session `summary.json` for model/cwd; tokens: input=`prompt-cached`, cache_read=`cached`, output=`completion`, total=`prompt+completion` (reasoning not double-counted); `--skip-grok`
 - Monthly not fetched — derivable via `toYYYYMM(date)` SQL
 
 ## Core memory

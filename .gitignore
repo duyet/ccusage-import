@@ -7,3 +7,7 @@ dist/
 .coverage
 __pycache__/
 .tmp/
+.cargo/
+.poolside/
+*.out
+target/

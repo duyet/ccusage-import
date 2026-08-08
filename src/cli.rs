@@ -82,6 +82,9 @@ pub struct ImportArgs {
     /// Skip Hermes source
     #[arg(long)]
     pub skip_hermes: bool,
+    /// Skip Grok Build source
+    #[arg(long)]
+    pub skip_grok: bool,
     /// Skip ClickHouse sink
     #[arg(long)]
     pub skip_clickhouse: bool,
@@ -138,6 +141,7 @@ mod tests {
             skip_codex: false,
             skip_antigravity: false,
             skip_hermes: false,
+            skip_grok: false,
             skip_clickhouse: false,
             skip_duckdb: false,
             dry_run: false,
