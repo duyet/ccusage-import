@@ -17,11 +17,16 @@ pub fn run() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
     let verbose = args.contains(&"--verbose".into()) || args.contains(&"-v".into());
 
+    // Load XDG/local config + credentials so CH_* match import path.
+    let file_cfg = crate::config::Config::load(None).unwrap_or_default();
+    crate::script::import_all::apply_config_to_env(&file_cfg);
+
     let explicit = args
         .iter()
         .find(|a| a.starts_with("--path="))
         .map(|a| a.split('=').nth(1).unwrap_or(""))
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+        .or(file_cfg.importer.duckdb_path.as_deref().filter(|s| !s.is_empty()));
     let path = crate::config::Config::resolve_duckdb_path(explicit);
 
     println!("Backfill: ClickHouse ccusage_events → {}", path);

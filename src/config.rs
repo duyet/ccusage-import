@@ -200,18 +200,16 @@ impl Config {
     }
 
     /// Load config + credentials with explicit credential path (for tests).
+    /// When `config_path` is `Some`, the file must exist (CLI `--config`).
+    /// When `None`, discovery is used and missing files yield defaults.
     pub fn load_with_credentials(
         config_path: Option<&str>,
         credentials_path: Option<&str>,
     ) -> anyhow::Result<Self> {
         let raw = match config_path {
-            Some(p) => {
-                if Path::new(p).exists() {
-                    std::fs::read_to_string(p)?
-                } else {
-                    String::new()
-                }
-            }
+            Some(p) => std::fs::read_to_string(p).map_err(|e| {
+                anyhow::anyhow!("config file not found or unreadable at `{p}`: {e}")
+            })?,
             None => Self::find_and_read()?,
         };
         let interpolated = Self::interpolate_env(&raw);

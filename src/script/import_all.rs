@@ -5,6 +5,7 @@
 //! still succeeds — that is a successful run for the hourly job.
 
 use crate::cli::ImportArgs;
+use crate::config::{Config, CREDENTIALS_ENV};
 use crate::fetcher::companion::CompanionSource;
 use crate::pipeline::ImportRunner;
 use crate::sink::clickhouse::ClickHouseSink;
@@ -34,33 +35,144 @@ const COMPANION_AGENTS: &[CompanionSource] = &[
     CompanionSource::Qwen,
 ];
 
-/// Run the full import pipeline from clap-parsed args.
-pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
-    dotenvy::dotenv().ok();
-    apply_cli_env_overrides(&args);
+/// Resolved import settings after loading config + credentials + CLI overrides.
+/// This is the single source of truth for the import path (and tests).
+#[derive(Debug, Clone)]
+pub struct PreparedImport {
+    pub config: Config,
+    pub days_back: Option<i64>,
+    pub since: Option<String>,
+    pub end_date: Option<String>,
+    pub duckdb_path: String,
+    pub skip_clickhouse: bool,
+    pub skip_duckdb: bool,
+    pub machine_name: String,
+    pub hash_projects: bool,
+}
 
-    let days_back = args.days_back.or_else(|| {
+/// Load config (local / XDG / `--config`), merge separate credentials, apply
+/// CLI overrides, and export ClickHouse/DuckDB settings into the process env
+/// so sinks that read env (ClickHouse) see the same values.
+///
+/// Precedence (high → low): CLI flags → config/credentials files → env fallbacks → defaults.
+pub fn prepare_import(args: &ImportArgs) -> anyhow::Result<PreparedImport> {
+    prepare_import_with_credentials(args, None)
+}
+
+/// Same as [`prepare_import`] but allows an explicit credentials path (tests
+/// and `SUMMA_CREDENTIALS` callers). When `credentials_path` is `None`,
+/// discovery uses `$SUMMA_CREDENTIALS` then XDG / local candidates.
+pub fn prepare_import_with_credentials(
+    args: &ImportArgs,
+    credentials_path: Option<&str>,
+) -> anyhow::Result<PreparedImport> {
+    let creds_path = credentials_path
+        .map(str::to_string)
+        .or_else(|| env::var(CREDENTIALS_ENV).ok());
+
+    let mut cfg = Config::load_with_credentials(args.config.as_deref(), creds_path.as_deref())?;
+
+    // CLI overrides win over file config.
+    if let Some(ref host) = args.ch_host {
+        cfg.clickhouse.host = host.clone();
+    }
+    if let Some(port) = args.ch_port {
+        cfg.clickhouse.port = port;
+    }
+    if let Some(ref db) = args.ch_database {
+        cfg.clickhouse.database = db.clone();
+    }
+    if let Some(ref path) = args.duckdb_path {
+        cfg.importer.duckdb_path = Some(path.clone());
+    }
+    if let Some(days) = args.days_back {
+        cfg.importer.days_back = Some(days);
+    }
+    if let Some(ref since) = args.since {
+        cfg.importer.since = Some(since.clone());
+    }
+    if let Some(ref end) = args.end_date {
+        cfg.importer.end_date = Some(end.clone());
+    }
+
+    // Export resolved config so ClickHouseSink::from_env and other env readers match files.
+    apply_config_to_env(&cfg);
+
+    let days_back = cfg.importer.days_back.or_else(|| {
         env::var("IMPORT_DAYS_BACK")
             .ok()
             .and_then(|v| v.parse::<i64>().ok())
     });
-    let since = args
+    let since = cfg
+        .importer
         .since
         .clone()
         .or_else(|| env::var("IMPORT_SINCE").ok())
         .or_else(|| env::var("IMPORT_SINCE_DATE").ok());
-    let end_date = args
+    let end_date = cfg
+        .importer
         .end_date
         .clone()
         .or_else(|| env::var("IMPORT_END_DATE").ok());
 
+    // CLI/config path → env (now set) → local default.
+    let duckdb_path = Config::resolve_duckdb_path(cfg.importer.duckdb_path.as_deref());
+
+    let skip_clickhouse = args.skip_clickhouse
+        || cfg.importer.skip_clickhouse.unwrap_or(false);
+    let skip_duckdb = args.skip_duckdb;
+
+    let machine_name = cfg
+        .importer
+        .machine_name
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(hostname);
+
+    let hash_projects = cfg
+        .importer
+        .hash_project_names
+        .unwrap_or_else(|| {
+            env::var("HASH_PROJECT_NAMES")
+                .map(|v| v != "false")
+                .unwrap_or(true)
+        });
+
+    Ok(PreparedImport {
+        config: cfg,
+        days_back,
+        since,
+        end_date,
+        duckdb_path,
+        skip_clickhouse,
+        skip_duckdb,
+        machine_name,
+        hash_projects,
+    })
+}
+
+/// Write non-empty config fields into process env (ClickHouse sink + cron compatibility).
+pub fn apply_config_to_env(cfg: &Config) {
+    for (key, value) in cfg.to_env_map() {
+        if !value.is_empty() {
+            env::set_var(key, value);
+        }
+    }
+}
+
+/// Run the full import pipeline from clap-parsed args.
+pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
+    dotenvy::dotenv().ok();
+
+    let prepared = prepare_import(&args)?;
+    let days_back = prepared.days_back;
+    let since = prepared.since.clone();
+    let end_date = prepared.end_date.clone();
     let effective_since = resolve_effective_since(since.as_deref(), days_back);
 
     let import_id = uuid::Uuid::new_v4().to_string();
-    let machine_name = hostname();
-    let hash_projects = env::var("HASH_PROJECT_NAMES")
-        .map(|v| v != "false")
-        .unwrap_or(true);
+    let machine_name = prepared.machine_name.clone();
+    let hash_projects = prepared.hash_projects;
 
     println!(
         "summa — machine: {}{}{}, import: {}",
@@ -75,9 +187,21 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
             .unwrap_or_default(),
         import_id
     );
+    if verbose {
+        eprintln!(
+            "  config: ch_host={} duckdb={} password_set={}",
+            prepared.config.clickhouse.host,
+            prepared.duckdb_path,
+            !prepared.config.clickhouse.password.is_empty()
+        );
+    }
 
     if args.dry_run {
         println!("dry-run: skipping source fetch and sink writes");
+        println!(
+            "  would use duckdb={} skip_ch={} skip_duckdb={}",
+            prepared.duckdb_path, prepared.skip_clickhouse, prepared.skip_duckdb
+        );
         println!("\n=== Summary ===");
         println!("  source (dry-run): 0 rows");
         println!("  sink (dry-run): 0 rows, 0ms");
@@ -91,9 +215,15 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
         sources.push(Box::new(CcusageSource::new(CcusageSourceOptions {
             machine_name: machine_name.clone(),
             hash_projects: Some(hash_projects),
-            timeout: env::var("IMPORT_COMMAND_TIMEOUT_MS")
-                .ok()
-                .and_then(|v| v.parse().ok()),
+            timeout: prepared
+                .config
+                .importer
+                .command_timeout
+                .or_else(|| {
+                    env::var("IMPORT_COMMAND_TIMEOUT_MS")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                }),
             verbose: Some(verbose),
             days_back,
             since: effective_since.clone(),
@@ -148,9 +278,15 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
             source: *agent,
             machine_name: machine_name.clone(),
             hash_projects,
-            timeout_ms: env::var("IMPORT_COMMAND_TIMEOUT_MS")
-                .ok()
-                .and_then(|v| v.parse().ok()),
+            timeout_ms: prepared
+                .config
+                .importer
+                .command_timeout
+                .or_else(|| {
+                    env::var("IMPORT_COMMAND_TIMEOUT_MS")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                }),
             verbose: Some(verbose),
             data_path: None,
             since: effective_since.clone(),
@@ -161,15 +297,13 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
 
     let mut sinks: Vec<Box<dyn crate::model::DataSink>> = Vec::new();
 
-    if !args.skip_clickhouse {
+    if !prepared.skip_clickhouse {
         sinks.push(Box::new(ClickHouseSink::new()));
     }
 
-    if !args.skip_duckdb {
-        // Local-first: default to auto-created file under XDG data dir.
-        // MotherDuck / cloud only when explicitly set (CLI, env, or config).
-        let duckdb_path = crate::config::Config::resolve_duckdb_path(args.duckdb_path.as_deref());
-        sinks.push(Box::new(DuckDbSink::new(duckdb_path)));
+    if !prepared.skip_duckdb {
+        // Local-first: default under XDG data dir; MotherDuck only when configured.
+        sinks.push(Box::new(DuckDbSink::new(prepared.duckdb_path.clone())));
     }
 
     let mut runner = ImportRunner { sources, sinks };
@@ -217,18 +351,6 @@ fn should_skip_companion(args: &ImportArgs, id: &str) -> bool {
         "codex" => args.skip_codex,
         "opencode" => args.skip_opencode,
         _ => false,
-    }
-}
-
-fn apply_cli_env_overrides(args: &ImportArgs) {
-    if let Some(ref host) = args.ch_host {
-        env::set_var("CH_HOST", host);
-    }
-    if let Some(port) = args.ch_port {
-        env::set_var("CH_PORT", port.to_string());
-    }
-    if let Some(ref db) = args.ch_database {
-        env::set_var("CH_DATABASE", db);
     }
 }
 
@@ -308,5 +430,210 @@ mod tests {
             "default must be local file, got {path}"
         );
         assert!(path.ends_with("summa.duckdb") || path.contains("summa"));
+    }
+
+    /// End-to-end: the same prepare_import path used by `summa import` must
+    /// load main config + separate credentials without CH_PASSWORD/DUCKDB_PATH
+    /// in the environment.
+    #[test]
+    fn prepare_import_applies_config_and_credentials_files() {
+        use std::io::Write;
+
+        // Isolate from ambient env secrets/paths.
+        const KEYS: &[&str] = &[
+            "CH_HOST",
+            "CH_PORT",
+            "CH_USER",
+            "CH_PASSWORD",
+            "CH_DATABASE",
+            "CH_PROTOCOL",
+            "DUCKDB_PATH",
+            "MOTHERDUCK_TOKEN",
+            "IMPORT_DAYS_BACK",
+            "IMPORT_MACHINE_NAME",
+            "SUMMA_CONFIG",
+            "SUMMA_CREDENTIALS",
+            "CCUSAGE_IMPORT_CONFIG",
+        ];
+        let prev: Vec<Option<String>> = KEYS.iter().map(|k| env::var(k).ok()).collect();
+        for k in KEYS {
+            let _ = env::remove_var(k);
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("summa.toml");
+        let creds_path = dir.path().join("credentials.toml");
+        let duck_path = dir.path().join("data").join("from-config.duckdb");
+
+        {
+            let mut f = std::fs::File::create(&config_path).unwrap();
+            writeln!(
+                f,
+                r#"[clickhouse]
+host = "ch.from-config.example"
+port = 9440
+user = "importer"
+password = ""
+database = "usage_db"
+protocol = "https"
+
+[importer]
+duckdb_path = "{duck}"
+days_back = 5
+machine_name = "config-machine"
+skip_clickhouse = false
+"#,
+                duck = duck_path.display()
+            )
+            .unwrap();
+        }
+        {
+            let mut f = std::fs::File::create(&creds_path).unwrap();
+            writeln!(
+                f,
+                r#"clickhouse_password = "secret-from-credentials-file"
+motherduck_token = "md-from-credentials"
+"#
+            )
+            .unwrap();
+        }
+
+        // Main TOML must not contain the password.
+        let main_raw = std::fs::read_to_string(&config_path).unwrap();
+        assert!(
+            !main_raw.contains("secret-from-credentials-file"),
+            "password must live only in credentials file"
+        );
+
+        let args = ImportArgs {
+            config: Some(config_path.to_string_lossy().into()),
+            since: None,
+            days_back: None,
+            end_date: None,
+            duckdb_path: None,
+            ch_host: None,
+            ch_port: None,
+            ch_database: None,
+            skip_ccusage: true,
+            skip_opencode: true,
+            skip_codex: true,
+            skip_antigravity: true,
+            skip_hermes: true,
+            skip_grok: true,
+            skip_clickhouse: false,
+            skip_duckdb: false,
+            dry_run: true,
+        };
+
+        let prepared = prepare_import_with_credentials(
+            &args,
+            Some(creds_path.to_str().unwrap()),
+        )
+        .expect("prepare_import must load config+credentials");
+
+        assert_eq!(prepared.config.clickhouse.host, "ch.from-config.example");
+        assert_eq!(prepared.config.clickhouse.port, 9440);
+        assert_eq!(prepared.config.clickhouse.database, "usage_db");
+        assert_eq!(
+            prepared.config.clickhouse.password, "secret-from-credentials-file",
+            "password must come from credentials.toml, not main config"
+        );
+        assert_eq!(
+            prepared.duckdb_path,
+            duck_path.to_string_lossy().as_ref(),
+            "duckdb_path must come from importer config"
+        );
+        assert_eq!(prepared.days_back, Some(5));
+        assert_eq!(prepared.machine_name, "config-machine");
+
+        // Env export so ClickHouseSink::from_env sees the same values.
+        assert_eq!(
+            env::var("CH_PASSWORD").ok().as_deref(),
+            Some("secret-from-credentials-file")
+        );
+        assert_eq!(
+            env::var("CH_HOST").ok().as_deref(),
+            Some("ch.from-config.example")
+        );
+        assert_eq!(
+            env::var("DUCKDB_PATH").ok().as_deref(),
+            Some(duck_path.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            env::var("MOTHERDUCK_TOKEN").ok().as_deref(),
+            Some("md-from-credentials")
+        );
+
+        // Restore ambient env.
+        for (key, prev_val) in KEYS.iter().zip(prev) {
+            match prev_val {
+                Some(v) => env::set_var(key, v),
+                None => env::remove_var(key),
+            }
+        }
+    }
+
+    #[test]
+    fn prepare_import_cli_overrides_config_duckdb_and_days() {
+        use std::io::Write;
+
+        const KEYS: &[&str] = &[
+            "CH_HOST",
+            "CH_PASSWORD",
+            "DUCKDB_PATH",
+            "SUMMA_CONFIG",
+            "SUMMA_CREDENTIALS",
+            "CCUSAGE_IMPORT_CONFIG",
+        ];
+        let prev: Vec<Option<String>> = KEYS.iter().map(|k| env::var(k).ok()).collect();
+        for k in KEYS {
+            let _ = env::remove_var(k);
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("summa.toml");
+        {
+            let mut f = std::fs::File::create(&config_path).unwrap();
+            writeln!(
+                f,
+                r#"[importer]
+duckdb_path = "/from/config.duckdb"
+days_back = 30
+"#
+            )
+            .unwrap();
+        }
+
+        let args = ImportArgs {
+            config: Some(config_path.to_string_lossy().into()),
+            since: None,
+            days_back: Some(2),
+            end_date: None,
+            duckdb_path: Some("/from/cli.duckdb".into()),
+            ch_host: None,
+            ch_port: None,
+            ch_database: None,
+            skip_ccusage: true,
+            skip_opencode: true,
+            skip_codex: true,
+            skip_antigravity: true,
+            skip_hermes: true,
+            skip_grok: true,
+            skip_clickhouse: true,
+            skip_duckdb: false,
+            dry_run: true,
+        };
+
+        let prepared = prepare_import_with_credentials(&args, None).unwrap();
+        assert_eq!(prepared.duckdb_path, "/from/cli.duckdb");
+        assert_eq!(prepared.days_back, Some(2));
+        assert!(prepared.skip_clickhouse);
+
+        for (key, prev_val) in KEYS.iter().zip(prev) {
+            match prev_val {
+                Some(v) => env::set_var(key, v),
+                None => env::remove_var(key),
+            }
+        }
     }
 }
