@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use crate::model::{DataSource, EventRow, EventsSnapshotData, SourceResult};
 use crate::util::date::ch_now;
 use crate::util::hash::{hash_project_name_sync, make_dedup_key};
+use crate::util::pricing::resolve_reported_cost;
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -205,7 +206,16 @@ impl DataSource for HermesSource {
                 }
             }
 
-            let cost = actual_cost.unwrap_or(estimated_cost.unwrap_or(0.0));
+            let reported = actual_cost.unwrap_or(estimated_cost.unwrap_or(0.0));
+            // Hermes estimates are often missing or absurd — fall back to public rates.
+            let cost = resolve_reported_cost(
+                &model,
+                reported,
+                input_tokens as u64,
+                cache_read_tokens as u64,
+                cache_write_tokens as u64,
+                output_tokens as u64,
+            );
 
             let daily_key = format!("{}|{}", date, model);
             let entry = daily_sums.entry(daily_key).or_insert((0, 0, 0, 0, 0, 0.0, cwd.clone()));
@@ -286,6 +296,9 @@ impl DataSource for HermesSource {
                 machine_name, date, model, date
             );
             let daily_dedup_key = make_dedup_key(&raw_daily_key);
+
+            // Round daily sum to cents for stable display.
+            let cost = (cost * 100.0).round() / 100.0;
 
             events.push(EventRow {
                 date: date.to_string(),

@@ -14,6 +14,7 @@ use futures::executor::block_on;
 use crate::model::{DataSource, EventRow, EventsSnapshotData, SourceResult};
 use crate::util::date::ch_now;
 use crate::util::hash::{hash_project_name_sync, make_dedup_key};
+use crate::util::pricing::estimate_model_cost;
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -423,13 +424,14 @@ impl DataSource for AntigravitySource {
 
             let raw_key = format!("antigravity|{}|daily|{}|{}|{}", machine_name, date, model, date);
             let dedup_key = make_dedup_key(&raw_key);
+            let cost = estimate_model_cost(model, *prompt, *cached, 0, *comp);
 
             events.push(make_antigravity_row(
                 &now, date, "daily", date, "antigravity", machine_name,
                 model, "", &hashed_proj,
                 *prompt, *comp, 0, *cached, 0,
                 prompt + comp + cached,
-                0.0, &dedup_key, import_id,
+                cost, &dedup_key, import_id,
             ));
         }
 
@@ -445,13 +447,14 @@ impl DataSource for AntigravitySource {
 
             let raw_key = format!("antigravity|{}|session|{}|{}|{}", machine_name, date_str, model, hashed_cid);
             let dedup_key = make_dedup_key(&raw_key);
+            let cost = estimate_model_cost(model, *prompt, *cached, 0, *comp);
 
             events.push(make_antigravity_row(
                 &now, date_str, "session", &hashed_cid, "antigravity", machine_name,
                 model, &hashed_cid, &hashed_proj,
                 *prompt, *comp, 0, *cached, 0,
                 prompt + comp + cached,
-                0.0, &dedup_key, import_id,
+                cost, &dedup_key, import_id,
             ));
         }
 
@@ -498,13 +501,14 @@ impl DataSource for AntigravitySource {
 
             let raw_key = format!("antigravity|{}|daily|{}|{}|{}", machine_name, date, model, date);
             let dedup_key = make_dedup_key(&raw_key);
+            let cost = estimate_model_cost(model, *prompt, *cached, 0, *comp);
 
             events.push(make_antigravity_row(
                 &now, date, "daily", date, "antigravity", machine_name,
                 model, "", &hashed_proj,
                 *prompt, *comp, 0, *cached, 0,
                 prompt + comp + cached,
-                0.0, &dedup_key, import_id,
+                cost, &dedup_key, import_id,
             ));
         }
 
@@ -520,13 +524,14 @@ impl DataSource for AntigravitySource {
 
             let raw_key = format!("antigravity|{}|session|{}|{}|{}", machine_name, date, model, hashed_cid);
             let dedup_key = make_dedup_key(&raw_key);
+            let cost = estimate_model_cost(model, *prompt, *cached, 0, *comp);
 
             events.push(make_antigravity_row(
                 &now, date, "session", &hashed_cid, "antigravity", machine_name,
                 model, &hashed_cid, &hashed_proj,
                 *prompt, *comp, 0, *cached, 0,
                 prompt + comp + cached,
-                0.0, &dedup_key, import_id,
+                cost, &dedup_key, import_id,
             ));
         }
 
@@ -558,13 +563,20 @@ impl DataSource for AntigravitySource {
 
                     let raw_key = format!("antigravity|{}|daily|{}|{}|{}", machine_name, date, model, date);
                     let dedup_key = make_dedup_key(&raw_key);
+                    let cost = estimate_model_cost(
+                        model,
+                        implicit_prompt,
+                        total_implicit_cached,
+                        0,
+                        implicit_comp,
+                    );
 
                     events.push(make_antigravity_row(
                         &now, &date, "daily", &date, "antigravity", machine_name,
                         model, &hashed_session, &hashed_session,
                         implicit_prompt, implicit_comp, 0, total_implicit_cached, 0,
                         implicit_prompt + implicit_comp + total_implicit_cached,
-                        0.0, &dedup_key, import_id,
+                        cost, &dedup_key, import_id,
                     ));
                 }
             }
