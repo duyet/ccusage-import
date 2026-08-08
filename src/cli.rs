@@ -42,7 +42,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "sumptus")]
-#[command(about = "Import AI coding-agent usage into local DuckDB or ClickHouse")]
+#[command(about = "Import Claude Code (ccusage) and AI agent usage costs into DuckDB or ClickHouse")]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
