@@ -60,8 +60,8 @@ pub fn prepare_import(args: &ImportArgs) -> anyhow::Result<PreparedImport> {
 }
 
 /// Same as [`prepare_import`] but allows an explicit credentials path (tests
-/// and `SUMPTUS_CREDENTIALS` callers). When `credentials_path` is `None`,
-/// discovery uses `$SUMPTUS_CREDENTIALS` then XDG / local candidates.
+/// and `SUMMA_CREDENTIALS` callers). When `credentials_path` is `None`,
+/// discovery uses `$SUMMA_CREDENTIALS` then XDG / local candidates.
 pub fn prepare_import_with_credentials(
     args: &ImportArgs,
     credentials_path: Option<&str>,
@@ -175,7 +175,7 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
     let hash_projects = prepared.hash_projects;
 
     println!(
-        "sumptus — machine: {}{}{}, import: {}",
+        "summa — machine: {}{}{}, import: {}",
         machine_name,
         effective_since
             .as_ref()
@@ -383,7 +383,7 @@ mod tests {
     #[test]
     fn clap_accepts_days_back_and_duckdb_path() {
         let cli = Cli::try_parse_from([
-            "sumptus",
+            "summa",
             "import",
             "--days-back",
             "2",
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn clap_accepts_since_and_days_back_together() {
         let cli = Cli::try_parse_from([
-            "sumptus",
+            "summa",
             "import",
             "--since",
             "2026-08-01",
@@ -429,10 +429,10 @@ mod tests {
             !path.starts_with("md:"),
             "default must be local file, got {path}"
         );
-        assert!(path.ends_with("sumptus.duckdb") || path.contains("sumptus"));
+        assert!(path.ends_with("summa.duckdb") || path.contains("summa"));
     }
 
-    /// End-to-end: the same prepare_import path used by `sumptus import` must
+    /// End-to-end: the same prepare_import path used by `summa import` must
     /// load main config + separate credentials without CH_PASSWORD/DUCKDB_PATH
     /// in the environment.
     #[test]
@@ -451,8 +451,8 @@ mod tests {
             "MOTHERDUCK_TOKEN",
             "IMPORT_DAYS_BACK",
             "IMPORT_MACHINE_NAME",
-            "SUMPTUS_CONFIG",
-            "SUMPTUS_CREDENTIALS",
+            "SUMMA_CONFIG",
+            "SUMMA_CREDENTIALS",
             "CCUSAGE_IMPORT_CONFIG",
         ];
         let prev: Vec<Option<String>> = KEYS.iter().map(|k| env::var(k).ok()).collect();
@@ -461,7 +461,7 @@ mod tests {
         }
 
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("sumptus.toml");
+        let config_path = dir.path().join("summa.toml");
         let creds_path = dir.path().join("credentials.toml");
         let duck_path = dir.path().join("data").join("from-config.duckdb");
 
@@ -581,8 +581,8 @@ motherduck_token = "md-from-credentials"
             "CH_HOST",
             "CH_PASSWORD",
             "DUCKDB_PATH",
-            "SUMPTUS_CONFIG",
-            "SUMPTUS_CREDENTIALS",
+            "SUMMA_CONFIG",
+            "SUMMA_CREDENTIALS",
             "CCUSAGE_IMPORT_CONFIG",
         ];
         let prev: Vec<Option<String>> = KEYS.iter().map(|k| env::var(k).ok()).collect();
@@ -591,7 +591,7 @@ motherduck_token = "md-from-credentials"
         }
 
         let dir = tempfile::tempdir().unwrap();
-        let config_path = dir.path().join("sumptus.toml");
+        let config_path = dir.path().join("summa.toml");
         {
             let mut f = std::fs::File::create(&config_path).unwrap();
             writeln!(

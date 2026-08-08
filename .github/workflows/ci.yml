@@ -33,10 +33,10 @@ jobs:
       run: cargo test --locked
 
     - name: cargo build --release
-      run: cargo build --release --bin sumptus
+      run: cargo build --release --bin summa
 
     - name: Binary size
-      run: ls -lah target/release/sumptus && file target/release/sumptus
+      run: ls -lah target/release/summa && file target/release/summa
 
   lint:
     name: Build Check (Bun legacy)

@@ -4,16 +4,16 @@ use std::path::{Path, PathBuf};
 
 pub type EnvLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
 
-/// Product / XDG config directory name (`~/.config/sumptus/`).
-pub const CONFIG_DIR_NAME: &str = "sumptus";
+/// Product / XDG config directory name (`~/.config/summa/`).
+pub const CONFIG_DIR_NAME: &str = "summa";
 /// Main config file basename.
 pub const CONFIG_FILE_NAME: &str = "config.toml";
 /// Credentials file basename (passwords/tokens only).
 pub const CREDENTIALS_FILE_NAME: &str = "credentials.toml";
 /// Env override for main config path.
-pub const CONFIG_ENV: &str = "SUMPTUS_CONFIG";
+pub const CONFIG_ENV: &str = "SUMMA_CONFIG";
 /// Env override for credentials path.
-pub const CREDENTIALS_ENV: &str = "SUMPTUS_CREDENTIALS";
+pub const CREDENTIALS_ENV: &str = "SUMMA_CREDENTIALS";
 /// Legacy env override (still honored).
 pub const LEGACY_CONFIG_ENV: &str = "CCUSAGE_IMPORT_CONFIG";
 
@@ -98,15 +98,15 @@ impl Credentials {
     }
 
     /// Credential file discovery (first existing wins).
-    /// Order: `$SUMPTUS_CREDENTIALS` → `./credentials.toml` → `./sumptus.credentials.toml`
-    /// → `~/.config/sumptus/credentials.toml` → `~/.sumptus/credentials.toml`
+    /// Order: `$SUMMA_CREDENTIALS` → `./credentials.toml` → `./summa.credentials.toml`
+    /// → `~/.config/summa/credentials.toml` → `~/.summa/credentials.toml`
     pub fn candidate_paths() -> Vec<String> {
         let mut candidates = Vec::new();
         if let Ok(env_path) = std::env::var(CREDENTIALS_ENV) {
             candidates.push(env_path);
         }
         candidates.push("./credentials.toml".to_string());
-        candidates.push("./sumptus.credentials.toml".to_string());
+        candidates.push("./summa.credentials.toml".to_string());
         if let Some(config_home) = dirs::config_dir() {
             candidates.push(
                 config_home
@@ -118,7 +118,7 @@ impl Credentials {
         }
         if let Some(home) = dirs::home_dir() {
             candidates.push(
-                home.join(".sumptus")
+                home.join(".summa")
                     .join(CREDENTIALS_FILE_NAME)
                     .display()
                     .to_string(),
@@ -252,12 +252,12 @@ impl Config {
 
     /// Config discovery order (first existing wins).
     ///
-    /// 1. `$SUMPTUS_CONFIG` / `$CCUSAGE_IMPORT_CONFIG`
-    /// 2. `./sumptus.toml` / `./ccusage-import.toml`
-    /// 3. `~/.config/sumptus/config.toml` (XDG)
-    /// 4. `~/.sumptus/config.toml`
+    /// 1. `$SUMMA_CONFIG` / `$CCUSAGE_IMPORT_CONFIG`
+    /// 2. `./summa.toml` / `./ccusage-import.toml`
+    /// 3. `~/.config/summa/config.toml` (XDG)
+    /// 4. `~/.summa/config.toml`
     /// 5. `~/.ccusage-import.toml` (legacy)
-    /// 6. `/etc/sumptus/config.toml`
+    /// 6. `/etc/summa/config.toml`
     pub fn candidate_paths() -> Vec<String> {
         Self::candidate_paths_with(|k| std::env::var(k).ok(), dirs::config_dir(), dirs::home_dir())
     }
@@ -280,7 +280,7 @@ impl Config {
             candidates.push(p);
         }
 
-        candidates.push("./sumptus.toml".to_string());
+        candidates.push("./summa.toml".to_string());
         candidates.push("./ccusage-import.toml".to_string());
 
         if let Some(config_home) = config_dir {
@@ -295,7 +295,7 @@ impl Config {
 
         if let Some(home) = home_dir {
             candidates.push(
-                home.join(".sumptus")
+                home.join(".summa")
                     .join(CONFIG_FILE_NAME)
                     .display()
                     .to_string(),
@@ -307,7 +307,7 @@ impl Config {
         candidates
     }
 
-    /// Default local DuckDB path: `~/.local/share/sumptus/sumptus.duckdb`
+    /// Default local DuckDB path: `~/.local/share/summa/summa.duckdb`
     /// (or platform data dir). Auto-created by the DuckDB sink on open.
     pub fn default_duckdb_path() -> String {
         Self::default_duckdb_path_with(dirs::data_local_dir(), dirs::home_dir())
@@ -320,7 +320,7 @@ impl Config {
         if let Some(base) = data_local {
             return base
                 .join(CONFIG_DIR_NAME)
-                .join("sumptus.duckdb")
+                .join("summa.duckdb")
                 .display()
                 .to_string();
         }
@@ -329,7 +329,7 @@ impl Config {
                 .join(".local")
                 .join("share")
                 .join(CONFIG_DIR_NAME)
-                .join("sumptus.duckdb")
+                .join("summa.duckdb")
                 .display()
                 .to_string();
         }
@@ -622,18 +622,18 @@ mod tests {
         let config_dir = PathBuf::from("/home/user/.config");
         let home = PathBuf::from("/home/user");
         let paths = Config::candidate_paths_with(|_| None, Some(config_dir), Some(home));
-        assert!(paths.iter().any(|p| p.ends_with("./sumptus.toml")));
+        assert!(paths.iter().any(|p| p.ends_with("./summa.toml")));
         assert!(paths
             .iter()
-            .any(|p| p.contains("/.config/sumptus/config.toml")));
-        assert!(paths.iter().any(|p| p.contains("/.sumptus/config.toml")));
+            .any(|p| p.contains("/.config/summa/config.toml")));
+        assert!(paths.iter().any(|p| p.contains("/.summa/config.toml")));
         assert!(paths.iter().any(|p| p.ends_with(".ccusage-import.toml")));
-        assert!(paths.iter().any(|p| p == "/etc/sumptus/config.toml"));
+        assert!(paths.iter().any(|p| p == "/etc/summa/config.toml"));
         // Local project files before XDG
-        let local_idx = paths.iter().position(|p| p == "./sumptus.toml").unwrap();
+        let local_idx = paths.iter().position(|p| p == "./summa.toml").unwrap();
         let xdg_idx = paths
             .iter()
-            .position(|p| p.contains("/.config/sumptus/config.toml"))
+            .position(|p| p.contains("/.config/summa/config.toml"))
             .unwrap();
         assert!(local_idx < xdg_idx);
     }
@@ -643,7 +643,7 @@ mod tests {
         let paths = Config::candidate_paths_with(
             |k| {
                 if k == CONFIG_ENV {
-                    Some("/custom/sumptus.toml".into())
+                    Some("/custom/summa.toml".into())
                 } else {
                     None
                 }
@@ -651,7 +651,7 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(paths[0], "/custom/sumptus.toml");
+        assert_eq!(paths[0], "/custom/summa.toml");
     }
 
     #[test]
@@ -707,8 +707,8 @@ motherduck_token = "md-token-xyz"
             Some(PathBuf::from("/Users/me/Library/Application Support")),
             Some(PathBuf::from("/Users/me")),
         );
-        assert!(path.ends_with("sumptus/sumptus.duckdb"));
-        assert!(path.contains("Application Support") || path.contains("sumptus"));
+        assert!(path.ends_with("summa/summa.duckdb"));
+        assert!(path.contains("Application Support") || path.contains("summa"));
     }
 
     #[test]
@@ -760,7 +760,7 @@ motherduck_token = "md-token-xyz"
             LEGACY_CONFIG_ENV,
             CREDENTIALS_ENV,
         ]);
-        std::env::set_var(CONFIG_ENV, "/tmp/does-not-exist-sumptus.toml");
+        std::env::set_var(CONFIG_ENV, "/tmp/does-not-exist-summa.toml");
         let cfg = Config::load(None).unwrap();
         assert!(cfg.clickhouse.host.is_empty());
     }

@@ -1,14 +1,14 @@
 [package]
-name = "sumptus"
+name = "summa-import"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
-description = "Import Claude Code (ccusage) and AI agent usage costs into DuckDB/ClickHouse (sumptus = Latin expense)"
+description = "Import Claude Code (ccusage) and AI agent usage costs into DuckDB/ClickHouse (summa = Latin sum, total)"
 readme = "README.md"
 repository = "https://github.com/duyet/ccusage-import"
 homepage = "https://github.com/duyet/ccusage-import"
-documentation = "https://docs.rs/sumptus"
+documentation = "https://docs.rs/summa-import"
 keywords = ["duckdb", "clickhouse", "analytics", "claude", "usage"]
 categories = ["command-line-utilities", "database"]
 authors = ["Duyet Le <me@duyet.net>"]
@@ -38,11 +38,11 @@ exclude = [
 ]
 
 [[bin]]
-name = "sumptus"
+name = "summa"
 path = "src/main.rs"
 
 [lib]
-name = "sumptus"
+name = "summa_import"
 path = "src/lib.rs"
 
 [dependencies]

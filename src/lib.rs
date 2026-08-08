@@ -1,4 +1,4 @@
-//! sumptus — Rust library.
+//! summa — Rust library.
 //!
 //! Data pipeline importing Claude Code (ccusage), Codex, OpenCode,
 //! Antigravity, Hermes, and Grok Build usage analytics into local DuckDB
@@ -25,8 +25,8 @@ pub use util::hash::hash_project_name_sync;
 pub use cli::{run, Cli, Commands, ImportArgs, CheckArgs, ConfigArgs};
 
 /// Public product name (binary / branding).
-pub const PRODUCT_NAME: &str = "sumptus";
+pub const PRODUCT_NAME: &str = "summa";
 /// crates.io package name.
-pub const PACKAGE_NAME: &str = "sumptus";
+pub const PACKAGE_NAME: &str = "summa-import";
 /// XDG config directory name under `~/.config/`.
-pub const CONFIG_DIR_NAME: &str = "sumptus";
+pub const CONFIG_DIR_NAME: &str = "summa";

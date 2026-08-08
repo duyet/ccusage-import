@@ -1,15 +1,15 @@
-//! sumptus — Rust CLI entry point.
+//! summa — Rust CLI entry point.
 //!
 //! Subcommands:
-//!   sumptus import   Fetch sources → write sinks (default)
-//!   sumptus check    System validation
-//!   sumptus config   Show resolved configuration
+//!   summa import   Fetch sources → write sinks (default)
+//!   summa check    System validation
+//!   summa config   Show resolved configuration
 
-use sumptus::cli::Cli;
+use summa_import::cli::Cli;
 use clap::Parser;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    sumptus::run(cli).await
+    summa_import::run(cli).await
 }
