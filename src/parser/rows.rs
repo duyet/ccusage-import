@@ -609,9 +609,46 @@ pub fn build_companion_event_rows(
 mod tests {
     use super::*;
     use crate::parser::types::DailyUsage;
+    use serde_json::json;
     use std::collections::HashMap as StdHashMap;
 
     const MACHINE: &str = "test-machine";
+
+    /// End-to-end: camelCase CLI JSON → parse → rows must keep tokens with cost.
+    #[test]
+    fn daily_rows_from_camel_case_json_keep_tokens_with_cost() {
+        let raw = json!({
+            "date": "2026-08-07",
+            "inputTokens": 250777,
+            "outputTokens": 64149,
+            "cacheCreationTokens": 520714,
+            "cacheReadTokens": 11176815,
+            "totalTokens": 12012455,
+            "totalCost": 301.2222,
+            "modelsUsed": ["claude-opus-4-8"],
+            "modelBreakdowns": [{
+                "modelName": "claude-opus-4-8",
+                "inputTokens": 250777,
+                "outputTokens": 64149,
+                "cacheCreationTokens": 520714,
+                "cacheReadTokens": 11176815,
+                "cost": 301.2222
+            }]
+        });
+        let day: DailyUsage = serde_json::from_value(raw).expect("parse daily");
+        let data = CcusageData {
+            daily: vec![day],
+            session: vec![],
+            blocks: vec![],
+            projects: StdHashMap::new(),
+        };
+        let rows = build_ccusage_event_rows(&data, MACHINE, false, "test-import");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].total_tokens, 250777 + 64149 + 520714 + 11176815);
+        assert!(rows[0].total_tokens > 0);
+        assert!((rows[0].cost - 301.2222).abs() < 1e-6);
+        assert_eq!(rows[0].model_name, "claude-opus-4-8");
+    }
 
     #[test]
     fn daily_one_row_per_model_breakdown_with_formula_total() {

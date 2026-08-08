@@ -20,6 +20,7 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 - Keep sink dedup delete filters SQL-escaped in both ClickHouse and DuckDB sinks.
 - Companion (`codex`/`opencode`) totals must avoid cache double-count: `total_tokens = inputTokens + outputTokens`.
 - Claude totals must keep cache components separate: `total_tokens = input + output + cacheCreation + cacheRead`.
+- **Rust serde must alias ccusage camelCase** (`inputTokens`, `totalTokens`, `cacheCreationTokens`, `cacheReadTokens`, `modelsUsed`, `modelBreakdowns`). Missing aliases silently zero tokens while `totalCost` still parses → burn.duyet.net “0 tokens / $cost” daily bars (hit ~2026-07-10 after Rust import path). Regression tests in `parser::types` + `parser::rows`.
 - Grok Build (`source=grok`, `GROK_HOME`/`~/.grok`): prompt is cache-inclusive; `input = prompt - cached`, `cache_read = cached`, `output = completion`, `total = prompt + completion` (do not add reasoning again). Session model/cwd from `sessions/**/summary.json`.
 - TypeScript 6: avoid `baseUrl` in `tsconfig.json`; keep path aliases with explicit `./src/...` prefixes.
 - In fresh clones/worktrees without `node_modules`, run `bun install --frozen-lockfile` before `bunx tsc --noEmit` to avoid false missing-module/type errors.
