@@ -123,6 +123,123 @@ pub fn map_grok_tokens(
     }
 }
 
+/// Long-context pricing threshold used by xAI flagship models (prompt tokens).
+const GROK_LONG_CONTEXT_PROMPT: u64 = 200_000;
+
+/// USD per 1M tokens: (input, cached_input, output).
+#[derive(Debug, Clone, Copy)]
+struct GrokRates {
+    input: f64,
+    cached: f64,
+    output: f64,
+}
+
+/// Official xAI text API rates (docs.x.ai, short vs long-context ≥200k prompt).
+/// Unknown / future ids fall back to grok-4.5 short rates.
+fn grok_rates(model: &str, prompt_tokens: u64) -> GrokRates {
+    let m = model.to_ascii_lowercase();
+    let long = prompt_tokens >= GROK_LONG_CONTEXT_PROMPT;
+
+    // Fast / volume tiers (no dual long-context table published for these)
+    if m.contains("4.1-fast") || m.contains("4-1-fast") || m.contains("code-fast") {
+        return GrokRates {
+            input: 0.20,
+            cached: 0.05,
+            output: if m.contains("code") { 1.50 } else { 0.50 },
+        };
+    }
+
+    // grok-build-0.1
+    if m.contains("build") {
+        return if long {
+            GrokRates {
+                input: 2.00,
+                cached: 0.40,
+                output: 4.00,
+            }
+        } else {
+            GrokRates {
+                input: 1.00,
+                cached: 0.20,
+                output: 2.00,
+            }
+        };
+    }
+
+    // grok-4.5 flagship
+    if m.contains("4.5") || m.contains("4-5") {
+        return if long {
+            GrokRates {
+                input: 4.00,
+                cached: 0.60,
+                output: 12.00,
+            }
+        } else {
+            GrokRates {
+                input: 2.00,
+                cached: 0.30,
+                output: 6.00,
+            }
+        };
+    }
+
+    // grok-4.3 / grok-4.20* / multi-agent / reasoning SKUs
+    if m.contains("4.3")
+        || m.contains("4-3")
+        || m.contains("4.20")
+        || m.contains("4-20")
+        || m.contains("multi-agent")
+    {
+        return if long {
+            GrokRates {
+                input: 2.50,
+                cached: 0.40,
+                output: 5.00,
+            }
+        } else {
+            GrokRates {
+                input: 1.25,
+                cached: 0.20,
+                output: 2.50,
+            }
+        };
+    }
+
+    // Legacy grok-3 / unknown → treat as 4.5 short (conservative mid-tier)
+    if long {
+        GrokRates {
+            input: 4.00,
+            cached: 0.60,
+            output: 12.00,
+        }
+    } else {
+        GrokRates {
+            input: 2.00,
+            cached: 0.30,
+            output: 6.00,
+        }
+    }
+}
+
+/// Estimate USD cost for one Grok turn from token counts + model id.
+///
+/// Logs do not include billed cost — we price from xAI public rates.
+/// Long-context (≥200k prompt) rates apply to **all** tokens in that request.
+pub fn estimate_grok_cost(
+    model: &str,
+    input_tokens: u64,
+    cache_read_tokens: u64,
+    output_tokens: u64,
+    prompt_tokens: u64,
+) -> f64 {
+    let rates = grok_rates(model, prompt_tokens);
+    let cost = (input_tokens as f64 / 1_000_000.0) * rates.input
+        + (cache_read_tokens as f64 / 1_000_000.0) * rates.cached
+        + (output_tokens as f64 / 1_000_000.0) * rates.output;
+    // 8 decimal places — same rounding used by distribute_cost elsewhere
+    (cost * 1e8).round() / 1e8
+}
+
 // ---------------------------------------------------------------------------
 // Source
 // ---------------------------------------------------------------------------
@@ -199,13 +316,13 @@ pub fn fetch_grok_events(opts: &GrokSourceOptions) -> anyhow::Result<Vec<EventRo
     let session_meta = load_session_meta_map(&base_dir.join("sessions"));
 
     // Aggregate: session_id -> totals
-    // (input, output, cache_read, reasoning, total, turns, min_ts, max_ts, model, cwd, date)
     struct SessionAgg {
         input: u64,
         output: u64,
         cache_read: u64,
         reasoning: u64,
         total: u64,
+        cost: f64,
         turns: u32,
         min_ts: String,
         max_ts: String,
@@ -215,8 +332,8 @@ pub fn fetch_grok_events(opts: &GrokSourceOptions) -> anyhow::Result<Vec<EventRo
     }
 
     let mut session_sums: HashMap<String, SessionAgg> = HashMap::new();
-    // daily key: date|model
-    let mut daily_sums: HashMap<String, (u64, u64, u64, u64, u64, u32, String)> = HashMap::new();
+    // daily key: date|model → (input, output, cache_read, reasoning, total, cost, turns, cwd)
+    let mut daily_sums: HashMap<String, (u64, u64, u64, u64, u64, f64, u32, String)> = HashMap::new();
 
     let file = fs::File::open(&log_path)?;
     let reader = BufReader::new(file);
@@ -284,12 +401,22 @@ pub fn fetch_grok_events(opts: &GrokSourceOptions) -> anyhow::Result<Vec<EventRo
         };
         let cwd = meta.cwd;
 
+        // Price each turn (long-context threshold is per-request prompt size).
+        let turn_cost = estimate_grok_cost(
+            &model,
+            mapped.input_tokens,
+            mapped.cache_read_tokens,
+            mapped.output_tokens,
+            prompt,
+        );
+
         let entry = session_sums.entry(sid).or_insert_with(|| SessionAgg {
             input: 0,
             output: 0,
             cache_read: 0,
             reasoning: 0,
             total: 0,
+            cost: 0.0,
             turns: 0,
             min_ts: ts.clone(),
             max_ts: ts.clone(),
@@ -302,6 +429,7 @@ pub fn fetch_grok_events(opts: &GrokSourceOptions) -> anyhow::Result<Vec<EventRo
         entry.cache_read += mapped.cache_read_tokens;
         entry.reasoning += mapped.reasoning_tokens;
         entry.total += mapped.total_tokens;
+        entry.cost += turn_cost;
         entry.turns += 1;
         if ts < entry.min_ts {
             entry.min_ts = ts.clone();
@@ -321,15 +449,16 @@ pub fn fetch_grok_events(opts: &GrokSourceOptions) -> anyhow::Result<Vec<EventRo
         let daily_key = format!("{}|{}", date, model);
         let d = daily_sums
             .entry(daily_key)
-            .or_insert((0, 0, 0, 0, 0, 0, cwd.clone()));
+            .or_insert((0, 0, 0, 0, 0, 0.0, 0, cwd.clone()));
         d.0 += mapped.input_tokens;
         d.1 += mapped.output_tokens;
         d.2 += mapped.cache_read_tokens;
         d.3 += mapped.reasoning_tokens;
         d.4 += mapped.total_tokens;
-        d.5 += 1;
-        if d.6.is_empty() && !cwd.is_empty() {
-            d.6 = cwd;
+        d.5 += turn_cost;
+        d.6 += 1;
+        if d.7.is_empty() && !cwd.is_empty() {
+            d.7 = cwd;
         }
     }
 
@@ -366,7 +495,7 @@ pub fn fetch_grok_events(opts: &GrokSourceOptions) -> anyhow::Result<Vec<EventRo
             cache_read_tokens: agg.cache_read,
             reasoning_tokens: agg.reasoning,
             total_tokens: agg.total,
-            cost: 0.0,
+            cost: (agg.cost * 100.0).round() / 100.0,
             dedup_key: session_dedup_key,
             import_id: opts.import_id.clone(),
             start_time: Some(start_time),
@@ -385,7 +514,7 @@ pub fn fetch_grok_events(opts: &GrokSourceOptions) -> anyhow::Result<Vec<EventRo
     }
 
     for (key, sum) in &daily_sums {
-        let (input, output, cache_read, reasoning, total, turns, ref cwd) = *sum;
+        let (input, output, cache_read, reasoning, total, cost, turns, ref cwd) = *sum;
         let parts: Vec<&str> = key.splitn(2, '|').collect();
         if parts.len() < 2 {
             continue;
@@ -416,7 +545,7 @@ pub fn fetch_grok_events(opts: &GrokSourceOptions) -> anyhow::Result<Vec<EventRo
             cache_read_tokens: cache_read,
             reasoning_tokens: reasoning,
             total_tokens: total,
-            cost: 0.0,
+            cost: (cost * 100.0).round() / 100.0,
             dedup_key: daily_dedup_key,
             import_id: opts.import_id.clone(),
             start_time: None,
@@ -589,6 +718,25 @@ mod tests {
     }
 
     #[test]
+    fn estimate_cost_grok_45_short_context() {
+        // 1M input + 0.5M cached + 0.25M output @ $2 / $0.30 / $6
+        let c = estimate_grok_cost("grok-4.5", 1_000_000, 500_000, 250_000, 100_000);
+        assert!((c - (2.0 + 0.15 + 1.5)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn estimate_cost_grok_45_long_context_doubles() {
+        // prompt ≥ 200k → $4 / $0.60 / $12
+        let c = estimate_grok_cost("grok-4.5", 1_000_000, 500_000, 250_000, 200_000);
+        assert!((c - (4.0 + 0.30 + 3.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn estimate_cost_zero_tokens_is_zero() {
+        assert_eq!(estimate_grok_cost("grok-4.5", 0, 0, 0, 0), 0.0);
+    }
+
+    #[test]
     fn name_is_grok() {
         let src = GrokSource::new(base_opts(PathBuf::from("/tmp")));
         assert_eq!(src.name(), "grok");
@@ -667,7 +815,14 @@ mod tests {
         assert_eq!(aaa.reasoning_tokens, 40 + 80);
         assert_eq!(aaa.total_tokens, 1050 + 2100);
         assert_eq!(aaa.cache_creation_tokens, 0);
-        assert_eq!(aaa.cost, 0.0);
+        // grok-4.5 short rates: $2/$0.30/$6 per 1M
+        // turn1: 600*2 + 400*0.30 + 50*6 = 1200+120+300 = 1620 / 1e6
+        // turn2: 500*2 + 1500*0.30 + 100*6 = 1000+450+600 = 2050 / 1e6
+        // total ≈ 0.00367 → rounded to 0.00 at cents
+        assert!(aaa.cost >= 0.0);
+        let expected_aaa = estimate_grok_cost("grok-4.5", 600, 400, 50, 1000)
+            + estimate_grok_cost("grok-4.5", 500, 1500, 100, 2000);
+        assert!((aaa.cost - (expected_aaa * 100.0).round() / 100.0).abs() < 1e-9);
         assert_eq!(aaa.entries, 2);
         assert!(aaa.dedup_key.len() == 16);
         assert_eq!(aaa.start_time.as_deref(), Some("2026-08-05 10:00:00"));
