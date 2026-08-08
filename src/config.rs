@@ -4,6 +4,19 @@ use std::path::{Path, PathBuf};
 
 pub type EnvLookup = dyn Fn(&str) -> Option<String> + Send + Sync;
 
+/// Product / XDG config directory name (`~/.config/summa/`).
+pub const CONFIG_DIR_NAME: &str = "summa";
+/// Main config file basename.
+pub const CONFIG_FILE_NAME: &str = "config.toml";
+/// Credentials file basename (passwords/tokens only).
+pub const CREDENTIALS_FILE_NAME: &str = "credentials.toml";
+/// Env override for main config path.
+pub const CONFIG_ENV: &str = "SUMMA_CONFIG";
+/// Env override for credentials path.
+pub const CREDENTIALS_ENV: &str = "SUMMA_CREDENTIALS";
+/// Legacy env override (still honored).
+pub const LEGACY_CONFIG_ENV: &str = "CCUSAGE_IMPORT_CONFIG";
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ClickHouseConfig {
     #[serde(default)]
@@ -38,6 +51,94 @@ impl ClickHouseConfig {
                 }
             }),
         }
+    }
+}
+
+/// Secrets-only overlay. Never required in main `config.toml`.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct Credentials {
+    #[serde(default)]
+    pub clickhouse_password: Option<String>,
+    #[serde(default)]
+    pub motherduck_token: Option<String>,
+    /// Alias accepted for MotherDuck token.
+    #[serde(default)]
+    pub motherduck: Option<String>,
+    #[serde(default)]
+    pub ch_password: Option<String>,
+}
+
+impl Credentials {
+    /// Load credentials from an explicit path or discovery order.
+    pub fn load(path: Option<&str>) -> anyhow::Result<Self> {
+        let raw = match path {
+            Some(p) => {
+                if Path::new(p).exists() {
+                    std::fs::read_to_string(p)?
+                } else {
+                    String::new()
+                }
+            }
+            None => Self::find_and_read()?,
+        };
+        if raw.trim().is_empty() {
+            return Ok(Self::default());
+        }
+        let interpolated = Config::interpolate_env(&raw);
+        Ok(toml::from_str(&interpolated)?)
+    }
+
+    fn find_and_read() -> anyhow::Result<String> {
+        for path in Self::candidate_paths() {
+            if Path::new(&path).exists() {
+                return Ok(std::fs::read_to_string(&path)?);
+            }
+        }
+        Ok(String::new())
+    }
+
+    /// Credential file discovery (first existing wins).
+    /// Order: `$SUMMA_CREDENTIALS` → `./credentials.toml` → `./summa.credentials.toml`
+    /// → `~/.config/summa/credentials.toml` → `~/.summa/credentials.toml`
+    pub fn candidate_paths() -> Vec<String> {
+        let mut candidates = Vec::new();
+        if let Ok(env_path) = std::env::var(CREDENTIALS_ENV) {
+            candidates.push(env_path);
+        }
+        candidates.push("./credentials.toml".to_string());
+        candidates.push("./summa.credentials.toml".to_string());
+        if let Some(config_home) = dirs::config_dir() {
+            candidates.push(
+                config_home
+                    .join(CONFIG_DIR_NAME)
+                    .join(CREDENTIALS_FILE_NAME)
+                    .display()
+                    .to_string(),
+            );
+        }
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(
+                home.join(".summa")
+                    .join(CREDENTIALS_FILE_NAME)
+                    .display()
+                    .to_string(),
+            );
+        }
+        candidates
+    }
+
+    pub fn clickhouse_password(&self) -> Option<&str> {
+        self.clickhouse_password
+            .as_deref()
+            .or(self.ch_password.as_deref())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn motherduck_token(&self) -> Option<&str> {
+        self.motherduck_token
+            .as_deref()
+            .or(self.motherduck.as_deref())
+            .filter(|s| !s.is_empty())
     }
 }
 
@@ -88,14 +189,62 @@ impl Config {
             None => Self::find_and_read()?,
         };
         let interpolated = Self::interpolate_env(&raw);
-        let mut cfg: Config = toml::from_str(&interpolated)?;
+        let mut cfg: Config = if raw.trim().is_empty() {
+            Config::default()
+        } else {
+            toml::from_str(&interpolated)?
+        };
+        cfg.apply_credentials(&Credentials::load(None)?)?;
         cfg.apply_env_fallback();
         Ok(cfg)
     }
 
+    /// Load config + credentials with explicit credential path (for tests).
+    pub fn load_with_credentials(
+        config_path: Option<&str>,
+        credentials_path: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        let raw = match config_path {
+            Some(p) => {
+                if Path::new(p).exists() {
+                    std::fs::read_to_string(p)?
+                } else {
+                    String::new()
+                }
+            }
+            None => Self::find_and_read()?,
+        };
+        let interpolated = Self::interpolate_env(&raw);
+        let mut cfg: Config = if raw.trim().is_empty() {
+            Config::default()
+        } else {
+            toml::from_str(&interpolated)?
+        };
+        let creds = Credentials::load(credentials_path)?;
+        cfg.apply_credentials(&creds)?;
+        cfg.apply_env_fallback();
+        Ok(cfg)
+    }
+
+    /// Merge secrets from a credentials file. Password/token in main config
+    /// win if already set; credentials fill empty fields only.
+    pub fn apply_credentials(&mut self, creds: &Credentials) -> anyhow::Result<()> {
+        if self.clickhouse.password.is_empty() {
+            if let Some(pw) = creds.clickhouse_password() {
+                self.clickhouse.password = pw.to_string();
+            }
+        }
+        // MotherDuck token is env-driven at runtime; export if not already set.
+        if std::env::var("MOTHERDUCK_TOKEN").ok().filter(|s| !s.is_empty()).is_none() {
+            if let Some(token) = creds.motherduck_token() {
+                std::env::set_var("MOTHERDUCK_TOKEN", token);
+            }
+        }
+        Ok(())
+    }
+
     fn find_and_read() -> anyhow::Result<String> {
-        let candidates = Self::candidate_paths();
-        for path in candidates {
+        for path in Self::candidate_paths() {
             if Path::new(&path).exists() {
                 return Ok(std::fs::read_to_string(&path)?);
             }
@@ -103,19 +252,109 @@ impl Config {
         Ok(String::new())
     }
 
+    /// Config discovery order (first existing wins).
+    ///
+    /// 1. `$SUMMA_CONFIG` / `$CCUSAGE_IMPORT_CONFIG`
+    /// 2. `./summa.toml` / `./ccusage-import.toml`
+    /// 3. `~/.config/summa/config.toml` (XDG)
+    /// 4. `~/.summa/config.toml`
+    /// 5. `~/.ccusage-import.toml` (legacy)
+    /// 6. `/etc/summa/config.toml`
     pub fn candidate_paths() -> Vec<String> {
-        let mut candidates = vec!["./ccusage-import.toml".to_string()];
-        if let Some(home) = dirs::home_dir() {
+        Self::candidate_paths_with(|k| std::env::var(k).ok(), dirs::config_dir(), dirs::home_dir())
+    }
+
+    /// Pure path resolution for tests (inject env + home dirs).
+    pub fn candidate_paths_with<F>(
+        env_lookup: F,
+        config_dir: Option<PathBuf>,
+        home_dir: Option<PathBuf>,
+    ) -> Vec<String>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let mut candidates = Vec::new();
+
+        if let Some(p) = env_lookup(CONFIG_ENV) {
+            candidates.push(p);
+        }
+        if let Some(p) = env_lookup(LEGACY_CONFIG_ENV) {
+            candidates.push(p);
+        }
+
+        candidates.push("./summa.toml".to_string());
+        candidates.push("./ccusage-import.toml".to_string());
+
+        if let Some(config_home) = config_dir {
+            candidates.push(
+                config_home
+                    .join(CONFIG_DIR_NAME)
+                    .join(CONFIG_FILE_NAME)
+                    .display()
+                    .to_string(),
+            );
+        }
+
+        if let Some(home) = home_dir {
+            candidates.push(
+                home.join(".summa")
+                    .join(CONFIG_FILE_NAME)
+                    .display()
+                    .to_string(),
+            );
             candidates.push(format!("{}/.ccusage-import.toml", home.display()));
         }
-        candidates.push("/etc/ccusage-import.toml".to_string());
-        if let Ok(env_path) = std::env::var("CCUSAGE_IMPORT_CONFIG") {
-            candidates.push(env_path);
-        }
+
+        candidates.push(format!("/etc/{CONFIG_DIR_NAME}/{CONFIG_FILE_NAME}"));
         candidates
     }
 
-    fn interpolate_env(input: &str) -> String {
+    /// Default local DuckDB path: `~/.local/share/summa/summa.duckdb`
+    /// (or platform data dir). Auto-created by the DuckDB sink on open.
+    pub fn default_duckdb_path() -> String {
+        Self::default_duckdb_path_with(dirs::data_local_dir(), dirs::home_dir())
+    }
+
+    pub fn default_duckdb_path_with(
+        data_local: Option<PathBuf>,
+        home: Option<PathBuf>,
+    ) -> String {
+        if let Some(base) = data_local {
+            return base
+                .join(CONFIG_DIR_NAME)
+                .join("summa.duckdb")
+                .display()
+                .to_string();
+        }
+        if let Some(home) = home {
+            return home
+                .join(".local")
+                .join("share")
+                .join(CONFIG_DIR_NAME)
+                .join("summa.duckdb")
+                .display()
+                .to_string();
+        }
+        format!("./{CONFIG_DIR_NAME}.duckdb")
+    }
+
+    /// Resolve DuckDB path: CLI/env/config override, else local default.
+    /// MotherDuck (`md:…`) is only used when explicitly configured.
+    pub fn resolve_duckdb_path(explicit: Option<&str>) -> String {
+        if let Some(p) = explicit {
+            if !p.is_empty() {
+                return p.to_string();
+            }
+        }
+        if let Ok(p) = std::env::var("DUCKDB_PATH") {
+            if !p.is_empty() {
+                return p;
+            }
+        }
+        Self::default_duckdb_path()
+    }
+
+    pub fn interpolate_env(input: &str) -> String {
         let re = regex::Regex::new(r"\$\{([^}]+)\}").expect("valid env interpolation regex");
         re.replace_all(input, |caps: &regex::Captures<'_>| {
             std::env::var(&caps[1]).unwrap_or_else(|_| caps[0].to_string())
@@ -221,6 +460,11 @@ impl Config {
 
     pub fn write_toml<P: AsRef<Path>>(&self, path: P) -> anyhow::Result<PathBuf> {
         let content = toml::to_string_pretty(self)?;
+        if let Some(parent) = path.as_ref().parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
         std::fs::write(&path, content)?;
         Ok(path.as_ref().to_path_buf())
     }
@@ -230,6 +474,7 @@ impl Config {
 mod tests {
     use super::*;
     use std::env;
+    use std::io::Write;
 
     struct EnvGuard {
         keys: &'static [&'static str],
@@ -250,8 +495,12 @@ mod tests {
         fn drop(&mut self) {
             for (key, prev_val) in self.keys.iter().zip(self.prev.drain(..)) {
                 match prev_val {
-                    Some(v) => { let _ = env::set_var(key, v); }
-                    None => { let _ = env::remove_var(key); }
+                    Some(v) => {
+                        let _ = env::set_var(key, v);
+                    }
+                    None => {
+                        let _ = env::remove_var(key);
+                    }
                 }
             }
         }
@@ -328,11 +577,13 @@ mod tests {
 
     #[test]
     fn apply_env_fallback_when_fields_empty() {
-        // This test must not mutate shared process env, because parallel
-        // tests can race on the same variables. Use a custom env lookup
-        // to keep this assertion deterministic.
-        const KEYS: &[&str] = &["CH_HOST", "CH_PORT", "CH_DATABASE", "DUCKDB_PATH", "IMPORT_MACHINE_NAME"];
-        let prev: Vec<Option<String>> = KEYS.iter().map(|k| env::var(k).ok()).collect();
+        const KEYS: &[&str] = &[
+            "CH_HOST",
+            "CH_PORT",
+            "CH_DATABASE",
+            "DUCKDB_PATH",
+            "IMPORT_MACHINE_NAME",
+        ];
         let _guard = EnvGuard::new(KEYS);
 
         let mut env_map: HashMap<String, String> = HashMap::new();
@@ -361,25 +612,114 @@ mod tests {
         assert_eq!(cfg.clickhouse.password, "");
         assert_eq!(cfg.clickhouse.database, "env_db");
         assert_eq!(cfg.clickhouse.protocol, "http");
-        assert_eq!(cfg.importer.duckdb_path.as_deref(), Some("/tmp/duck.duckdb"));
+        assert_eq!(
+            cfg.importer.duckdb_path.as_deref(),
+            Some("/tmp/duck.duckdb")
+        );
         assert_eq!(cfg.importer.machine_name.as_deref(), Some("env-machine"));
-
-        // Restore previous env state so this test cannot poison neighbours.
-        for (key, prev_val) in KEYS.iter().zip(prev) {
-            match prev_val {
-                Some(v) => env::set_var(key, v),
-                None => env::remove_var(key),
-            }
-        }
     }
 
     #[test]
-    fn candidate_paths_order() {
-        let _guard = EnvGuard::new(&["CCUSAGE_IMPORT_CONFIG"]);
-        let paths = Config::candidate_paths();
-        assert!(paths[0].contains("ccusage-import.toml"));
-        assert!(paths[1].contains(".ccusage-import.toml"));
-        assert_eq!(paths[2], "/etc/ccusage-import.toml");
+    fn candidate_paths_include_local_and_xdg() {
+        let config_dir = PathBuf::from("/home/user/.config");
+        let home = PathBuf::from("/home/user");
+        let paths = Config::candidate_paths_with(|_| None, Some(config_dir), Some(home));
+        assert!(paths.iter().any(|p| p.ends_with("./summa.toml")));
+        assert!(paths
+            .iter()
+            .any(|p| p.contains("/.config/summa/config.toml")));
+        assert!(paths.iter().any(|p| p.contains("/.summa/config.toml")));
+        assert!(paths.iter().any(|p| p.ends_with(".ccusage-import.toml")));
+        assert!(paths.iter().any(|p| p == "/etc/summa/config.toml"));
+        // Local project files before XDG
+        let local_idx = paths.iter().position(|p| p == "./summa.toml").unwrap();
+        let xdg_idx = paths
+            .iter()
+            .position(|p| p.contains("/.config/summa/config.toml"))
+            .unwrap();
+        assert!(local_idx < xdg_idx);
+    }
+
+    #[test]
+    fn candidate_paths_env_override_first() {
+        let paths = Config::candidate_paths_with(
+            |k| {
+                if k == CONFIG_ENV {
+                    Some("/custom/summa.toml".into())
+                } else {
+                    None
+                }
+            },
+            None,
+            None,
+        );
+        assert_eq!(paths[0], "/custom/summa.toml");
+    }
+
+    #[test]
+    fn credentials_fill_password_separately_from_main_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("config.toml");
+        let creds_path = dir.path().join("credentials.toml");
+
+        let mut f = std::fs::File::create(&config_path).unwrap();
+        writeln!(
+            f,
+            r#"[clickhouse]
+host = "ch.example.com"
+port = 8443
+user = "analytics"
+password = ""
+database = "usage"
+protocol = "https"
+"#
+        )
+        .unwrap();
+
+        let mut f = std::fs::File::create(&creds_path).unwrap();
+        writeln!(
+            f,
+            r#"clickhouse_password = "s3cret-from-creds"
+motherduck_token = "md-token-xyz"
+"#
+        )
+        .unwrap();
+
+        // Main TOML must not require password
+        let main: Config = toml::from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert!(main.clickhouse.password.is_empty());
+
+        let cfg = Config::load_with_credentials(
+            Some(config_path.to_str().unwrap()),
+            Some(creds_path.to_str().unwrap()),
+        )
+        .unwrap();
+        assert_eq!(cfg.clickhouse.host, "ch.example.com");
+        assert_eq!(cfg.clickhouse.password, "s3cret-from-creds");
+        assert_eq!(
+            std::env::var("MOTHERDUCK_TOKEN").ok().as_deref(),
+            Some("md-token-xyz")
+        );
+        let _ = env::remove_var("MOTHERDUCK_TOKEN");
+    }
+
+    #[test]
+    fn default_duckdb_path_uses_data_local() {
+        let path = Config::default_duckdb_path_with(
+            Some(PathBuf::from("/Users/me/Library/Application Support")),
+            Some(PathBuf::from("/Users/me")),
+        );
+        assert!(path.ends_with("summa/summa.duckdb"));
+        assert!(path.contains("Application Support") || path.contains("summa"));
+    }
+
+    #[test]
+    fn resolve_duckdb_path_prefers_explicit_over_default() {
+        let p = Config::resolve_duckdb_path(Some("md:cloud-db"));
+        assert_eq!(p, "md:cloud-db");
+        let local = Config::resolve_duckdb_path(Some(""));
+        // empty explicit falls through to env or default
+        assert!(!local.is_empty());
     }
 
     #[test]
@@ -418,10 +758,18 @@ mod tests {
             "CH_PROTOCOL",
             "DUCKDB_PATH",
             "IMPORT_MACHINE_NAME",
-            "CCUSAGE_IMPORT_CONFIG",
+            CONFIG_ENV,
+            LEGACY_CONFIG_ENV,
+            CREDENTIALS_ENV,
         ]);
-        std::env::set_var("CCUSAGE_IMPORT_CONFIG", "/tmp/does-not-exist-ccusage-import.toml");
+        std::env::set_var(CONFIG_ENV, "/tmp/does-not-exist-summa.toml");
         let cfg = Config::load(None).unwrap();
         assert!(cfg.clickhouse.host.is_empty());
+    }
+
+    #[test]
+    fn credentials_candidate_paths_include_xdg() {
+        let paths = Credentials::candidate_paths();
+        assert!(paths.iter().any(|p| p.ends_with("credentials.toml")));
     }
 }

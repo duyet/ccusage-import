@@ -17,13 +17,12 @@ pub fn run() -> anyhow::Result<()> {
     let args: Vec<String> = env::args().collect();
     let verbose = args.contains(&"--verbose".into()) || args.contains(&"-v".into());
 
-    let path = env::var("DUCKDB_PATH")
-        .or_else(|_| {
-            args.iter()
-                .find(|a| a.starts_with("--path="))
-                .map(|a| a.split('=').nth(1).unwrap_or("md:ccusage"))
-        })
-        .unwrap_or_else(|_| "md:ccusage".into());
+    let explicit = args
+        .iter()
+        .find(|a| a.starts_with("--path="))
+        .map(|a| a.split('=').nth(1).unwrap_or(""))
+        .filter(|s| !s.is_empty());
+    let path = crate::config::Config::resolve_duckdb_path(explicit);
 
     println!("Backfill: ClickHouse ccusage_events → {}", path);
 

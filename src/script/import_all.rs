@@ -63,7 +63,7 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
         .unwrap_or(true);
 
     println!(
-        "ccusage-import — machine: {}{}{}, import: {}",
+        "summa — machine: {}{}{}, import: {}",
         machine_name,
         effective_since
             .as_ref()
@@ -166,11 +166,9 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
     }
 
     if !args.skip_duckdb {
-        let duckdb_path = args
-            .duckdb_path
-            .clone()
-            .or_else(|| env::var("DUCKDB_PATH").ok())
-            .unwrap_or_else(|| "md:ccusage".to_string());
+        // Local-first: default to auto-created file under XDG data dir.
+        // MotherDuck / cloud only when explicitly set (CLI, env, or config).
+        let duckdb_path = crate::config::Config::resolve_duckdb_path(args.duckdb_path.as_deref());
         sinks.push(Box::new(DuckDbSink::new(duckdb_path)));
     }
 
@@ -263,7 +261,7 @@ mod tests {
     #[test]
     fn clap_accepts_days_back_and_duckdb_path() {
         let cli = Cli::try_parse_from([
-            "ccusage-import",
+            "summa",
             "import",
             "--days-back",
             "2",
@@ -283,7 +281,7 @@ mod tests {
     #[test]
     fn clap_accepts_since_and_days_back_together() {
         let cli = Cli::try_parse_from([
-            "ccusage-import",
+            "summa",
             "import",
             "--since",
             "2026-08-01",
@@ -300,5 +298,15 @@ mod tests {
             }
             _ => panic!("expected Import"),
         }
+    }
+
+    #[test]
+    fn default_duckdb_is_local_not_motherduck() {
+        let path = crate::config::Config::resolve_duckdb_path(None);
+        assert!(
+            !path.starts_with("md:"),
+            "default must be local file, got {path}"
+        );
+        assert!(path.ends_with("summa.duckdb") || path.contains("summa"));
     }
 }

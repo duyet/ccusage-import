@@ -12,16 +12,38 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             println!("Check command not yet implemented");
             Ok(())
         }
-        Commands::Config(_args) => {
-            println!("Config command not yet implemented");
+        Commands::Config(args) => {
+            let cfg = crate::config::Config::load(args.config.as_deref())?;
+            if args.validate {
+                println!("config ok");
+                println!("  duckdb_default={}", crate::config::Config::default_duckdb_path());
+                println!("  clickhouse_host={}", cfg.clickhouse.host);
+                println!(
+                    "  password_set={}",
+                    !cfg.clickhouse.password.is_empty()
+                );
+                return Ok(());
+            }
+            // Redact password when printing
+            let mut printable = cfg.clone();
+            if !printable.clickhouse.password.is_empty() {
+                printable.clickhouse.password = "***".into();
+            }
+            println!("{}", toml::to_string_pretty(&printable)?);
+            println!("# resolved duckdb default: {}", crate::config::Config::default_duckdb_path());
+            println!("# config candidates:");
+            for p in crate::config::Config::candidate_paths() {
+                println!("#   {p}");
+            }
             Ok(())
         }
     }
 }
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "ccusage-import")]
-#[command(about = "Import ccusage, Codex, and OpenCode data into ClickHouse and DuckDB")]
+#[command(name = "summa")]
+#[command(about = "Import AI coding-agent usage into local DuckDB or ClickHouse")]
+#[command(version)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -123,7 +145,7 @@ mod tests {
         let mut cmd = Cli::command();
         let help = cmd.render_long_help().to_string();
         // Subcommand help is nested; try_get_matches style check via parse.
-        let cli = Cli::try_parse_from(["ccusage-import", "import", "--help"]);
+        let cli = Cli::try_parse_from(["summa", "import", "--help"]);
         // --help causes error with DisplayHelp; just ensure days_back is on the type.
         let _ = cli;
         let _ = help;
@@ -132,7 +154,7 @@ mod tests {
             since: None,
             days_back: Some(2),
             end_date: None,
-            duckdb_path: Some("md:ccusage".into()),
+            duckdb_path: Some(crate::config::Config::default_duckdb_path()),
             ch_host: None,
             ch_port: None,
             ch_database: None,
@@ -147,5 +169,16 @@ mod tests {
             dry_run: false,
         };
         assert_eq!(args.days_back, Some(2));
+    }
+
+    #[test]
+    fn help_names_summa_product() {
+        use clap::CommandFactory;
+        let mut cmd = Cli::command();
+        let help = cmd.render_long_help().to_string();
+        assert!(
+            help.contains("summa") || help.to_lowercase().contains("duckdb"),
+            "help should brand the summa product: {help}"
+        );
     }
 }

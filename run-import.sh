@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cron entry for ccusage-import (Rust).
+# Cron entry for summa (Rust; package summa-import).
 # Prefer release binary; fall back to cargo run --release.
 # Emits ISO start/end markers and writes last-run status for monitoring.
 
@@ -16,10 +16,11 @@ if [ -f .env ]; then
   set +a
 fi
 
-DUCKDB_PATH="${DUCKDB_PATH:-md:ccusage}"
+# Local-first default; set DUCKDB_PATH=md:summa (and MOTHERDUCK_TOKEN) for cloud.
+DUCKDB_PATH="${DUCKDB_PATH:-}"
 DAYS_BACK="${IMPORT_DAYS_BACK:-2}"
 
-LOG_DIR="${HOME}/.local/log/ccusage"
+LOG_DIR="${HOME}/.local/log/summa"
 mkdir -p "$LOG_DIR"
 STATUS_FILE="${LOG_DIR}/last-run.status"
 RUN_CAPTURE="${LOG_DIR}/.last-run.capture"
@@ -27,19 +28,23 @@ RUN_CAPTURE="${LOG_DIR}/.last-run.capture"
 START_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "=== run start ${START_ISO} ==="
 
-BINARY="target/release/ccusage-import"
+BINARY="target/release/summa"
 EXIT_CODE=0
 
 run_import() {
+  local -a extra=()
+  if [ -n "$DUCKDB_PATH" ]; then
+    extra+=(--duckdb-path="$DUCKDB_PATH")
+  fi
   if [ -x "$BINARY" ]; then
-    "$BINARY" import --duckdb-path="$DUCKDB_PATH" --days-back="$DAYS_BACK"
+    "$BINARY" import --days-back="$DAYS_BACK" "${extra[@]}"
   else
     if ! command -v cargo >/dev/null 2>&1; then
       echo "Error: cargo not found in PATH and no release binary at ${BINARY}" >&2
       return 127
     fi
     # Build+run release so the next cron tick can use the binary path above.
-    cargo run --release -- import --duckdb-path="$DUCKDB_PATH" --days-back="$DAYS_BACK"
+    cargo run --release -- import --days-back="$DAYS_BACK" "${extra[@]}"
   fi
 }
 

@@ -13,8 +13,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rust:
+    name: Rust (check / test / release build)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@v2
+
+    - name: cargo check
+      run: cargo check --locked
+
+    - name: cargo test
+      run: cargo test --locked
+
+    - name: cargo build --release
+      run: cargo build --release --bin summa
+
+    - name: Binary size
+      run: ls -lah target/release/summa && file target/release/summa
+
   lint:
-    name: Build Check
+    name: Build Check (Bun legacy)
     runs-on: ubuntu-latest
 
     steps:
@@ -33,7 +58,7 @@ jobs:
       run: bun run build
 
   test:
-    name: Test (Bun)
+    name: Test (Bun legacy)
     runs-on: ubuntu-latest
 
     steps:
@@ -74,12 +99,16 @@ jobs:
   status-check:
     name: All checks passed
     if: always()
-    needs: [lint, test, security]
+    needs: [rust, lint, test, security]
     runs-on: ubuntu-latest
 
     steps:
     - name: Check all job status
       run: |
+        if [ "${{ needs.rust.result }}" != "success" ]; then
+          echo "Rust job failed"
+          exit 1
+        fi
         if [ "${{ needs.lint.result }}" != "success" ]; then
           echo "Build job failed"
           exit 1

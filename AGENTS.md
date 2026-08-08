@@ -1,10 +1,11 @@
 # AGENTS.md
 
-Data pipeline importing Claude Code usage analytics into ClickHouse and DuckDB.
+Public product: **summa** (crate `summa-import`, binary `summa`).
+Data pipeline importing AI coding-agent usage into local DuckDB and optional ClickHouse/MotherDuck.
 
 ## Status
 
-Rust migration in progress. Single `ccusage_events` table.
+Rust is the primary implementation (0.1.x public line). Single `ccusage_events` table.
 
 Docs index: `docs/INDEX.md` (core memory: `docs/knowledge/core-memory.md`).
 
@@ -17,10 +18,14 @@ git switch -c automation/<topic> origin/master  # create branch first when workt
 git worktree list --porcelain  # find owning worktree when .git/worktrees/.../*.lock errors appear
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # recent-change audit window
 rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'  # dead-code evidence (non-test refs)
-cargo run -- import --verbose           # full import
+cargo run -- import --verbose           # full import (local DuckDB by default)
 cargo run -- backfill-duckdb            # backfill DuckDB from ClickHouse
+cargo build --release                   # stripped LTO binary → target/release/summa
 git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
+
+Config: `~/.config/summa/config.toml` + `credentials.toml` (secrets separate).
+Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
 
 ## Architecture
 

@@ -1,157 +1,203 @@
-# ccusage-import
+# summa
 
-Import Claude Code usage data into ClickHouse and DuckDB for analytics.
+**summa** (*Latin*: sum, total, summary) is a lightweight CLI that imports AI
+coding-agent usage into a local DuckDB file — optionally syncing to ClickHouse
+or MotherDuck.
 
-## What it does
+| | |
+|---|---|
+| **Binary** | `summa` |
+| **Crate** | [`summa-import`](https://crates.io/crates/summa-import) |
+| **Version** | 0.1.x |
+| **License** | MIT |
 
-Fetches usage data from three sources, writes to a single `ccusage_events` table:
+> Repo path remains `duyet/ccusage-import` for history; the public product name is **summa**.
 
-| Source | Data |
-|--------|------|
-| **ccusage** | Claude Code daily, session, block, project usage |
-| **codex** | OpenAI Codex usage via `@ccusage/codex` |
-| **opencode** | OpenCode usage via `@ccusage/opencode` |
+### Name brainstorm (shortlist)
 
-## Single table design
+| Name | Why considered |
+|------|----------------|
+| **summa** ✓ | Latin *summa* — sum/total/summary of usage. Short binary. |
+| ductus | Latin *conduit* — pipeline metaphor |
+| tabula | Latin *table* — event tables |
+| mensura | Latin *measure* |
+| ccusage-import | Legacy descriptive name |
 
-All data lands in one flat `ccusage_events` table. Model breakdowns are exploded inline (one row per model per record). Aggregation queries handle daily/weekly/monthly grouping.
+Crate is `summa-import` because bare `summa` is taken on crates.io.
 
-```
-ccusage_events
-├── date, record_type (daily|session|block|project_daily)
-├── source (ccusage|codex|opencode), machine_name
-├── model_name, session_id, project_path
-├── input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens
-├── cost, total_tokens
-└── block-specific fields (start_time, burn_rate, etc.)
-```
+## Install
 
-See `docs/schema.sql` for the full DDL.
-
-## Docs index
-
-- `docs/knowledge/core-memory.md` - compact maintenance runbook for recurring automation tasks
-- `docs/schema.sql` - ClickHouse schema for `ccusage_events`
-- `docs/queries.sql` - query examples
-- `docs/migrate_add_source.sql` - migration SQL
-
-## Setup
+### curl | bash (prebuilt GitHub Release)
 
 ```bash
-cargo build --release
-cp .env.example .env  # fill in ClickHouse credentials
+curl -fsSL https://raw.githubusercontent.com/duyet/ccusage-import/master/install.sh | bash
 ```
+
+Installs into `~/.local/bin/summa`. Override with `SUMMA_INSTALL_DIR` /
+`SUMMA_VERSION` / `SUMMA_DRY_RUN=1`.
+
+### Cargo (crates.io)
+
+```bash
+cargo install summa-import --locked
+```
+
+### From source
+
+```bash
+git clone https://github.com/duyet/ccusage-import.git
+cd ccusage-import
+cargo build --release
+./target/release/summa --help
+```
+
+## Quick start (local-first)
+
+No cloud credentials required. Import writes a local DuckDB file, creating
+parent directories automatically:
+
+```bash
+summa import --verbose
+# → ~/.local/share/summa/summa.duckdb   (macOS/Linux XDG data dir)
+```
+
+Optional cloud / warehouse:
+
+```bash
+# ClickHouse (password via credentials file or CH_PASSWORD)
+summa import --ch-host db.example.com --ch-port 8443
+
+# MotherDuck only when you opt in
+export MOTHERDUCK_TOKEN=…
+summa import --duckdb-path=md:summa
+```
+
+## Config
+
+Discovery order (first existing wins):
+
+1. `$SUMMA_CONFIG` (or legacy `$CCUSAGE_IMPORT_CONFIG`)
+2. `./summa.toml` / `./ccusage-import.toml`
+3. `~/.config/summa/config.toml` (XDG)
+4. `~/.summa/config.toml`
+5. `~/.ccusage-import.toml` (legacy)
+6. `/etc/summa/config.toml`
+
+### Main config (no secrets required)
+
+`~/.config/summa/config.toml`:
+
+```toml
+[clickhouse]
+host = "localhost"
+port = 8123
+user = "default"
+database = "analytics"
+protocol = "http"
+# password left empty — load from credentials file or CH_PASSWORD
+
+[importer]
+# omit duckdb_path for local default; set md:name for MotherDuck
+# duckdb_path = "md:summa"
+days_back = 7
+```
+
+### Credentials (separate file)
+
+`~/.config/summa/credentials.toml` (or `./credentials.toml`):
+
+```toml
+clickhouse_password = "…"
+motherduck_token = "…"
+```
+
+Also: `$SUMMA_CREDENTIALS`, `CH_PASSWORD`, `MOTHERDUCK_TOKEN`.
 
 ### Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `CH_HOST` | yes | ClickHouse hostname |
-| `CH_PORT` | yes | HTTP port (8123 or 8443 for HTTPS) |
-| `CH_USER` | yes | Username |
-| `CH_PASSWORD` | yes | Password |
-| `CH_DATABASE` | yes | Database name |
-| `DUCKDB_PATH` | no | DuckDB path (default: `md:ccusage` for MotherDuck) |
-| `MOTHERDUCK_TOKEN` | no | MotherDuck auth token |
+| `CH_HOST` | for CH | ClickHouse hostname |
+| `CH_PORT` | for CH | HTTP port |
+| `CH_USER` | for CH | Username |
+| `CH_PASSWORD` | for CH | Password (prefer credentials file) |
+| `CH_DATABASE` | for CH | Database name |
+| `DUCKDB_PATH` | no | Override DuckDB path (`md:…` for MotherDuck) |
+| `MOTHERDUCK_TOKEN` | for MD | MotherDuck token |
+| `SUMMA_CONFIG` | no | Config file path |
+| `SUMMA_CREDENTIALS` | no | Credentials file path |
+
+## What it does
+
+Fetches usage from multiple agent sources into one flat `ccusage_events` table
+(model breakdowns exploded inline):
+
+| Source | Data |
+|--------|------|
+| **ccusage** | Claude Code daily, session, block, project usage |
+| **codex** / companions | Codex, OpenCode, and other `@ccusage/*` agents |
+| **antigravity** / **hermes** / **grok** | Additional local agent logs |
+
+See `docs/schema.sql` for DDL and `docs/queries.sql` for examples.
 
 ## Usage
 
 ```bash
-# Run full import (ccusage + codex + opencode → ClickHouse + DuckDB)
-cargo run -- import --verbose
-
-# Import only the last N days (faster, less memory)
-cargo run -- import --days-back=7
-
-# Import a specific date range
-cargo run -- import --since=2025-01-01 --end-date=2025-12-31
-
-# With custom DuckDB path
-cargo run -- import --duckdb-path=md:ccusage
-
-# Backfill DuckDB from ClickHouse
-cargo run -- backfill-duckdb
+summa import --verbose
+summa import --days-back=7
+summa import --since=2025-01-01 --end-date=2025-12-31
+summa import --duckdb-path=md:summa
+summa import --skip-clickhouse          # local DuckDB only
+cargo run -- backfill-duckdb            # CH → DuckDB
 ```
-
-### CLI Options
 
 | Flag | Description |
 |------|-------------|
 | `--verbose` | Detailed logging |
-| `--days-back=N` | Import last N days (overrides env `IMPORT_DAYS_BACK`) |
-| `--since=YYYY-MM-DD` | Start date (overrides `--days-back`) |
-| `--end-date=YYYY-MM-DD` | End date (inclusive) |
-| `--duckdb-path=PATH` | DuckDB connection string |
-| `--skip-ccusage` | Skip Claude Code data |
-| `--skip-clickhouse` | Skip ClickHouse |
-| `--skip-<agent>` | Skip specific agent (e.g. `--skip-codex`) |
+| `--days-back=N` | Last N days |
+| `--since` / `--end-date` | Date range |
+| `--duckdb-path=PATH` | Local file or `md:database` |
+| `--skip-clickhouse` | Skip ClickHouse sink |
+| `--skip-duckdb` | Skip DuckDB sink |
+| `--skip-<agent>` | Skip a source |
 
 ## Architecture
 
 ```
 Sources                  Pipeline               Sinks
 ┌──────────┐           ┌──────────┐          ┌────────────┐
-│ ccusage  │──fetch──→ │          │──write──→ │ ClickHouse │
-│ codex    │──fetch──→ │  runner  │──write──→ │ DuckDB     │
-│ opencode │──fetch──→ │          │          │ (MotherDuck)│
+│ ccusage  │──fetch──→ │          │──write──→ │ DuckDB     │  (local default)
+│ codex    │──fetch──→ │  runner  │──write──→ │ ClickHouse │  (optional)
+│ …        │──fetch──→ │          │──write──→ │ MotherDuck │  (optional)
 └──────────┘           └──────────┘          └────────────┘
 ```
 
-- `src/sources/` — fetch raw data from each provider
-- `src/parsers/` — transform into flat event rows
-- `src/pipeline/` — orchestrate sources → sinks
-- `src/sinks/` — write to ClickHouse and DuckDB
-- `src/scripts/` — CLI entry points
-
-## Cronjob
+## Cron
 
 ```bash
-# Runs with automatic setup script (IMPORT_DAYS_BACK env or --days-back flag)
 ./run-import.sh
-```
-
-The runner script uses `--days-back=2` by default (configurable via `IMPORT_DAYS_BACK` env var) so each
-run only fetches recent data — faster and lighter than a full import each time.
-
-### Automated setup
-
-```bash
-# Interactive setup (hourly, imports last 2 days)
-cargo run -- setup-cronjob
-
-# Every 30 minutes, import last 1 day
-cargo run -- setup-cronjob --every=30 --days-back=1
-
-# Force overwrite existing cronjob
-cargo run -- setup-cronjob -f --every=15
-```
-
-### Manual crontab
-
-```
-*/30 * * * * /path/to/ccusage-import/run-import.sh 2>&1 | tee -a ~/.local/log/ccusage/import.log
+# or
+cargo run -- setup-cronjob --every=30 --days-back=2
 ```
 
 ## Development
 
 ```bash
-cargo test            # run tests
-cargo check           # type check
-cargo run -- import   # run CLI
+cargo test
+cargo check
+cargo build --release   # LTO + strip (see [profile.release])
+cargo package           # crates.io dry-run packaging
 ```
 
-## Data sources
+## Release
 
-**ccusage** reads local Claude Code JSONL files via the `ccusage` CLI.
+- **release-please** opens a `chore: release X.Y.Z` PR (merge manually — never auto-merge).
+- On GitHub Release publish: multi-arch `cargo build --release`, attach tarballs,
+  optional `cargo publish` when `CARGO_REGISTRY_TOKEN` is set.
+- Changelog: human `[Unreleased]` + release-please versioned blocks — see `CHANGELOG.md`.
 
-**codex** reads local Codex session files via `@ccusage/codex`. Token counts come from local logs; costs are calculated from published pricing (not OpenAI billing).
+## Docs
 
-**opencode** reads local OpenCode data via `@ccusage/opencode`.
-
-Token counting conventions differ between sources:
-- Claude: `inputTokens` and `cacheReadTokens` are separate additive categories
-- Codex: `inputTokens` includes `cachedInputTokens` (nested, not additive)
-
-## License
-
-MIT
+- `docs/knowledge/core-memory.md` — maintenance runbook
+- `docs/schema.sql` / `docs/queries.sql`
+- `CHANGELOG.md`
