@@ -4,7 +4,37 @@ pub async fn run(args: crate::cli::CheckArgs) -> anyhow::Result<()> {
     let cfg = Config::load(args.config.as_deref())?;
     let duckdb_path = Config::resolve_duckdb_path(cfg.importer.duckdb_path.as_deref());
 
-    let conn = duckdb::Connection::open(&duckdb_path)?;
+    let db = duckdb_path.clone();
+    let summary = tokio::task::spawn_blocking(move || summary_blocking(&db))
+        .await??;
+    println!("duckdb: {}", duckdb_path);
+    println!(
+        "  date range: {} → {}",
+        summary.0.unwrap_or_default(),
+        summary.1.unwrap_or_default()
+    );
+    println!("  records: {}", summary.2);
+    println!("  tokens: input={} output={} total={}", summary.3, summary.4, summary.5);
+    println!("  cost: ${:.2}", summary.6);
+
+    let db = duckdb_path.clone();
+    let model_rows = tokio::task::spawn_blocking(move || model_rows_blocking(&db))
+        .await??;
+    println!("\nmodels:");
+    for (model, count, total, cost) in model_rows {
+        println!(
+            "  {}: {} records, tokens={}, cost=${:.2}",
+            model, count, total, cost
+        );
+    }
+
+    Ok(())
+}
+
+fn summary_blocking(
+    db_path: &str,
+) -> anyhow::Result<(Option<String>, Option<String>, i64, u64, u64, u64, f64)> {
+    let conn = duckdb::Connection::open(db_path)?;
     let mut stmt = conn.prepare(
         "SELECT min(date), max(date), count(*), \
          sum(input_tokens), sum(output_tokens), sum(total_tokens), sum(cost) \
@@ -12,23 +42,34 @@ pub async fn run(args: crate::cli::CheckArgs) -> anyhow::Result<()> {
     )?;
     let mut rows = stmt.query([])?;
     if let Some(row) = rows.next()? {
-        let min_date: Option<String> = row.get(0)?;
-        let max_date: Option<String> = row.get(1)?;
-        let count: i64 = row.get(2)?;
-        let input: u64 = row.get(3)?;
-        let output: u64 = row.get(4)?;
-        let total: u64 = row.get(5)?;
-        let cost: f64 = row.get(6)?;
-
-        println!("duckdb: {}", duckdb_path);
-        println!("  date range: {} → {}", min_date.unwrap_or_default(), max_date.unwrap_or_default());
-        println!("  records: {}", count);
-        println!("  tokens: input={} output={} total={}", input, output, total);
-        println!("  cost: ${:.2}", cost);
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+            row.get(5)?,
+            row.get(6)?,
+        ))
     } else {
-        println!("duckdb: {}", duckdb_path);
-        println!("  no data yet");
+        Ok((None, None, 0, 0, 0, 0, 0.0))
     }
+}
 
-    Ok(())
+fn model_rows_blocking(
+    db_path: &str,
+) -> anyhow::Result<Vec<(String, i64, u64, f64)>> {
+    let conn = duckdb::Connection::open(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT model_name, count(*), sum(total_tokens), sum(cost) \
+         FROM ccusage_events \
+         GROUP BY model_name \
+         ORDER BY sum(cost) DESC",
+    )?;
+    let mut rows = stmt.query([])?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next()? {
+        out.push((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?));
+    }
+    Ok(out)
 }
