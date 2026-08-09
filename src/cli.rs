@@ -9,10 +9,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             }
             crate::script::import_all::run(args, cli.verbose).await
         }
-        Commands::Check(_args) => {
-            println!("Check command not yet implemented");
-            Ok(())
-        }
+        Commands::Check(args) => crate::script::check::run(args).await,
         Commands::Config(args) => {
             let cfg = crate::config::Config::load(args.config.as_deref())?;
             if args.validate {
