@@ -24,6 +24,7 @@ pub use parser::schema::{
 pub use util::hash::hash_project_name_sync;
 pub use cli::{run, Cli, Commands, ImportArgs, CheckArgs, ConfigArgs};
 pub use script::cronjob::{CronjobAction, CronjobArgs};
+pub use script::publish::PublishArgs;
 
 /// Public product name (binary / branding).
 pub const PRODUCT_NAME: &str = "summa";

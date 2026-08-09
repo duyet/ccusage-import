@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use crate::script::cronjob::CronjobArgs;
+use crate::script::publish::PublishArgs;
 
 pub async fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
@@ -36,6 +37,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             Ok(())
         }
         Commands::Cronjob(args) => crate::script::cronjob::run(args).await,
+        Commands::Publish(args) => crate::script::publish::run(args).await,
     }
 }
 
@@ -62,6 +64,8 @@ pub enum Commands {
     Config(ConfigArgs),
     /// Manage daily import cron job
     Cronjob(CronjobArgs),
+    /// Publish local DuckDB events to ClickHouse
+    Publish(PublishArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
