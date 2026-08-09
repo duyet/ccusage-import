@@ -253,10 +253,10 @@ impl Config {
     /// Config discovery order (first existing wins).
     ///
     /// 1. `$SUMMA_CONFIG` / `$CCUSAGE_IMPORT_CONFIG`
-    /// 2. `./summa.toml` / `./ccusage-import.toml`
+    /// 2. `./summa.toml` / `./summa-import.toml`
     /// 3. `~/.config/summa/config.toml` (XDG)
     /// 4. `~/.summa/config.toml`
-    /// 5. `~/.ccusage-import.toml` (legacy)
+    /// 5. `~/.summa-import.toml` (legacy)
     /// 6. `/etc/summa/config.toml`
     pub fn candidate_paths() -> Vec<String> {
         Self::candidate_paths_with(|k| std::env::var(k).ok(), dirs::config_dir(), dirs::home_dir())
@@ -281,7 +281,7 @@ impl Config {
         }
 
         candidates.push("./summa.toml".to_string());
-        candidates.push("./ccusage-import.toml".to_string());
+        candidates.push("./summa-import.toml".to_string());
 
         if let Some(config_home) = config_dir {
             candidates.push(
@@ -300,7 +300,7 @@ impl Config {
                     .display()
                     .to_string(),
             );
-            candidates.push(format!("{}/.ccusage-import.toml", home.display()));
+            candidates.push(format!("{}/.summa-import.toml", home.display()));
         }
 
         candidates.push(format!("/etc/{CONFIG_DIR_NAME}/{CONFIG_FILE_NAME}"));
@@ -627,7 +627,7 @@ mod tests {
             .iter()
             .any(|p| p.contains("/.config/summa/config.toml")));
         assert!(paths.iter().any(|p| p.contains("/.summa/config.toml")));
-        assert!(paths.iter().any(|p| p.ends_with(".ccusage-import.toml")));
+        assert!(paths.iter().any(|p| p.ends_with(".summa-import.toml")));
         assert!(paths.iter().any(|p| p == "/etc/summa/config.toml"));
         // Local project files before XDG
         let local_idx = paths.iter().position(|p| p == "./summa.toml").unwrap();

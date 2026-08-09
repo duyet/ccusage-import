@@ -1,4 +1,4 @@
-use crate::model::{DataSink, EventRow, EventsSnapshotData, SinkResult};
+use crate::model::{DataSink, EventsSnapshotData, SinkResult};
 use async_trait::async_trait;
 
 /// Pure CSV row formatting helper, kept separate so it can be unit-tested

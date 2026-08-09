@@ -5,7 +5,7 @@
  * `YYYY-MM-DD` and `YYYY-MM-DD HH:MM:SS` string formats using UTC.
  */
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 /// Parse a date string and return it formatted as `YYYY-MM-DD`.
 ///

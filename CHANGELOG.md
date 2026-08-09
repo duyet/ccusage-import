@@ -44,5 +44,5 @@ First public **0.1.x** product line (version reset from internal 3.x).
 
 - Release profile: LTO, single codegen unit, strip, `panic = abort`.
 
-[Unreleased]: https://github.com/duyet/ccusage-import/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/duyet/ccusage-import/releases/tag/v0.1.0
+[Unreleased]: https://github.com/duyet/summa/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/duyet/summa/releases/tag/v0.1.0

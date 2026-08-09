@@ -1,4 +1,4 @@
-use crate::parser::rows::{build_ccusage_event_rows, CcusageData, CcusageFetchOptions};
+use crate::parser::rows::{build_ccusage_event_rows, CcusageFetchOptions};
 use crate::util::date::ch_now;
 use crate::{DataSource, EventsSnapshotData, SourceResult};
 use async_trait::async_trait;

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # summa installer — install the prebuilt binary from GitHub Releases.
 #
-#   curl -fsSL https://raw.githubusercontent.com/duyet/ccusage-import/master/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash
 #
 # Options (env):
 #   SUMMA_INSTALL_DIR   Install directory (default: ~/.local/bin)
 #   SUMMA_VERSION       Tag to install (default: latest release)
-#   SUMMA_REPO          owner/repo (default: duyet/ccusage-import)
+#   SUMMA_REPO          owner/repo (default: duyet/summa)
 #   SUMMA_DRY_RUN=1     Print actions only; do not download/install
 #   SUMMA_PREFIX        Alias for SUMMA_INSTALL_DIR (compat)
 set -euo pipefail
 
-REPO="${SUMMA_REPO:-duyet/ccusage-import}"
+REPO="${SUMMA_REPO:-duyet/summa}"
 BIN_NAME="summa"
 INSTALL_DIR="${SUMMA_INSTALL_DIR:-${SUMMA_PREFIX:-${HOME}/.local/bin}}"
 VERSION="${SUMMA_VERSION:-}"

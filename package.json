@@ -1,11 +1,11 @@
 {
-  "name": "ccusage-import",
-  "version": "2.0.0",
-  "description": "Import ccusage and OpenCode data into ClickHouse for analytics",
+  "name": "summa",
+  "version": "0.1.0",
+  "description": "Import Claude Code (ccusage) and AI agent usage into DuckDB/ClickHouse",
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "ccusage-import": "dist/cli.js"
+    "summa": "dist/cli.js"
   },
   "scripts": {
     "dev": "bun run src/index.ts",
@@ -31,7 +31,7 @@
     "cli",
     "typescript"
   ],
-  "author": "ccusage-import contributors",
+  "author": "summa contributors",
   "license": "MIT",
   "dependencies": {
     "@clickhouse/client": "^1.10.0",
@@ -73,10 +73,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/duyet/ccusage-import.git"
+    "url": "git+https://github.com/duyet/summa.git"
   },
   "bugs": {
-    "url": "https://github.com/duyet/ccusage-import/issues"
+    "url": "https://github.com/duyet/summa/issues"
   },
-  "homepage": "https://github.com/duyet/ccusage-import#readme"
+  "homepage": "https://github.com/duyet/summa#readme"
 }

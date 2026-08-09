@@ -8,8 +8,6 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use uuid::Uuid;
-use futures::executor::block_on;
 
 use crate::model::{DataSource, EventRow, EventsSnapshotData, SourceResult};
 use crate::util::date::ch_now;
@@ -437,7 +435,7 @@ impl DataSource for AntigravitySource {
 
         // Build SQLite session rows
         for (key, sum) in &db_session_sums {
-            let (prompt, cached, comp, model, workspace, date) = sum;
+            let (prompt, cached, comp, model, workspace, _date) = sum;
             let parts: Vec<&str> = key.split('|').collect();
             if parts.len() < 3 { continue; }
             let cid = parts[0];

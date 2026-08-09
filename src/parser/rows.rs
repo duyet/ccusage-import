@@ -287,7 +287,7 @@ fn distribute_costs(
         })
         .collect();
     let already_present = output_tokens.iter().enumerate()
-        .any(|(i, _)| {
+        .any(|(_i, _)| {
             // Check if costs are already non-zero
             // We use a different approach: caller passes parent_cost=0 if costs present
             false // placeholder — we always distribute here
@@ -295,7 +295,7 @@ fn distribute_costs(
 
     // Check if per-model costs are already present
     let total_present: f64 = output_tokens.iter().enumerate()
-        .map(|(i, _)| 0.0) // cost not available here; caller checks
+        .map(|(_i, _)| 0.0) // cost not available here; caller checks
         .sum();
     let _ = already_present;
     let _ = total_present;

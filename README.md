@@ -11,7 +11,7 @@ DuckDB, optionally syncing to ClickHouse or MotherDuck.
 | **Version** | 0.1.x |
 | **License** | MIT |
 
-> GitHub repo stays `duyet/ccusage-import` for history. Crate is `summa-import`
+> GitHub repo is `duyet/summa`. Crate is `summa-import`
 > because bare `summa` is taken on crates.io (full-text search server).
 
 ### Name
@@ -28,7 +28,7 @@ DuckDB, optionally syncing to ClickHouse or MotherDuck.
 ### curl | bash
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/duyet/ccusage-import/master/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash
 ```
 
 Installs `~/.local/bin/summa`. Env: `SUMMA_INSTALL_DIR`, `SUMMA_VERSION`, `SUMMA_DRY_RUN=1`.
@@ -42,8 +42,8 @@ cargo install summa-import --locked
 ### From source
 
 ```bash
-git clone https://github.com/duyet/ccusage-import.git
-cd ccusage-import
+git clone https://github.com/duyet/summa.git
+cd summa   # or just: cargo build --release  # from anywhere if using the crate name
 cargo build --release
 ./target/release/summa --help
 ```
@@ -66,10 +66,10 @@ summa import --duckdb-path=md:summa
 ## Config
 
 1. `$SUMMA_CONFIG` (or legacy `$CCUSAGE_IMPORT_CONFIG`)
-2. `./summa.toml` / `./ccusage-import.toml`
+2. `./summa.toml` / `./summa-import.toml`
 3. `~/.config/summa/config.toml` (XDG)
 4. `~/.summa/config.toml`
-5. `~/.ccusage-import.toml` (legacy)
+5. `~/.summa-import.toml` (legacy)
 6. `/etc/summa/config.toml`
 
 Main config has no secrets. Credentials: `~/.config/summa/credentials.toml` or
