@@ -7,6 +7,29 @@ pub async fn run(args: crate::cli::CheckArgs) -> anyhow::Result<()> {
     let db = duckdb_path.clone();
     let summary = tokio::task::spawn_blocking(move || summary_blocking(&db))
         .await??;
+    let db = duckdb_path.clone();
+    let model_rows = tokio::task::spawn_blocking(move || model_rows_blocking(&db))
+        .await??;
+
+    if args.json {
+        let out = serde_json::json!({
+            "duckdb": duckdb_path,
+            "date_range": [summary.0, summary.1],
+            "records": summary.2,
+            "tokens": {
+                "input": summary.3,
+                "output": summary.4,
+                "total": summary.5,
+            },
+            "cost_usd": summary.6,
+            "models": model_rows.into_iter().map(|(model, count, total, cost)| {
+                serde_json::json!({"model": model, "records": count, "tokens": total, "cost_usd": cost})
+            }).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&out)?);
+        return Ok(());
+    }
+
     println!("duckdb: {}", duckdb_path);
     println!(
         "  date range: {} → {}",
@@ -17,9 +40,6 @@ pub async fn run(args: crate::cli::CheckArgs) -> anyhow::Result<()> {
     println!("  tokens: input={} output={} total={}", summary.3, summary.4, summary.5);
     println!("  cost: ${:.2}", summary.6);
 
-    let db = duckdb_path.clone();
-    let model_rows = tokio::task::spawn_blocking(move || model_rows_blocking(&db))
-        .await??;
     println!("\nmodels:");
     for (model, count, total, cost) in model_rows {
         println!(

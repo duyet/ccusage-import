@@ -128,6 +128,9 @@ pub struct CheckArgs {
     /// Path to TOML config file
     #[arg(short, long)]
     pub config: Option<String>,
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Parser, Debug, Clone)]
