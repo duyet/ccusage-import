@@ -103,6 +103,16 @@ summa import --skip-clickhouse
 cargo run -- backfill-duckdb
 ```
 
+## Cron job
+
+```bash
+summa cronjob install     # install daily at 08:00
+summa cronjob status      # show whether installed
+summa cronjob remove      # remove daily job
+```
+
+Logs: `~/.summa/cron.log`.
+
 ## Development / release
 
 ```bash

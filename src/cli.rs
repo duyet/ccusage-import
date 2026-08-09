@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use crate::script::cronjob::CronjobArgs;
 
 pub async fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
@@ -37,6 +38,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             }
             Ok(())
         }
+        Commands::Cronjob(args) => crate::script::cronjob::run(args).await,
     }
 }
 
@@ -61,6 +63,8 @@ pub enum Commands {
     Check(CheckArgs),
     /// Print or validate configuration
     Config(ConfigArgs),
+    /// Manage daily import cron job
+    Cronjob(CronjobArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
