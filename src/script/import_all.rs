@@ -296,13 +296,15 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
     }
 
     let mut sinks: Vec<Box<dyn crate::model::DataSink>> = Vec::new();
+    let routes = prepared.config.sink_routes();
 
-    if !prepared.skip_clickhouse {
+    if routes.clickhouse {
         sinks.push(Box::new(ClickHouseSink::new()));
     }
 
-    if !prepared.skip_duckdb {
-        // Local-first: default under XDG data dir; MotherDuck only when configured.
+    if routes.local {
+        sinks.push(Box::new(DuckDbSink::new(prepared.duckdb_path.clone())));
+    } else if routes.motherduck {
         sinks.push(Box::new(DuckDbSink::new(prepared.duckdb_path.clone())));
     }
 

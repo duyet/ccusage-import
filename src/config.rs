@@ -173,11 +173,26 @@ pub struct UiConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct SinksConfig {
+    /// Ordered sink routes: first matching enabled sink wins for writes.
+    /// Supported values: `local`, `motherduck`, `clickhouse`.
+    #[serde(default)]
+    pub routes: Vec<String>,
+    /// Explicit overrides when route-based selection is insufficient.
+    #[serde(default)]
+    pub skip_clickhouse: Option<bool>,
+    #[serde(default)]
+    pub skip_duckdb: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub clickhouse: ClickHouseConfig,
     #[serde(default)]
     pub importer: ImporterConfig,
+    #[serde(default)]
+    pub sinks: SinksConfig,
     #[serde(default)]
     pub ui: UiConfig,
 }
@@ -416,6 +431,20 @@ impl Config {
         if self.importer.codex_path.is_none() {
             self.importer.codex_path = env_lookup("CODEX_HOME");
         }
+    }
+
+    /// Resolve sink activation based on `[sinks]` routes plus legacy skip flags.
+    /// Order matters: routes are evaluated first-to-last and the first enabled
+    /// cloud/local sink becomes the active target for writes.
+    ///
+    /// Supported routes:
+    /// - `local` — local DuckDB file
+    /// - `motherduck` — `md:...` DuckDB database
+    /// - `clickhouse` — ClickHouse HTTP sink
+    ///
+    /// Legacy `skip_clickhouse` / `skip_duckdb` still apply when no routes are set.
+    pub fn sink_routes(&self) -> SinkRoutes {
+        SinkRoutes::resolve(self)
     }
 
     pub fn to_env_map(&self) -> HashMap<String, String> {
@@ -736,6 +765,7 @@ motherduck_token = "md-token-xyz"
                 days_back: Some(3),
                 ..ImporterConfig::default()
             },
+            sinks: SinksConfig::default(),
             ui: UiConfig::default(),
         };
         let toml_str = toml::to_string_pretty(&original).unwrap();
@@ -769,5 +799,146 @@ motherduck_token = "md-token-xyz"
     fn credentials_candidate_paths_include_xdg() {
         let paths = Credentials::candidate_paths();
         assert!(paths.iter().any(|p| p.ends_with("credentials.toml")));
+    }
+}
+
+/// Resolved sink activation for an import run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SinkRoutes {
+    pub local: bool,
+    pub motherduck: bool,
+    pub clickhouse: bool,
+}
+
+impl SinkRoutes {
+    /// Resolve which sinks are active for writes.
+    ///
+    /// Behavior:
+    /// - If `routes` is non-empty, enable sinks in route order until one matches.
+    ///   `local` always matches when DuckDB is local-first. `motherduck` matches when
+    ///   `duckdb_path` starts with `md:`. `clickhouse` matches when CH host is set.
+    /// - If `routes` is empty, fall back to legacy `skip_*` flags.
+    pub fn resolve(cfg: &Config) -> Self {
+        if !cfg.sinks.routes.is_empty() {
+            let duckdb_path = Config::resolve_duckdb_path(cfg.importer.duckdb_path.as_deref());
+            let is_md = duckdb_path.starts_with("md:");
+            let has_ch = !cfg.clickhouse.host.is_empty();
+
+            let mut routes = Self {
+                local: false,
+                motherduck: false,
+                clickhouse: false,
+            };
+            for route in &cfg.sinks.routes {
+                match route.as_str() {
+                    "local" if !is_md => {
+                        routes.local = true;
+                        break;
+                    }
+                    "motherduck" if is_md => {
+                        routes.motherduck = true;
+                        break;
+                    }
+                    "clickhouse" if has_ch => {
+                        routes.clickhouse = true;
+                        break;
+                    }
+                    _ => continue,
+                }
+            }
+            return routes;
+        }
+
+        let skip_ch = cfg.sinks.skip_clickhouse.unwrap_or(false)
+            || cfg.importer.skip_clickhouse.unwrap_or(false);
+        let skip_duckdb = cfg.sinks.skip_duckdb.unwrap_or(false);
+
+        let duckdb_path = Config::resolve_duckdb_path(cfg.importer.duckdb_path.as_deref());
+        let is_md = duckdb_path.starts_with("md:");
+        let has_ch = !cfg.clickhouse.host.is_empty();
+
+        Self {
+            local: !is_md && !skip_duckdb,
+            motherduck: is_md && !skip_duckdb,
+            clickhouse: has_ch && !skip_ch,
+        }
+    }
+}
+
+#[cfg(test)]
+mod sink_routes_tests {
+    use super::*;
+
+    #[test]
+    fn routes_local_when_configured() {
+        let cfg = Config {
+            sinks: SinksConfig {
+                routes: vec!["local".into()],
+                ..SinksConfig::default()
+            },
+            ..Config::default()
+        };
+        let routes = SinkRoutes::resolve(&cfg);
+        assert!(routes.local);
+        assert!(!routes.motherduck);
+        assert!(!routes.clickhouse);
+    }
+
+    #[test]
+    fn routes_motherduck_when_md_prefix() {
+        let cfg = Config {
+            sinks: SinksConfig {
+                routes: vec!["motherduck".into()],
+                ..SinksConfig::default()
+            },
+            importer: ImporterConfig {
+                duckdb_path: Some("md:usage".into()),
+                ..ImporterConfig::default()
+            },
+            clickhouse: ClickHouseConfig {
+                host: "ch.example".into(),
+                ..ClickHouseConfig::default()
+            },
+            ..Config::default()
+        };
+        let routes = SinkRoutes::resolve(&cfg);
+        assert!(routes.motherduck);
+        assert!(!routes.local);
+        assert!(!routes.clickhouse);
+    }
+
+    #[test]
+    fn routes_clickhouse_when_host_set() {
+        let cfg = Config {
+            sinks: SinksConfig {
+                routes: vec!["clickhouse".into()],
+                ..SinksConfig::default()
+            },
+            clickhouse: ClickHouseConfig {
+                host: "ch.example".into(),
+                ..ClickHouseConfig::default()
+            },
+            ..Config::default()
+        };
+        let routes = SinkRoutes::resolve(&cfg);
+        assert!(routes.clickhouse);
+        assert!(!routes.local);
+        assert!(!routes.motherduck);
+    }
+
+    #[test]
+    fn legacy_flags_when_no_routes() {
+        let cfg = Config {
+            sinks: SinksConfig {
+                skip_clickhouse: Some(true),
+                skip_duckdb: Some(false),
+                ..SinksConfig::default()
+            },
+            ..Config::default()
+        };
+        let routes = SinkRoutes::resolve(&cfg);
+        assert!(!routes.clickhouse);
+        assert!(routes.local);
+        assert!(!routes.motherduck);
     }
 }
