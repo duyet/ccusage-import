@@ -203,14 +203,6 @@ fn extract_timestamp(decoded: &DecodedProto) -> Option<i64> {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const EST_PROMPT_TOKENS: u64 = 198705;
-const EST_COMP_TOKENS: u64 = 11990;
-const EST_CACHED_TOKENS: u64 = 4_075_117;
-
-// ---------------------------------------------------------------------------
 // Options
 // ---------------------------------------------------------------------------
 
@@ -223,6 +215,8 @@ pub struct AntigravitySourceOptions {
     pub since: Option<String>,
     pub end_date: Option<String>,
     pub import_id: String,
+    /// Override Antigravity CLI dir (tests). When None, uses `~/.gemini/antigravity-cli`.
+    pub cli_dir: Option<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +252,7 @@ impl DataSource for AntigravitySource {
             since,
             end_date,
             import_id,
+            cli_dir,
         } = &self.opts;
 
         let effective_since = if let Some(s) = since {
@@ -273,8 +268,7 @@ impl DataSource for AntigravitySource {
             None
         };
 
-        let home_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-        let cli_dir = home_dir.join(".gemini/antigravity-cli");
+        let cli_dir = resolve_cli_dir(cli_dir.clone());
         let conv_dir = cli_dir.join("conversations");
         let history_file = cli_dir.join("history.jsonl");
 
@@ -456,129 +450,10 @@ impl DataSource for AntigravitySource {
             ));
         }
 
-        // 3. Estimate older encrypted Protobuf (.pb) conversations
-        let mut pb_daily_sums: HashMap<String, (u64, u64, u64, String, String)> = HashMap::new();
-        let mut pb_session_sums: HashMap<String, (u64, u64, u64, String, String)> = HashMap::new();
-
-        for file in &pb_files {
-            let cid = file.trim_end_matches(".pb").to_string();
-            let workspace = projects_map.get(&cid).cloned().unwrap_or_else(|| cid.clone());
-            let prompts = history_prompts.get(&cid).cloned().unwrap_or_default();
-
-            for (date, _ts) in &prompts {
-                if let Some(ref eff) = effective_since {
-                    if date < eff { continue; }
-                }
-                if let Some(ref ed) = end_date {
-                    if date > ed { continue; }
-                }
-
-                let model = "gemini-3.5-flash-medium".to_string();
-
-                let daily_key = format!("{}|{}", date, model);
-                let entry = pb_daily_sums.entry(daily_key).or_insert((0, 0, 0, model.to_string(), workspace.clone()));
-                entry.0 += EST_PROMPT_TOKENS;
-                entry.1 += EST_CACHED_TOKENS;
-                entry.2 += EST_COMP_TOKENS;
-
-                let session_key = format!("{}|{}|{}", cid, date, model);
-                let sentry = pb_session_sums.entry(session_key).or_insert((0, 0, 0, model.to_string(), workspace.clone()));
-                sentry.0 += EST_PROMPT_TOKENS;
-                sentry.1 += EST_CACHED_TOKENS;
-                sentry.2 += EST_COMP_TOKENS;
-            }
-        }
-
-        // Build PB daily rows
-        for (key, sum) in &pb_daily_sums {
-            let (prompt, cached, comp, model, workspace) = sum;
-            let parts: Vec<&str> = key.split('|').collect();
-            if parts.len() < 2 { continue; }
-            let date = parts[0];
-            let hashed_proj = hash_project_name_sync(workspace, *hash_projects);
-
-            let raw_key = format!("antigravity|{}|daily|{}|{}|{}", machine_name, date, model, date);
-            let dedup_key = make_dedup_key(&raw_key);
-            let cost = estimate_model_cost(model, *prompt, *cached, 0, *comp);
-
-            events.push(make_antigravity_row(
-                &now, date, "daily", date, "antigravity", machine_name,
-                model, "", &hashed_proj,
-                *prompt, *comp, 0, *cached, 0,
-                prompt + comp + cached,
-                cost, &dedup_key, import_id,
-            ));
-        }
-
-        // Build PB session rows
-        for (key, sum) in &pb_session_sums {
-            let (prompt, cached, comp, model, workspace) = sum;
-            let parts: Vec<&str> = key.split('|').collect();
-            if parts.len() < 3 { continue; }
-            let cid = parts[0];
-            let date = parts[1];
-            let hashed_cid = hash_project_name_sync(cid, *hash_projects);
-            let hashed_proj = hash_project_name_sync(workspace, *hash_projects);
-
-            let raw_key = format!("antigravity|{}|session|{}|{}|{}", machine_name, date, model, hashed_cid);
-            let dedup_key = make_dedup_key(&raw_key);
-            let cost = estimate_model_cost(model, *prompt, *cached, 0, *comp);
-
-            events.push(make_antigravity_row(
-                &now, date, "session", &hashed_cid, "antigravity", machine_name,
-                model, &hashed_cid, &hashed_proj,
-                *prompt, *comp, 0, *cached, 0,
-                prompt + comp + cached,
-                cost, &dedup_key, import_id,
-            ));
-        }
-
-        // 4. Estimate implicit subagents
-        let implicit_dir = cli_dir.join("implicit");
-        if implicit_dir.exists() {
-            if let Ok(dir_entries) = fs::read_dir(&implicit_dir) {
-                let pb_entries: Vec<_> = dir_entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| {
-                        e.file_name().to_string_lossy().ends_with(".pb")
-                    })
-                    .collect();
-
-                let total_implicit_size: u64 = pb_entries.iter()
-                    .filter_map(|e| fs::metadata(e.path()).ok().map(|m| m.len()))
-                    .sum();
-
-                if total_implicit_size > 0 {
-                    let total_implicit_burn = ((total_implicit_size as f64 / (1024.0 * 1024.0)) * 500_000.0).round() as u64;
-                    let total_implicit_cached = ((total_implicit_size as f64 / (1024.0 * 1024.0)) * 9_600_000.0).round() as u64;
-                    let implicit_prompt = ((total_implicit_burn as f64) * 0.94).round() as u64;
-                    let implicit_comp = total_implicit_burn - implicit_prompt;
-
-                    let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
-                    let model = "gemini-3.5-flash-medium";
-                    let session = "implicit-subagents";
-                    let hashed_session = hash_project_name_sync(session, *hash_projects);
-
-                    let raw_key = format!("antigravity|{}|daily|{}|{}|{}", machine_name, date, model, date);
-                    let dedup_key = make_dedup_key(&raw_key);
-                    let cost = estimate_model_cost(
-                        model,
-                        implicit_prompt,
-                        total_implicit_cached,
-                        0,
-                        implicit_comp,
-                    );
-
-                    events.push(make_antigravity_row(
-                        &now, &date, "daily", &date, "antigravity", machine_name,
-                        model, &hashed_session, &hashed_session,
-                        implicit_prompt, implicit_comp, 0, total_implicit_cached, 0,
-                        implicit_prompt + implicit_comp + total_implicit_cached,
-                        cost, &dedup_key, import_id,
-                    ));
-                }
-            }
-        }
+        // Encrypted leftover `.pb` conversations and `implicit/*.pb` have no
+        // decodable token records. Do not invent per-prompt or per-byte estimates
+        // (those were showing up on burn.duyet.net as "Google Antigravity").
+        let _ = (pb_files, history_prompts);
 
         if *verbose {
             eprintln!("Antigravity Source parsed {} rows.", events.len());
@@ -591,6 +466,15 @@ impl DataSource for AntigravitySource {
             error: None,
         })
     }
+}
+
+fn resolve_cli_dir(override_dir: Option<PathBuf>) -> PathBuf {
+    if let Some(dir) = override_dir {
+        return dir;
+    }
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join(".gemini/antigravity-cli")
 }
 
 // ---------------------------------------------------------------------------
@@ -657,47 +541,145 @@ fn make_antigravity_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
 
-    #[test]
-    fn test_name() {
-        let src = AntigravitySource::new(AntigravitySourceOptions {
+    fn opts_for(cli_dir: PathBuf) -> AntigravitySourceOptions {
+        AntigravitySourceOptions {
             machine_name: "m1".into(),
             hash_projects: false,
             verbose: false,
             days_back: None,
             since: None,
             end_date: None,
-            import_id: "".into(),
-        });
+            import_id: "test-import".into(),
+            cli_dir: Some(cli_dir),
+        }
+    }
+
+    fn fetch(cli_dir: PathBuf) -> SourceResult {
+        let src = AntigravitySource::new(opts_for(cli_dir));
+        futures::executor::block_on(async move { src.fetch().await }).unwrap()
+    }
+
+    fn encode_varint(mut v: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        loop {
+            let mut b = (v & 0x7f) as u8;
+            v >>= 7;
+            if v != 0 {
+                b |= 0x80;
+            }
+            out.push(b);
+            if v == 0 {
+                break;
+            }
+        }
+        out
+    }
+
+    fn encode_key(field: u32, wire: u32) -> Vec<u8> {
+        encode_varint(((field as u64) << 3) | wire as u64)
+    }
+
+    fn encode_varint_field(field: u32, value: u64) -> Vec<u8> {
+        let mut out = encode_key(field, 0);
+        out.extend(encode_varint(value));
+        out
+    }
+
+    fn encode_len_field(field: u32, payload: &[u8]) -> Vec<u8> {
+        let mut out = encode_key(field, 2);
+        out.extend(encode_varint(payload.len() as u64));
+        out.extend_from_slice(payload);
+        out
+    }
+
+    /// Real gen_metadata blob: tokens + timestamp + model (not leftover estimates).
+    fn real_token_blob(prompt: u64, cached: u64, comp: u64, ts: u64, model: &str) -> Vec<u8> {
+        let mut tokens = Vec::new();
+        tokens.extend(encode_varint_field(2, prompt));
+        tokens.extend(encode_varint_field(5, cached));
+        tokens.extend(encode_varint_field(3, comp));
+
+        let ts_inner = encode_varint_field(1, ts);
+        let mut inner = Vec::new();
+        inner.extend(encode_len_field(4, &tokens));
+        inner.extend(encode_len_field(9, &ts_inner));
+        inner.extend(encode_len_field(19, model.as_bytes()));
+        encode_len_field(1, &inner)
+    }
+
+    #[test]
+    fn test_name() {
+        let src = AntigravitySource::new(opts_for(PathBuf::from("/nope")));
         assert_eq!(src.name(), "antigravity");
     }
 
     #[test]
     fn test_fetch_returns_ok_when_missing_dir() {
-        let orig_home = std::env::var("HOME").ok();
-        std::env::set_var("HOME", "/nonexistent/antigravity-test-home");
-
-        let src = AntigravitySource::new(AntigravitySourceOptions {
-            machine_name: "m1".into(),
-            hash_projects: false,
-            verbose: false,
-            days_back: None,
-            since: None,
-            end_date: None,
-            import_id: "".into(),
-        });
-        let result = futures::executor::block_on(async move { src.fetch().await });
-
-        if let Some(h) = orig_home {
-            std::env::set_var("HOME", h);
-        } else {
-            std::env::remove_var("HOME");
-        }
-
-        assert!(result.is_ok());
-        let r = result.unwrap();
+        let tmp = TempDir::new().unwrap();
+        let missing = tmp.path().join("no-such-antigravity-cli");
+        let r = fetch(missing);
         assert_eq!(r.source_name, "antigravity");
         assert!(r.data.events.is_empty());
+    }
+
+    #[test]
+    fn leftover_encrypted_pb_implicit_and_history_emit_no_daily_rows() {
+        // Leftover CLI files without decodable token records must not become
+        // source=antigravity daily rows (the old per-prompt / per-byte estimates).
+        let tmp = TempDir::new().unwrap();
+        let cli = tmp.path();
+        fs::create_dir_all(cli.join("conversations")).unwrap();
+        fs::create_dir_all(cli.join("implicit")).unwrap();
+        fs::write(cli.join("conversations").join("leftover.pb"), [0xC3, 0x91, 0x34, 0xF7]).unwrap();
+        fs::write(cli.join("implicit").join("subagent.pb"), vec![0xAAu8; 4096]).unwrap();
+        let mut hist = fs::File::create(cli.join("history.jsonl")).unwrap();
+        writeln!(
+            hist,
+            r#"{{"conversationId":"leftover","timestamp":1781481600000,"workspace":"/tmp/demo"}}"#
+        )
+        .unwrap();
+
+        let r = fetch(cli.to_path_buf());
+        assert_eq!(r.source_name, "antigravity");
+        assert!(
+            r.data.events.is_empty(),
+            "fabricated leftover rows: {:?}",
+            r.data.events.iter().map(|e| (&e.record_type, e.total_tokens)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn decoded_sqlite_token_records_emit_antigravity_rows() {
+        let tmp = TempDir::new().unwrap();
+        let cli = tmp.path();
+        let conv = cli.join("conversations");
+        fs::create_dir_all(&conv).unwrap();
+
+        let db_path = conv.join("cid-real.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute("CREATE TABLE gen_metadata (data BLOB)", []).unwrap();
+        // 2026-06-15T00:00:00Z
+        let ts = 1_781_481_600u64;
+        let blob = real_token_blob(1_000_000, 10_000_000, 100_000, ts, "gemini-3.5-flash-medium");
+        conn.execute("INSERT INTO gen_metadata (data) VALUES (?1)", [&blob]).unwrap();
+        drop(conn);
+
+        let r = fetch(cli.to_path_buf());
+        let daily: Vec<_> = r.data.events.iter().filter(|e| e.record_type == "daily").collect();
+        assert_eq!(daily.len(), 1, "events={:?}", r.data.events);
+        assert_eq!(daily[0].source, "antigravity");
+        assert_eq!(daily[0].date, "2026-06-15");
+        assert_eq!(daily[0].model_name, "gemini-3.5-flash-medium");
+        assert_eq!(daily[0].input_tokens, 1_000_000);
+        assert_eq!(daily[0].cache_read_tokens, 10_000_000);
+        assert_eq!(daily[0].output_tokens, 100_000);
+        assert_eq!(daily[0].total_tokens, 11_100_000);
+        // 1M * $1.50 + 10M * $0.15 + 0.1M * $9 = $1.50 + $1.50 + $0.90
+        assert!((daily[0].cost - 3.90).abs() < 0.001);
+        assert!(r.data.events.iter().any(|e| e.record_type == "session"));
     }
 
     #[test]
