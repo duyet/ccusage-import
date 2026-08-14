@@ -1,6 +1,7 @@
 use crate::config::Config;
 
 pub async fn run(args: crate::cli::CheckArgs) -> anyhow::Result<()> {
+    dotenvy::dotenv().ok();
     let cfg = Config::load(args.config.as_deref())?;
     let duckdb_path = Config::resolve_duckdb_path(cfg.importer.duckdb_path.as_deref());
 
@@ -9,6 +10,9 @@ pub async fn run(args: crate::cli::CheckArgs) -> anyhow::Result<()> {
         .await??;
     let db = duckdb_path.clone();
     let model_rows = tokio::task::spawn_blocking(move || model_rows_blocking(&db))
+        .await??;
+    let db = duckdb_path.clone();
+    let source_rows = tokio::task::spawn_blocking(move || source_rows_blocking(&db))
         .await??;
 
     if args.json {
@@ -24,6 +28,15 @@ pub async fn run(args: crate::cli::CheckArgs) -> anyhow::Result<()> {
             "cost_usd": summary.6,
             "models": model_rows.into_iter().map(|(model, count, total, cost)| {
                 serde_json::json!({"model": model, "records": count, "tokens": total, "cost_usd": cost})
+            }).collect::<Vec<_>>(),
+            "sources": source_rows.iter().map(|(source, record_type, count, total, cost)| {
+                serde_json::json!({
+                    "source": source,
+                    "record_type": record_type,
+                    "records": count,
+                    "tokens": total,
+                    "cost_usd": cost
+                })
             }).collect::<Vec<_>>(),
         });
         println!("{}", serde_json::to_string_pretty(&out)?);
@@ -48,15 +61,23 @@ pub async fn run(args: crate::cli::CheckArgs) -> anyhow::Result<()> {
         );
     }
 
+    println!("\nsources:");
+    for (source, record_type, count, total, cost) in source_rows {
+        println!(
+            "  {}/{}: {} records, tokens={}, cost=${:.2}",
+            source, record_type, count, total, cost
+        );
+    }
+
     Ok(())
 }
 
 fn summary_blocking(
     db_path: &str,
 ) -> anyhow::Result<(Option<String>, Option<String>, i64, u64, u64, u64, f64)> {
-    let conn = duckdb::Connection::open(db_path)?;
+    let conn = open_db(db_path)?;
     let mut stmt = conn.prepare(
-        "SELECT min(date), max(date), count(*), \
+        "SELECT CAST(min(date) AS VARCHAR), CAST(max(date) AS VARCHAR), count(*), \
          sum(input_tokens), sum(output_tokens), sum(total_tokens), sum(cost) \
          FROM ccusage_events",
     )?;
@@ -79,7 +100,7 @@ fn summary_blocking(
 fn model_rows_blocking(
     db_path: &str,
 ) -> anyhow::Result<Vec<(String, i64, u64, f64)>> {
-    let conn = duckdb::Connection::open(db_path)?;
+    let conn = open_db(db_path)?;
     let mut stmt = conn.prepare(
         "SELECT model_name, count(*), sum(total_tokens), sum(cost) \
          FROM ccusage_events \
@@ -92,4 +113,37 @@ fn model_rows_blocking(
         out.push((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?));
     }
     Ok(out)
+}
+
+fn source_rows_blocking(
+    db_path: &str,
+) -> anyhow::Result<Vec<(String, String, i64, u64, f64)>> {
+    let conn = open_db(db_path)?;
+    let mut stmt = conn.prepare(
+        "SELECT source, record_type, count(*), \
+         COALESCE(sum(total_tokens), 0), COALESCE(sum(cost), 0) \
+         FROM ccusage_events \
+         GROUP BY source, record_type \
+         ORDER BY source, record_type",
+    )?;
+    let mut rows = stmt.query([])?;
+    let mut out = Vec::new();
+    while let Some(row) = rows.next()? {
+        out.push((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+        ));
+    }
+    Ok(out)
+}
+
+fn open_db(db_path: &str) -> anyhow::Result<duckdb::Connection> {
+    if db_path.starts_with("md:") {
+        crate::sink::duckdb::DuckDbSink::new(db_path).open_for_query()
+    } else {
+        Ok(duckdb::Connection::open(db_path)?)
+    }
 }
