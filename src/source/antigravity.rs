@@ -42,6 +42,10 @@ fn parse_varint(data: &[u8], mut pos: usize) -> (u64, usize) {
     while pos < data.len() {
         let b = data[pos];
         pos += 1;
+        // Malformed leftover blobs can request shift >= 64; stop instead of panic.
+        if shift >= 64 {
+            break;
+        }
         val |= ((b & 0x7f) as u64) << shift;
         shift += 7;
         if (b & 0x80) == 0 {
@@ -687,6 +691,17 @@ mod tests {
         let data: Vec<u8> = vec![0x08, 0x01]; // field 1, varint 1
         let decoded = decode_proto(&data, 0, data.len());
         assert!(decoded.contains_key(&1));
+    }
+
+    #[test]
+    fn parse_varint_stops_on_oversized_continuation() {
+        // 10 continuation bytes would shift past u64; must not panic.
+        let data = vec![0x80u8; 16];
+        let (val, pos) = parse_varint(&data, 0);
+        assert!(pos > 0);
+        let _ = val;
+        let decoded = decode_proto(&data, 0, data.len());
+        assert!(decoded.is_empty() || decoded.len() < 100);
     }
 
     #[test]
