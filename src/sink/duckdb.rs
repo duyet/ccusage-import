@@ -87,6 +87,22 @@ impl DuckDbSink {
         Ok(())
     }
 
+    /// Open a read/write connection (local file or MotherDuck).
+    pub fn open_for_query(&self) -> anyhow::Result<duckdb::Connection> {
+        self.open_connection()
+    }
+
+    /// Delete every row for `source` (full snapshot reset).
+    pub fn purge_source(&mut self, source: &str) -> anyhow::Result<usize> {
+        let conn = self.open_connection()?;
+        self.ensure_tables(&conn)?;
+        let sql = format!(
+            "DELETE FROM ccusage_events WHERE source = '{}'",
+            csv_value(source),
+        );
+        Ok(conn.execute(&sql, [])?)
+    }
+
     fn open_connection(&self) -> anyhow::Result<duckdb::Connection> {
         if !self.is_motherduck {
             if let Some(parent) = Path::new(&self.db_path).parent() {
@@ -165,7 +181,27 @@ impl DuckDbSink {
             }
         }
 
+        // Antigravity is a full local snapshot. Drop every prior row for that
+        // machine so leftover .pb/implicit estimates do not survive a re-import
+        // that only emits decoded token records (or none).
+        let mut antigravity_machines: Vec<String> = Vec::new();
+        for row in rows {
+            if row.source == "antigravity" && !antigravity_machines.iter().any(|m| m == &row.machine_name) {
+                antigravity_machines.push(row.machine_name.clone());
+            }
+        }
+        for machine_name in &antigravity_machines {
+            let sql = format!(
+                "DELETE FROM ccusage_events WHERE source = 'antigravity' AND machine_name = '{}'",
+                csv_value(machine_name),
+            );
+            conn.execute(&sql, [])?;
+        }
+
         for (date, record_type, source, machine_name) in &scopes {
+            if source == "antigravity" {
+                continue;
+            }
             let sql = format!(
                 "DELETE FROM ccusage_events WHERE date = '{}' AND record_type = '{}' AND source = '{}' AND machine_name = '{}'",
                 csv_value(date),
@@ -388,6 +424,53 @@ mod tests {
         assert!(cs.starts_with("md:ccusage"));
         assert!(cs.contains("motherduck_token=test-token-xyz"));
         std::env::remove_var("MOTHERDUCK_TOKEN");
+    }
+
+    #[test]
+    fn antigravity_write_drops_prior_dates_for_machine() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.duckdb");
+        let mut sink = DuckDbSink::new(path.to_string_lossy().to_string());
+        let stale = EventRow {
+            date: "2026-08-01".into(),
+            record_type: "daily".into(),
+            record_key: "2026-08-01".into(),
+            source: "antigravity".into(),
+            machine_name: "host".into(),
+            model_name: "est".into(),
+            total_tokens: 14_303_983,
+            cost: 3.42,
+            ..EventRow::default()
+        };
+        sink.write_events_sync(&[stale]).unwrap();
+        let fresh = EventRow {
+            date: "2026-06-15".into(),
+            record_type: "daily".into(),
+            record_key: "2026-06-15".into(),
+            source: "antigravity".into(),
+            machine_name: "host".into(),
+            model_name: "gemini-test".into(),
+            total_tokens: 1250,
+            ..EventRow::default()
+        };
+        sink.write_events_sync(&[fresh]).unwrap();
+        let conn = duckdb::Connection::open(&path).unwrap();
+        let n: i64 = conn
+            .query_row(
+                "SELECT count(*) FROM ccusage_events WHERE source = 'antigravity'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1);
+        let tokens: i64 = conn
+            .query_row(
+                "SELECT total_tokens FROM ccusage_events WHERE source = 'antigravity'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tokens, 1250);
     }
 
     #[test]
