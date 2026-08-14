@@ -102,10 +102,11 @@ fn model_rows_blocking(
 ) -> anyhow::Result<Vec<(String, i64, u64, f64)>> {
     let conn = open_db(db_path)?;
     let mut stmt = conn.prepare(
-        "SELECT model_name, count(*), sum(total_tokens), sum(cost) \
+        "SELECT COALESCE(model_name, ''), count(*), \
+         COALESCE(sum(total_tokens), 0), COALESCE(sum(cost), 0) \
          FROM ccusage_events \
-         GROUP BY model_name \
-         ORDER BY sum(cost) DESC",
+         GROUP BY 1 \
+         ORDER BY 4 DESC",
     )?;
     let mut rows = stmt.query([])?;
     let mut out = Vec::new();
@@ -120,11 +121,11 @@ fn source_rows_blocking(
 ) -> anyhow::Result<Vec<(String, String, i64, u64, f64)>> {
     let conn = open_db(db_path)?;
     let mut stmt = conn.prepare(
-        "SELECT source, record_type, count(*), \
+        "SELECT COALESCE(source, ''), COALESCE(record_type, ''), count(*), \
          COALESCE(sum(total_tokens), 0), COALESCE(sum(cost), 0) \
          FROM ccusage_events \
-         GROUP BY source, record_type \
-         ORDER BY source, record_type",
+         GROUP BY 1, 2 \
+         ORDER BY 1, 2",
     )?;
     let mut rows = stmt.query([])?;
     let mut out = Vec::new();
