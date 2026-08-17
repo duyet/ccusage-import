@@ -29,7 +29,8 @@ jobs:
       run: cargo check --locked
 
     - name: cargo test
-      run: cargo test --locked
+      # Env-mutating config/credentials tests race under the default thread pool.
+      run: cargo test --locked -- --test-threads=1
 
     - name: cargo build --release
       run: cargo build --release --bin summa
