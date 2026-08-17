@@ -38,6 +38,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         }
         Commands::Cronjob(args) => crate::script::cronjob::run(args).await,
         Commands::Publish(args) => crate::script::publish::run(args).await,
+        Commands::Update(args) => crate::script::update::run(args).await,
     }
 }
 
@@ -66,6 +67,8 @@ pub enum Commands {
     Cronjob(CronjobArgs),
     /// Publish local DuckDB events to ClickHouse
     Publish(PublishArgs),
+    /// Install the newest CI Release-workflow binary for this OS/arch
+    Update(crate::script::update::UpdateArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -177,6 +180,26 @@ mod tests {
             dry_run: false,
         };
         assert_eq!(args.days_back, Some(2));
+    }
+
+    #[test]
+    fn parse_update_dry_run() {
+        let cli = Cli::try_parse_from(["summa", "update", "--dry-run"]).unwrap();
+        match cli.command {
+            Commands::Update(args) => assert!(args.dry_run),
+            other => panic!("expected Update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn help_includes_update_subcommand() {
+        use clap::CommandFactory;
+        let mut cmd = Cli::command();
+        let help = cmd.render_long_help().to_string();
+        assert!(
+            help.contains("update"),
+            "top-level help should list update: {help}"
+        );
     }
 
     #[test]

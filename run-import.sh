@@ -28,8 +28,20 @@ RUN_CAPTURE="${LOG_DIR}/.last-run.capture"
 START_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 echo "=== run start ${START_ISO} ==="
 
-BINARY="target/release/summa"
+if [ -x "${HOME}/.local/bin/summa" ]; then
+  BINARY="${HOME}/.local/bin/summa"
+elif [ -x "target/release/summa" ]; then
+  BINARY="target/release/summa"
+else
+  BINARY=""
+fi
 EXIT_CODE=0
+
+# Pull a newer CI artifact when the installed binary supports `summa update`.
+# Failures must not block the import.
+if [ -n "$BINARY" ] && "$BINARY" update --help >/dev/null 2>&1; then
+  "$BINARY" update || echo "warn: summa update failed (continuing import)"
+fi
 
 run_import() {
   local -a extra=()
@@ -39,12 +51,8 @@ run_import() {
   if [ -x "$BINARY" ]; then
     "$BINARY" import --days-back="$DAYS_BACK" "${extra[@]}"
   else
-    if ! command -v cargo >/dev/null 2>&1; then
-      echo "Error: cargo not found in PATH and no release binary at ${BINARY}" >&2
-      return 127
-    fi
-    # Build+run release so the next cron tick can use the binary path above.
-    cargo run --release -- import --days-back="$DAYS_BACK" "${extra[@]}"
+    echo "Error: no installed summa at ~/.local/bin/summa or target/release/summa" >&2
+    return 127
   fi
 }
 
@@ -76,7 +84,7 @@ fi
   echo "outcome=${OUTCOME}"
   echo "duckdb_path=${DUCKDB_PATH}"
   echo "days_back=${DAYS_BACK}"
-  echo "binary=$([ -x "$BINARY" ] && echo release || echo cargo-run-release)"
+  echo "binary=${BINARY}"
 } >"$STATUS_FILE"
 
 echo "=== run end ${END_ISO} exit=${EXIT_CODE} outcome=${OUTCOME} import_id=${IMPORT_ID} ==="

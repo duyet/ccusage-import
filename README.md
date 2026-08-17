@@ -109,6 +109,7 @@ cargo run -- backfill-duckdb
 summa cronjob install     # install daily at 08:00
 summa cronjob status      # show whether installed
 summa cronjob remove      # remove daily job
+summa update              # install newest CI Release artifact for this OS/arch
 ```
 
 Logs: `~/.summa/cron.log`.
