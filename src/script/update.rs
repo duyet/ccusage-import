@@ -10,6 +10,9 @@ use sha2::{Digest, Sha256};
 const DEFAULT_REPO: &str = "duyet/summa";
 const GH_API: &str = "https://api.github.com";
 const USER_AGENT: &str = "summa-update";
+/// Workflows that upload `summa-<target>` artifacts. Master CI (`ci.yml`)
+/// publishes linux-amd64 on every push; `release.yml` publishes all OS/arch.
+pub const UPDATE_WORKFLOWS: &[&str] = &["ci.yml", "release.yml"];
 
 #[derive(Parser, Debug, Clone)]
 pub struct UpdateArgs {
@@ -35,6 +38,7 @@ pub struct InstallState {
 pub struct WorkflowRun {
     pub id: u64,
     pub head_sha: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,12 +87,13 @@ pub fn sha256_file(path: &Path) -> anyhow::Result<String> {
     Ok(sha256_hex(&bytes))
 }
 
-/// First successful completed run from a GitHub Actions workflow-runs JSON body.
-pub fn parse_latest_successful_run(json: &str) -> anyhow::Result<Option<WorkflowRun>> {
+/// Successful completed runs from a GitHub Actions workflow-runs JSON body.
+pub fn parse_successful_runs(json: &str) -> anyhow::Result<Vec<WorkflowRun>> {
     let v: serde_json::Value = serde_json::from_str(json).context("parse workflow runs json")?;
     let Some(runs) = v.get("workflow_runs").and_then(|r| r.as_array()) else {
-        return Ok(None);
+        return Ok(Vec::new());
     };
+    let mut out = Vec::new();
     for run in runs {
         let conclusion = run.get("conclusion").and_then(|c| c.as_str()).unwrap_or("");
         let status = run.get("status").and_then(|s| s.as_str()).unwrap_or("");
@@ -104,9 +109,32 @@ pub fn parse_latest_successful_run(json: &str) -> anyhow::Result<Option<Workflow
         if id == 0 || head_sha.is_empty() {
             continue;
         }
-        return Ok(Some(WorkflowRun { id, head_sha }));
+        let created_at = run
+            .get("created_at")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        out.push(WorkflowRun {
+            id,
+            head_sha,
+            created_at,
+        });
     }
-    Ok(None)
+    Ok(out)
+}
+
+/// First successful completed run (API lists newest first).
+pub fn parse_latest_successful_run(json: &str) -> anyhow::Result<Option<WorkflowRun>> {
+    Ok(parse_successful_runs(json)?.into_iter().next())
+}
+
+/// Newest successful run across one or more workflow-run listings.
+pub fn pick_newest_run(runs: impl IntoIterator<Item = WorkflowRun>) -> Option<WorkflowRun> {
+    runs.into_iter().max_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then_with(|| a.id.cmp(&b.id))
+    })
 }
 
 /// Find a non-expired artifact whose name matches `want`.
@@ -290,16 +318,38 @@ async fn resolve_ci_artifact(
     repo: &str,
     artifact_name: &str,
 ) -> anyhow::Result<(WorkflowRun, ArtifactMeta)> {
-    let runs_url = format!(
-        "{GH_API}/repos/{repo}/actions/workflows/release.yml/runs?status=completed&per_page=15"
-    );
-    let runs_body = gh_get(client, token, &runs_url).await?;
-    let run = parse_latest_successful_run(&runs_body)?
-        .ok_or_else(|| anyhow!("no successful Release workflow run"))?;
-    let arts_url = format!("{GH_API}/repos/{repo}/actions/runs/{}/artifacts", run.id);
-    let arts_body = gh_get(client, token, &arts_url).await?;
-    let artifact = parse_artifact_by_name(&arts_body, artifact_name)?
-        .ok_or_else(|| anyhow!("no artifact named {artifact_name} on run {}", run.id))?;
+    let mut candidates: Vec<(WorkflowRun, ArtifactMeta)> = Vec::new();
+    for workflow in UPDATE_WORKFLOWS {
+        let runs_url = format!(
+            "{GH_API}/repos/{repo}/actions/workflows/{workflow}/runs?status=completed&per_page=10"
+        );
+        let runs_body = match gh_get(client, token, &runs_url).await {
+            Ok(b) => b,
+            Err(e) => {
+                eprintln!("update: skip {workflow}: {e}");
+                continue;
+            }
+        };
+        for run in parse_successful_runs(&runs_body)? {
+            let arts_url = format!("{GH_API}/repos/{repo}/actions/runs/{}/artifacts", run.id);
+            let arts_body = match gh_get(client, token, &arts_url).await {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            if let Some(artifact) = parse_artifact_by_name(&arts_body, artifact_name)? {
+                candidates.push((run, artifact));
+                break;
+            }
+        }
+    }
+    let (run, artifact) = candidates
+        .into_iter()
+        .max_by(|(a, _), (b, _)| {
+            a.created_at
+                .cmp(&b.created_at)
+                .then_with(|| a.id.cmp(&b.id))
+        })
+        .ok_or_else(|| anyhow!("no successful CI/Release artifact named {artifact_name}"))?;
     Ok((run, artifact))
 }
 
@@ -497,6 +547,33 @@ mod tests {
         let run = parse_latest_successful_run(json).unwrap().unwrap();
         assert_eq!(run.id, 99);
         assert_eq!(run.head_sha, "ccc111");
+    }
+
+    #[test]
+    fn update_workflows_include_master_ci_and_release() {
+        assert!(UPDATE_WORKFLOWS.contains(&"ci.yml"));
+        assert!(UPDATE_WORKFLOWS.contains(&"release.yml"));
+    }
+
+    #[test]
+    fn pick_newest_run_prefers_later_ci_over_older_release() {
+        let ci = r#"{
+          "workflow_runs": [
+            {"id": 200, "head_sha": "newci", "status": "completed", "conclusion": "success",
+             "created_at": "2026-08-17T07:00:00Z"}
+          ]
+        }"#;
+        let release = r#"{
+          "workflow_runs": [
+            {"id": 100, "head_sha": "oldrel", "status": "completed", "conclusion": "success",
+             "created_at": "2026-08-17T06:00:00Z"}
+          ]
+        }"#;
+        let mut runs = parse_successful_runs(ci).unwrap();
+        runs.extend(parse_successful_runs(release).unwrap());
+        let picked = pick_newest_run(runs).unwrap();
+        assert_eq!(picked.id, 200);
+        assert_eq!(picked.head_sha, "newci");
     }
 
     #[test]

@@ -3,6 +3,8 @@ name: Release
 # Build stripped binaries + optional crates.io publish when a GitHub Release
 # is published (release-please creates the release on merge of its PR).
 on:
+  push:
+    branches: [main, master]
   release:
     types: [published]
   workflow_dispatch:

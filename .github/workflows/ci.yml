@@ -38,6 +38,26 @@ jobs:
     - name: Binary size
       run: ls -lah target/release/summa && file target/release/summa
 
+    - name: Package linux x86_64 artifact
+      if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      run: |
+        set -euo pipefail
+        ASSET=summa-x86_64-unknown-linux-gnu
+        mkdir -p "dist/${ASSET}"
+        cp target/release/summa "dist/${ASSET}/summa"
+        chmod +x "dist/${ASSET}/summa"
+        (cd dist && tar -czf "${ASSET}.tar.gz" "${ASSET}")
+        shasum -a 256 "dist/${ASSET}.tar.gz" > "dist/${ASSET}.tar.gz.sha256"
+
+    - name: Upload linux x86_64 artifact
+      if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+      uses: actions/upload-artifact@v7
+      with:
+        name: summa-x86_64-unknown-linux-gnu
+        path: |
+          dist/summa-x86_64-unknown-linux-gnu.tar.gz
+          dist/summa-x86_64-unknown-linux-gnu.tar.gz.sha256
+
   status-check:
     name: All checks passed
     if: always()
