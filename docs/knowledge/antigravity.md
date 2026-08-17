@@ -23,13 +23,8 @@ Exact SQLite conversations store binary blobs in SQLite `gen_metadata.data`. We 
 - **Model**: Located at `Field 1` -> `Field 19` (or fallback to `Field 21`).
 - **Timestamp**: Located at `Field 1` -> `Field 9` -> `Field 4` -> `Field 1` (seconds) and `Field 2` (nanoseconds).
 
-### 2. Estimation Model (Encrypted & Implicit)
-- **Older Conversations**: Key-stretching attempts on encrypted `.pb` files are bypassed by correlating `history.jsonl` prompts to database actuals. From actuals, we derived the following averages per prompt:
-  - **New Input/Prompt Tokens**: `198,705`
-  - **Completion/Output Tokens**: `11,990`
-  - **Cached Input Tokens**: `4,075,117`
-- **Implicit Subagents**: Estimated via byte density:
-  - **Density**: `500,000` tokens burned & `9,600,000` cached per 1 MB of Protobuf files.
+### 2. No estimates from leftover files
+Encrypted `.pb` conversations and `implicit/*.pb` have no decodable token metadata. The importer **does not** invent per-prompt or per-byte token/cost rows for those leftovers. Only SQLite `gen_metadata` blobs that decode to tokens + timestamp become `source=antigravity` events. Each import also deletes prior `source=antigravity` rows in DuckDB/MotherDuck so stale estimates cannot linger.
 
 ---
 

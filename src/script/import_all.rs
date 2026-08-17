@@ -241,6 +241,7 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
             since: effective_since.clone(),
             end_date: end_date.clone(),
             import_id: import_id.clone(),
+            cli_dir: None,
         })));
     }
 
@@ -306,6 +307,22 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
         sinks.push(Box::new(DuckDbSink::new(prepared.duckdb_path.clone())));
     } else if routes.motherduck {
         sinks.push(Box::new(DuckDbSink::new(prepared.duckdb_path.clone())));
+    }
+
+    // Snapshot source: drop stale antigravity rows (including leftover estimates)
+    // even when the new fetch emits nothing.
+    if !args.skip_antigravity && (routes.local || routes.motherduck) {
+        let mut sink = DuckDbSink::new(prepared.duckdb_path.clone());
+        match sink.purge_source("antigravity") {
+            Ok(n) => {
+                if verbose {
+                    eprintln!("purged {n} stale antigravity row(s) from {}", prepared.duckdb_path);
+                }
+            }
+            Err(e) => {
+                eprintln!("warning: could not purge antigravity from duckdb: {e}");
+            }
+        }
     }
 
     let mut runner = ImportRunner { sources, sinks };
