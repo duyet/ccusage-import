@@ -94,9 +94,10 @@ impl ClickHouseSink {
             .client
             .as_ref()
             .expect("ClickHouseSink not connected");
-        let url = format!("{}/?query={}", self.base_url(), percent_encode(query));
+        // POST the SQL as the body so reqwest sends Content-Length. A query-string
+        // POST with no body is rejected by ClickHouse HTTP as 411 Length Required.
         client
-            .post(&url)
+            .post(self.base_url())
             .basic_auth(
                 self.config
                     .as_ref()
@@ -106,6 +107,8 @@ impl ClickHouseSink {
                     .as_ref()
                     .and_then(|c| if c.password.is_empty() { None } else { Some(c.password.as_str()) }),
             )
+            .header("Content-Type", "text/plain; charset=UTF-8")
+            .body(query.to_string())
             .send()
             .await?
             .error_for_status()?;
