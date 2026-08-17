@@ -147,18 +147,18 @@ impl DataSource for HermesSource {
 
         let session_rows = stmt.query_map([since_seconds, end_seconds], |row| {
             Ok((
-                row.get::<_, String>(0)?,  // id
-                row.get::<_, String>(1)?,  // model
-                row.get::<_, i64>(2)?,     // started_at
-                row.get::<_, Option<i64>>(3)?, // ended_at
-                row.get::<_, i64>(4)?,     // input_tokens
-                row.get::<_, i64>(5)?,     // output_tokens
-                row.get::<_, i64>(6)?,     // cache_write_tokens
-                row.get::<_, i64>(7)?,     // cache_read_tokens
-                row.get::<_, i64>(8)?,     // reasoning_tokens
-                row.get::<_, String>(9)?,  // cwd
-                row.get::<_, Option<f64>>(10)?, // estimated_cost_usd
-                row.get::<_, Option<f64>>(11)?, // actual_cost_usd
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row_unix_ts(row, 2)?,
+                row_opt_unix_ts(row, 3)?,
+                row_i64_flex(row, 4)?,
+                row_i64_flex(row, 5)?,
+                row_i64_flex(row, 6)?,
+                row_i64_flex(row, 7)?,
+                row_i64_flex(row, 8)?,
+                row.get::<_, String>(9).unwrap_or_default(),
+                row.get::<_, Option<f64>>(10)?,
+                row.get::<_, Option<f64>>(11)?,
             ))
         })?;
 
@@ -346,6 +346,30 @@ impl DataSource for HermesSource {
     }
 }
 
+/// Hermes `state.db` stores unix timestamps as REAL (float seconds).
+fn row_unix_ts(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<i64> {
+    if let Ok(v) = row.get::<_, i64>(idx) {
+        return Ok(v);
+    }
+    let f: f64 = row.get(idx)?;
+    Ok(f as i64)
+}
+
+fn row_opt_unix_ts(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<Option<i64>> {
+    match row.get_ref(idx)?.data_type() {
+        rusqlite::types::Type::Null => Ok(None),
+        _ => Ok(Some(row_unix_ts(row, idx)?)),
+    }
+}
+
+fn row_i64_flex(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<i64> {
+    if let Ok(v) = row.get::<_, i64>(idx) {
+        return Ok(v);
+    }
+    let f: f64 = row.get(idx)?;
+    Ok(f as i64)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -366,6 +390,64 @@ mod tests {
             import_id: "".into(),
         });
         assert_eq!(src.name(), "hermes");
+    }
+
+    #[test]
+    fn fetch_reads_real_started_at_like_k3s_state_db() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db = tmp.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT, model TEXT, started_at REAL, ended_at REAL,
+                input_tokens REAL, output_tokens REAL,
+                cache_write_tokens REAL, cache_read_tokens REAL,
+                reasoning_tokens REAL, cwd TEXT,
+                estimated_cost_usd REAL, actual_cost_usd REAL
+            );
+            INSERT INTO sessions VALUES (
+                'sess-1', 'google/gemini-2.5-flash',
+                1754784000.25, 1754784060.9,
+                100.0, 20.0, 0.0, 10.0, 5.0,
+                '/opt/workspace', 0.001, NULL
+            );",
+        )
+        .unwrap();
+        drop(conn);
+
+        let prev_home = env::var("HERMES_HOME").ok();
+        env::set_var("HERMES_HOME", tmp.path());
+        let src = HermesSource::new(HermesSourceOptions {
+            machine_name: "duet-ubuntu-hermes".into(),
+            hash_projects: false,
+            verbose: false,
+            days_back: None,
+            since: None,
+            end_date: None,
+            import_id: "test-import".into(),
+        });
+        let result = futures::executor::block_on(async move { src.fetch().await }).unwrap();
+        match prev_home {
+            Some(v) => env::set_var("HERMES_HOME", v),
+            None => env::remove_var("HERMES_HOME"),
+        }
+
+        assert!(result.error.is_none(), "{:?}", result.error);
+        let sessions: Vec<_> = result
+            .data
+            .events
+            .iter()
+            .filter(|e| e.record_type == "session")
+            .collect();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].source, "hermes");
+        assert_eq!(sessions[0].machine_name, "duet-ubuntu-hermes");
+        assert_eq!(sessions[0].input_tokens, 100);
+        assert_eq!(sessions[0].output_tokens, 20);
+        assert_eq!(sessions[0].cache_read_tokens, 10);
+        assert_eq!(sessions[0].cache_creation_tokens, 0);
+        assert_eq!(sessions[0].total_tokens, 130);
+        assert_eq!(sessions[0].date, "2025-08-10");
     }
 
     #[test]
