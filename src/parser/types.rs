@@ -281,6 +281,7 @@ pub struct CcusageBlocksResponse {
 /// ccusage projects response wrapper.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CcusageProjectsResponse {
+    #[serde(default)]
     pub projects: std::collections::HashMap<String, Vec<ProjectDailyUsage>>,
     #[serde(default)]
     pub totals: Option<Totals>,
