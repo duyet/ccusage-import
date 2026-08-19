@@ -135,6 +135,19 @@ main() {
   if "${INSTALL_DIR}/${BIN_NAME}" --version >/dev/null 2>&1; then
     info "ok: $("${INSTALL_DIR}/${BIN_NAME}" --version 2>/dev/null || true)"
   fi
+
+  if [ "${SUMMA_SETUP_CRON:-0}" = "1" ] || [ "${SUMMA_SETUP_CRON:-}" = "true" ]; then
+    local every="${SUMMA_CRON_EVERY:-1h}"
+    info "registering import scheduler (summa cronjob install --every ${every})"
+    if "${INSTALL_DIR}/${BIN_NAME}" cronjob install --every "${every}"; then
+      info "cron: $("${INSTALL_DIR}/${BIN_NAME}" cronjob status 2>/dev/null || true)"
+    else
+      warn "cronjob install failed; run later: summa cronjob install --every ${every}"
+    fi
+  else
+    info "scheduler: summa cronjob install --every 1h"
+  fi
+
   info "run: ${BIN_NAME} import --help"
 }
 

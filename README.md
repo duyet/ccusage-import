@@ -31,7 +31,7 @@ DuckDB, optionally syncing to ClickHouse or MotherDuck.
 curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash
 ```
 
-Installs `~/.local/bin/summa`. Env: `SUMMA_INSTALL_DIR`, `SUMMA_VERSION`, `SUMMA_DRY_RUN=1`.
+Installs `~/.local/bin/summa`. Env: `SUMMA_INSTALL_DIR`, `SUMMA_VERSION`, `SUMMA_DRY_RUN=1`. Then `summa update` for the newest CI artifact. Full machine setup: [docs/install.md](docs/install.md).
 
 ### Cargo
 
@@ -118,10 +118,21 @@ summa cronjob install --dry-run       # print unit/crontab, do not register
 summa cronjob install --replace       # also drop legacy run-import.sh crontab
 summa cronjob status
 summa cronjob remove
-summa update
 ```
 
-Logs: `~/.local/log/summa/cron.log`. Optional env file: `~/.config/summa/env` (systemd).
+At install time: `SUMMA_SETUP_CRON=1 SUMMA_CRON_EVERY=1h` with `install.sh`. Full guide: [`docs/install.md`](docs/install.md).
+
+## Telemetry API
+
+```bash
+summa serve --bind 127.0.0.1:8787
+```
+
+Ingest fans out to MotherDuck **and** ClickHouse (`dedup_key` replace). `GET /health` `/ping` `/status`. `GET /v1/analytics` and `/v1/analytics/summary` for [burn.duyet.net](https://burn.duyet.net). Hermes k8s sidecar/sidebar: [`deploy/k8s/summa-sidecar.yaml`](deploy/k8s/summa-sidecar.yaml). See [`docs/telemetry.md`](docs/telemetry.md).
+
+Logs: `~/.local/log/summa/cron.log`. Optional env file: `~/.config/summa/env` (systemd). `SUMMA_SETUP_CRON=1` registers the job at install time.
+
+Keep Cursor and Grok enabled on every host. Account-wide Cursor uses `machine_name=account`; sinks dedup.
 
 ## Development / release
 

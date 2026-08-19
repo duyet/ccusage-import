@@ -19,4 +19,12 @@ protocol = "http"
 # duckdb_path = "md:ccusage"   # MotherDuck (needs motherduck_token)
 days_back = 7
 hash_project_names = true
-# skip_cursor = true   # set on extra hosts; Cursor is account-wide
+# Keep skip_cursor / skip_grok off on every machine. Cursor is account-wide
+# (machine_name=account); sinks already dedup — do not skip to avoid double-count.
+# skip_cursor = false
+# skip_grok = false
+
+# Optional HTTP hub (summa serve). Token belongs in credentials.toml
+# (telemetry_token) or SUMMA_TELEMETRY_TOKEN — not here.
+# [telemetry]
+# bind = "0.0.0.0:8787"

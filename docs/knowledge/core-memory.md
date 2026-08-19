@@ -15,7 +15,8 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 
 ## Known guardrails
 
-- **Never `cargo build --release` on these machines** (macOS laptop is often low-memory; Linux home servers too). CI (`release.yml`) is the only builder. Install with `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` (tagged GitHub Release) or `summa update` (newest CI artifact for this OS/arch). Do not `cargo build` just to deploy.
+- **Never `cargo build --release` on these machines** (macOS laptop is often low-memory; Linux home servers too). CI (`release.yml`) is the only builder. Install with `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` (tagged GitHub Release) or `summa update` (newest CI artifact for this OS/arch). Do not `cargo build` just to deploy. `SUMMA_SETUP_CRON=1` runs `summa cronjob install` after the binary lands.
+- **Telemetry (`summa serve`)**: machines POST `/v1/ingest`; hub fans out to MotherDuck **and** ClickHouse, replacing by `dedup_key` (never scoped day-delete). `/ping` measures live sink latency; `/v1/analytics` and `/v1/analytics/summary` serve burn.duyet.net (`cost_per_day` = cost / inclusive calendar days). Token: `credentials.toml` `telemetry_token` / `SUMMA_TELEMETRY_TOKEN`. k8s: `deploy/k8s/summa-sidecar.yaml`.
 
 - `run-import.sh` is Bun-only; do not add npm/yarn fallback.
 - `src/scripts/setup-cronjob.ts` must write crontab via stdin (`crontab -`), not shell-quoted `echo`.

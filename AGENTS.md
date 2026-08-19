@@ -29,7 +29,8 @@ git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad
 Config: `~/.config/summa/config.toml` + `credentials.toml` (secrets separate). `.env` still overlays `CH_*` / `MOTHERDUCK_TOKEN` / `DUCKDB_PATH`.
 Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
 Install: `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` then `summa update`. Never `cargo build --release` on laptops or home Linux hosts (CI only).
-Scheduler: `summa cronjob install` (launchd / systemd user timer / crontab / loop).
+Scheduler: `summa cronjob install` (launchd / systemd user timer / crontab / loop). Installer: `SUMMA_SETUP_CRON=1` runs that after curl|bash.
+Telemetry hub: `summa serve` (`POST /v1/ingest` fans out to MotherDuck **and** ClickHouse with `dedup_key` replace; `GET /health` `/ping` `/status`; `GET /v1/analytics` + `/v1/analytics/summary` for burn.duyet.net). Docs: `docs/install.md`, `docs/telemetry.md`. k8s sidecar/sidebar: `deploy/k8s/summa-sidecar.yaml`.
 
 Keep **Cursor** and **local Grok Build** on every machine. Account-wide Cursor rows use `machine_name=account`; sinks (`ccusage_events` ReplacingMergeTree / DuckDB dedup) must collapse duplicates — do not disable those sources to “avoid double-count”.
 
@@ -40,6 +41,7 @@ Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 - Sources: `src/source/{ccusage,companion,antigravity,hermes,grok,grok_api,cursor}.rs`
 - Parsers: `src/parser/{rows,cost,schema,companion}.rs`
 - Sinks: `src/sink/{clickhouse,duckdb,csv}.rs`
+- Telemetry: `src/telemetry/mod.rs` + `src/script/serve.rs` (`summa serve`)
 - Types: `src/model.rs` — `EventRow`, pipeline result types
 
 ## Key conventions

@@ -1,0 +1,127 @@
+# summa as a Hermes sidecar (same pod) + iframe sidebar on :8787.
+# Preferred on the duyet/hermes-agent Helm chart: extraContainers overlay in
+# hermes-values-summa.yaml (chart Service only exposes 8642/9119 today — add
+# a sidebar port there if you want Ingress). Placeholders only.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: summa-telemetry
+  labels:
+    app: summa
+type: Opaque
+stringData:
+  MOTHERDUCK_TOKEN: ""
+  CH_HOST: ""
+  CH_PORT: "8123"
+  CH_USER: "default"
+  CH_PASSWORD: ""
+  CH_DATABASE: "default"
+  DUCKDB_PATH: "md:ccusage"
+  SUMMA_TELEMETRY_TOKEN: ""
+---
+# Sidecar snippet (copy into a Hermes pod spec):
+#   containers:
+#     - name: hermes
+#       ...
+#     - name: summa-serve   # sidecar; iframe GET / as sidebar
+#       image: ghcr.io/duyet/summa:latest   # or a pinned digest
+#       args: ["serve", "--bind", "0.0.0.0:8787"]
+#       ports:
+#         - name: telemetry
+#           containerPort: 8787
+#       envFrom:
+#         - secretRef: { name: summa-telemetry }
+#       readinessProbe:
+#         httpGet: { path: /health, port: 8787 }
+#         initialDelaySeconds: 3
+#         periodSeconds: 10
+#       livenessProbe:
+#         httpGet: { path: /health, port: 8787 }
+#         periodSeconds: 20
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: summa-serve
+  labels:
+    app: summa
+    component: telemetry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: summa
+      component: telemetry
+  template:
+    metadata:
+      labels:
+        app: summa
+        component: telemetry
+    spec:
+      containers:
+        - name: summa-serve
+          image: ghcr.io/duyet/summa:latest
+          args: ["serve", "--bind", "0.0.0.0:8787"]
+          ports:
+            - name: telemetry
+              containerPort: 8787
+          envFrom:
+            - secretRef:
+                name: summa-telemetry
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8787
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8787
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: summa-serve
+  labels:
+    app: summa
+spec:
+  selector:
+    app: summa
+    component: telemetry
+  ports:
+    - name: http
+      port: 8787
+      targetPort: telemetry
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: summa-import
+  labels:
+    app: summa
+spec:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: summa-import
+              image: ghcr.io/duyet/summa:latest
+              args: ["import", "--days-back=2"]
+              envFrom:
+                - secretRef:
+                    name: summa-telemetry

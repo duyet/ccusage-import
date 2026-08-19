@@ -1,0 +1,38 @@
+# Overlay for the public duyet/hermes-agent Helm chart.
+# The chart already injects extraContainers after the Hermes (and optional
+# Chromium) containers. Service/Ingress only expose api 8642 + dashboard 9119
+# unless you also add extra ports in the chart — iframe the dashboard via a
+# same-origin path, not http://127.0.0.1:8787 from the browser.
+#
+#   helm upgrade hermes duyet/hermes-agent -f hermes-values-summa.yaml
+#
+# Secret `summa-telemetry` is in summa-sidecar.yaml.
+
+extraContainers:
+  - name: summa-serve
+    image: ghcr.io/duyet/summa:latest
+    args: ["serve", "--bind", "0.0.0.0:8787"]
+    ports:
+      - name: sidebar
+        containerPort: 8787
+        protocol: TCP
+    envFrom:
+      - secretRef:
+          name: summa-telemetry
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: sidebar
+      initialDelaySeconds: 3
+      periodSeconds: 10
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: sidebar
+      periodSeconds: 20
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
