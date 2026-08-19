@@ -20,7 +20,8 @@ git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # rece
 rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'  # dead-code evidence (non-test refs)
 cargo run -- import --verbose           # full import (local DuckDB by default)
 cargo run -- backfill-duckdb            # backfill DuckDB from ClickHouse
-cargo build --release                   # stripped LTO binary → target/release/summa
+cargo build --release                   # macOS workstation only → target/release/summa
+# Linux hosts: install CI Release artifact (never cargo build there)
 git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
 
