@@ -32,6 +32,11 @@ at the top for curated notes; generated release blocks are inserted above it.
 
 ## [Unreleased]
 
+### Features
+
+- Import Cursor account-wide usage (all machines) from cursor.com dashboard / Admin APIs; classify cursor / cloud agent / API / grok bot; `--skip-cursor`
+- Probe Grok CLI-proxy billing for countable account-wide totals (`source=grok-api`); skip credits-percent payloads instead of fabricating turns
+
 ### Product name
 
 **summa** (Latin *summa* = sum, total, summary) — tallies Claude Code (ccusage)

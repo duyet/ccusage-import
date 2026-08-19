@@ -13,7 +13,9 @@ use crate::sink::duckdb::DuckDbSink;
 use crate::source::antigravity::{AntigravitySource, AntigravitySourceOptions};
 use crate::source::ccusage::{CcusageSource, CcusageSourceOptions};
 use crate::source::companion::{CompanionSource as CompanionDataSource, CompanionSourceOptions};
+use crate::source::cursor::{CursorSource, CursorSourceOptions};
 use crate::source::grok::{GrokSource, GrokSourceOptions};
+use crate::source::grok_api::{GrokApiSource, GrokApiSourceOptions};
 use crate::source::hermes::{HermesSource, HermesSourceOptions};
 use crate::util::date::resolve_effective_since;
 use std::env;
@@ -268,6 +270,26 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
             import_id: import_id.clone(),
             base_dir: None,
         })));
+        sources.push(Box::new(GrokApiSource::new(GrokApiSourceOptions {
+            verbose,
+            import_id: import_id.clone(),
+            auth_path: None,
+            disable_network: false,
+        })));
+    }
+
+    if !args.skip_cursor {
+        sources.push(Box::new(CursorSource::new(CursorSourceOptions {
+            verbose,
+            days_back,
+            since: effective_since.clone(),
+            end_date: end_date.clone(),
+            import_id: import_id.clone(),
+            session: None,
+            api_key: None,
+            state_db_path: None,
+            disable_local_auth: false,
+        })));
     }
 
     for agent in COMPANION_AGENTS {
@@ -371,6 +393,33 @@ fn should_skip_companion(args: &ImportArgs, id: &str) -> bool {
         "opencode" => args.skip_opencode,
         _ => false,
     }
+}
+
+/// Source ids `summa import` would register for these skip flags (no I/O).
+pub fn enabled_source_ids(args: &ImportArgs) -> Vec<&'static str> {
+    let mut ids = Vec::new();
+    if !args.skip_ccusage {
+        ids.push("ccusage");
+    }
+    if !args.skip_antigravity {
+        ids.push("antigravity");
+    }
+    if !args.skip_hermes {
+        ids.push("hermes");
+    }
+    if !args.skip_grok {
+        ids.push("grok");
+        ids.push("grok-api");
+    }
+    if !args.skip_cursor {
+        ids.push("cursor");
+    }
+    for agent in COMPANION_AGENTS {
+        if !should_skip_companion(args, agent.as_str()) {
+            ids.push(agent.as_str());
+        }
+    }
+    ids
 }
 
 fn hostname() -> String {
@@ -539,6 +588,7 @@ motherduck_token = "md-from-credentials"
             skip_antigravity: true,
             skip_hermes: true,
             skip_grok: true,
+            skip_cursor: true,
             skip_clickhouse: false,
             skip_duckdb: false,
             dry_run: true,
@@ -638,6 +688,7 @@ days_back = 30
             skip_antigravity: true,
             skip_hermes: true,
             skip_grok: true,
+            skip_cursor: true,
             skip_clickhouse: true,
             skip_duckdb: false,
             dry_run: true,
@@ -653,6 +704,69 @@ days_back = 30
                 Some(v) => env::set_var(key, v),
                 None => env::remove_var(key),
             }
+        }
+    }
+
+    fn skip_all_import_args() -> ImportArgs {
+        ImportArgs {
+            config: None,
+            since: None,
+            days_back: None,
+            end_date: None,
+            duckdb_path: None,
+            ch_host: None,
+            ch_port: None,
+            ch_database: None,
+            skip_ccusage: true,
+            skip_opencode: true,
+            skip_codex: true,
+            skip_antigravity: true,
+            skip_hermes: true,
+            skip_grok: true,
+            skip_cursor: true,
+            skip_clickhouse: true,
+            skip_duckdb: true,
+            dry_run: true,
+        }
+    }
+
+    #[test]
+    fn skip_cursor_omits_cursor_source() {
+        let mut args = skip_all_import_args();
+        args.skip_cursor = true;
+        args.skip_grok = false;
+        let ids = enabled_source_ids(&args);
+        assert!(!ids.contains(&"cursor"));
+        assert!(ids.contains(&"grok"));
+        assert!(ids.contains(&"grok-api"));
+    }
+
+    #[test]
+    fn default_import_registers_cursor_and_grok() {
+        let cli = Cli::try_parse_from(["summa", "import"]).expect("default import must parse");
+        match cli.command {
+            Commands::Import(args) => {
+                assert!(!args.skip_cursor);
+                assert!(!args.skip_grok);
+                let ids = enabled_source_ids(&args);
+                assert!(ids.contains(&"cursor"), "cursor must be on by default: {ids:?}");
+                assert!(ids.contains(&"grok"));
+                assert!(ids.contains(&"grok-api"));
+            }
+            _ => panic!("expected Import"),
+        }
+    }
+
+    #[test]
+    fn clap_skip_cursor_flag() {
+        let cli = Cli::try_parse_from(["summa", "import", "--skip-cursor"]).unwrap();
+        match cli.command {
+            Commands::Import(args) => {
+                assert!(args.skip_cursor);
+                let ids = enabled_source_ids(&args);
+                assert!(!ids.contains(&"cursor"));
+            }
+            _ => panic!("expected Import"),
         }
     }
 }

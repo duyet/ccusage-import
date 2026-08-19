@@ -1,7 +1,7 @@
 //! summa — Rust library.
 //!
 //! Data pipeline importing Claude Code (ccusage), Codex, OpenCode,
-//! Antigravity, Hermes, and Grok Build usage analytics into local DuckDB
+//! Antigravity, Hermes, Cursor, and Grok Build usage analytics into local DuckDB
 //! and optional ClickHouse / MotherDuck.
 
 pub mod cli;

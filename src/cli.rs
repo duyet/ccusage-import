@@ -115,6 +115,9 @@ pub struct ImportArgs {
     /// Skip Grok Build source
     #[arg(long)]
     pub skip_grok: bool,
+    /// Skip Cursor account-wide usage source
+    #[arg(long)]
+    pub skip_cursor: bool,
     /// Skip ClickHouse sink
     #[arg(long)]
     pub skip_clickhouse: bool,
@@ -175,6 +178,7 @@ mod tests {
             skip_antigravity: false,
             skip_hermes: false,
             skip_grok: false,
+            skip_cursor: false,
             skip_clickhouse: false,
             skip_duckdb: false,
             dry_run: false,
@@ -211,5 +215,17 @@ mod tests {
             help.contains("summa") || help.to_lowercase().contains("duckdb"),
             "help should brand the summa product: {help}"
         );
+    }
+
+    #[test]
+    fn clap_accepts_skip_cursor_and_skip_grok() {
+        let cli = Cli::try_parse_from(["summa", "import", "--skip-cursor", "--skip-grok"]).unwrap();
+        match cli.command {
+            Commands::Import(args) => {
+                assert!(args.skip_cursor);
+                assert!(args.skip_grok);
+            }
+            other => panic!("expected Import, got {other:?}"),
+        }
     }
 }

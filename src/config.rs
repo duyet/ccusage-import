@@ -66,6 +66,15 @@ pub struct Credentials {
     pub motherduck: Option<String>,
     #[serde(default)]
     pub ch_password: Option<String>,
+    /// Cookie header or WorkosCursorSessionToken for cursor.com dashboard APIs.
+    #[serde(default)]
+    pub cursor_session: Option<String>,
+    /// Alias for `cursor_session`.
+    #[serde(default)]
+    pub cursor_cookie: Option<String>,
+    /// Cursor Team Admin API key (Basic auth username).
+    #[serde(default)]
+    pub cursor_api_key: Option<String>,
 }
 
 impl Credentials {
@@ -139,6 +148,17 @@ impl Credentials {
             .as_deref()
             .or(self.motherduck.as_deref())
             .filter(|s| !s.is_empty())
+    }
+
+    pub fn cursor_session(&self) -> Option<&str> {
+        self.cursor_session
+            .as_deref()
+            .or(self.cursor_cookie.as_deref())
+            .filter(|s| !s.is_empty())
+    }
+
+    pub fn cursor_api_key(&self) -> Option<&str> {
+        self.cursor_api_key.as_deref().filter(|s| !s.is_empty())
     }
 }
 
@@ -251,6 +271,28 @@ impl Config {
         if std::env::var("MOTHERDUCK_TOKEN").ok().filter(|s| !s.is_empty()).is_none() {
             if let Some(token) = creds.motherduck_token() {
                 std::env::set_var("MOTHERDUCK_TOKEN", token);
+            }
+        }
+        if std::env::var("CURSOR_SESSION")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .is_none()
+            && std::env::var("CURSOR_COOKIE")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .is_none()
+        {
+            if let Some(session) = creds.cursor_session() {
+                std::env::set_var("CURSOR_SESSION", session);
+            }
+        }
+        if std::env::var("CURSOR_API_KEY")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .is_none()
+        {
+            if let Some(key) = creds.cursor_api_key() {
+                std::env::set_var("CURSOR_API_KEY", key);
             }
         }
         Ok(())

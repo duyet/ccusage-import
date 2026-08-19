@@ -1,7 +1,7 @@
 # summa
 
 **summa** (*Latin*: sum, total, summary) — lightweight CLI that imports Claude
-Code (**ccusage**), Codex, OpenCode, Grok, and other agent usage into local
+Code (**ccusage**), Codex, OpenCode, Cursor, Grok, and other agent usage into local
 DuckDB, optionally syncing to ClickHouse or MotherDuck.
 
 | | |
@@ -92,6 +92,8 @@ days_back = 7
 # ~/.config/summa/credentials.toml
 clickhouse_password = "…"
 motherduck_token = "…"
+# cursor_session = "WorkosCursorSessionToken=…"   # or CURSOR_SESSION / Cursor.app login
+# cursor_api_key = "…"                            # team Admin API key (CURSOR_API_KEY)
 ```
 
 ## Usage
@@ -100,6 +102,8 @@ motherduck_token = "…"
 summa import --verbose
 summa import --days-back=7
 summa import --skip-clickhouse
+summa import --skip-cursor
+summa import --skip-grok
 cargo run -- backfill-duckdb
 ```
 

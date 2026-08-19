@@ -31,7 +31,7 @@ Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
 
 Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 
-- Sources: `src/source/{ccusage,companion,antigravity,hermes,grok}.rs`
+- Sources: `src/source/{ccusage,companion,antigravity,hermes,grok,grok_api,cursor}.rs`
 - Parsers: `src/parser/{rows,cost,schema,companion}.rs`
 - Sinks: `src/sink/{clickhouse,duckdb,csv}.rs`
 - Types: `src/model.rs` — `EventRow`, pipeline result types
@@ -43,7 +43,8 @@ Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 - Claude `cacheReadTokens` is separate — total = input + output + cacheCreate + cacheRead
 - Cost distributed across models when per-model costs missing (`distributeCost()`)
 - Companion packages may print log lines before JSON — parser skips to first `{`/`[`
-- Grok Build: `~/.grok` / `GROK_HOME` — `logs/unified.jsonl` (`shell.turn.inference_done`) + session `summary.json` for model/cwd; tokens: input=`prompt-cached`, cache_read=`cached`, output=`completion`, total=`prompt+completion` (reasoning not double-counted); `--skip-grok`
+- Grok Build: `~/.grok` / `GROK_HOME` — `logs/unified.jsonl` (`shell.turn.inference_done`) + session `summary.json` for model/cwd; tokens: input=`prompt-cached`, cache_read=`cached`, output=`completion`, total=`prompt+completion` (reasoning not double-counted); `--skip-grok`. Optional account-wide CLI-proxy billing (`grok-api`) is imported only when the JSON has countable spend/tokens — credits-percent payloads are skipped (no fabricated turns).
+- Cursor (account-wide, `machine_name=account`): dashboard `POST https://cursor.com/api/dashboard/get-filtered-usage-events` (session/cookie or Cursor.app `state.vscdb` JWT) or Admin `POST https://api.cursor.com/teams/filtered-usage-events`; surfaces `cursor` / `cursor-cloud-agent` / `cursor-api` / `cursor-grok-bot`; `--skip-cursor`. Missing auth skips the source.
 - Monthly not fetched — derivable via `toYYYYMM(date)` SQL
 
 ## Core memory
