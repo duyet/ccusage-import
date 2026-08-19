@@ -34,6 +34,7 @@ at the top for curated notes; generated release blocks are inserted above it.
 
 ### Features
 
+- `summa cronjob install` generates and registers a user import service (launchd on macOS, systemd --user timer on Linux, crontab fallback), with `--every 1h|6h|1d` and `--dry-run`
 - Import Cursor account-wide usage (all machines) from cursor.com dashboard / Admin APIs; classify cursor / cloud agent / API / grok bot; `--skip-cursor`
 - Probe Grok CLI-proxy billing for countable account-wide totals (`source=grok-api`); skip credits-percent payloads instead of fabricating turns
 

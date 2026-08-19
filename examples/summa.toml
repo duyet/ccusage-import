@@ -16,6 +16,7 @@ protocol = "http"
 # Omit duckdb_path for local-first default:
 #   macOS: ~/Library/Application Support/summa/summa.duckdb
 #   Linux: ~/.local/share/summa/summa.duckdb
-# duckdb_path = "md:summa"   # MotherDuck (needs motherduck_token)
+# duckdb_path = "md:ccusage"   # MotherDuck (needs motherduck_token)
 days_back = 7
 hash_project_names = true
+# skip_cursor = true   # set on extra hosts; Cursor is account-wide

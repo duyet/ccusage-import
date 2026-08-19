@@ -17,6 +17,7 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 
 - `run-import.sh` is Bun-only; do not add npm/yarn fallback.
 - `src/scripts/setup-cronjob.ts` must write crontab via stdin (`crontab -`), not shell-quoted `echo`.
+- Rust `summa cronjob`: generate+register launchd / systemd --user / crontab. Crontab updates go through `crontab -` stdin (never `/tmp` + `crontab file`). Status reports legacy `run-import.sh` lines; `--replace` removes them.
 - Keep sink dedup delete filters SQL-escaped in both ClickHouse and DuckDB sinks.
 - Companion (`codex`/`opencode`) totals must avoid cache double-count: `total_tokens = inputTokens + outputTokens`.
 - Claude totals must keep cache components separate: `total_tokens = input + output + cacheCreation + cacheRead`.

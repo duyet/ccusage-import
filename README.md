@@ -109,14 +109,24 @@ cargo run -- backfill-duckdb
 
 ## Cron job
 
+`summa cronjob install` generates and registers a user scheduler:
+
+- macOS: launchd LaunchAgent `net.duyet.summa.import`
+- Linux: systemd --user timer `summa-import.timer` (falls back to crontab)
+- crontab if neither is available (`crontab -` via stdin)
+
 ```bash
-summa cronjob install     # install daily at 08:00
-summa cronjob status      # show whether installed
-summa cronjob remove      # remove daily job
-summa update              # install newest CI Release artifact for this OS/arch
+summa cronjob install                 # every 1h, --days-back from config (else 2)
+summa cronjob install --every 6h      # ubuntu-style
+summa cronjob install --every 1d      # daily 08:00
+summa cronjob install --dry-run       # print unit/crontab, do not register
+summa cronjob install --replace       # also drop legacy run-import.sh crontab
+summa cronjob status
+summa cronjob remove
+summa update
 ```
 
-Logs: `~/.summa/cron.log`.
+Logs: `~/.local/log/summa/cron.log`. Optional env file: `~/.config/summa/env` (systemd).
 
 ## Development / release
 

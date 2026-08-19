@@ -63,7 +63,7 @@ pub enum Commands {
     Check(CheckArgs),
     /// Print or validate configuration
     Config(ConfigArgs),
-    /// Manage daily import cron job
+    /// Generate and register a scheduled import (launchd / systemd / cron)
     Cronjob(CronjobArgs),
     /// Publish local DuckDB events to ClickHouse
     Publish(PublishArgs),
@@ -214,6 +214,17 @@ mod tests {
         assert!(
             help.contains("summa") || help.to_lowercase().contains("duckdb"),
             "help should brand the summa product: {help}"
+        );
+    }
+
+    #[test]
+    fn help_includes_cronjob_subcommand() {
+        use clap::CommandFactory;
+        let mut cmd = Cli::command();
+        let help = cmd.render_long_help().to_string();
+        assert!(
+            help.contains("cronjob"),
+            "top-level help should list cronjob: {help}"
         );
     }
 

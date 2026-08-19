@@ -26,6 +26,7 @@ git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad
 
 Config: `~/.config/summa/config.toml` + `credentials.toml` (secrets separate).
 Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
+Scheduler: `summa cronjob install` (launchd / systemd user timer / crontab).
 
 ## Architecture
 

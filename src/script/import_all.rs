@@ -166,7 +166,9 @@ pub fn apply_config_to_env(cfg: &Config) {
 pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
+    let mut args = args;
     let prepared = prepare_import(&args)?;
+    apply_importer_skips(&mut args, &prepared.config.importer);
     let days_back = prepared.days_back;
     let since = prepared.since.clone();
     let end_date = prepared.end_date.clone();
@@ -385,6 +387,16 @@ pub async fn run(args: ImportArgs, verbose: bool) -> anyhow::Result<()> {
         anyhow::bail!("all sinks failed (or no sinks configured)");
     }
     Ok(())
+}
+
+pub fn apply_importer_skips(args: &mut ImportArgs, cfg: &crate::config::ImporterConfig) {
+    args.skip_ccusage |= cfg.skip_ccusage.unwrap_or(false);
+    args.skip_opencode |= cfg.skip_opencode.unwrap_or(false);
+    args.skip_codex |= cfg.skip_codex.unwrap_or(false);
+    args.skip_antigravity |= cfg.skip_antigravity.unwrap_or(false);
+    args.skip_hermes |= cfg.skip_hermes.unwrap_or(false);
+    args.skip_grok |= cfg.skip_grok.unwrap_or(false);
+    args.skip_cursor |= cfg.skip_cursor.unwrap_or(false);
 }
 
 fn should_skip_companion(args: &ImportArgs, id: &str) -> bool {
@@ -755,6 +767,21 @@ days_back = 30
             }
             _ => panic!("expected Import"),
         }
+    }
+
+    #[test]
+    fn config_skip_cursor_omits_cursor_source() {
+        let mut args = skip_all_import_args();
+        args.skip_cursor = false;
+        args.skip_grok = false;
+        let cfg = crate::config::ImporterConfig {
+            skip_cursor: Some(true),
+            ..Default::default()
+        };
+        apply_importer_skips(&mut args, &cfg);
+        let ids = enabled_source_ids(&args);
+        assert!(!ids.contains(&"cursor"));
+        assert!(ids.contains(&"grok"));
     }
 
     #[test]
