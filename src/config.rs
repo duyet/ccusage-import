@@ -116,14 +116,24 @@ impl Credentials {
         }
         candidates.push("./credentials.toml".to_string());
         candidates.push("./summa.credentials.toml".to_string());
-        if let Some(config_home) = dirs::config_dir() {
+        if let Some(home) = dirs::home_dir() {
             candidates.push(
-                config_home
+                home.join(".config")
                     .join(CONFIG_DIR_NAME)
                     .join(CREDENTIALS_FILE_NAME)
                     .display()
                     .to_string(),
             );
+        }
+        if let Some(config_home) = dirs::config_dir() {
+            let p = config_home
+                .join(CONFIG_DIR_NAME)
+                .join(CREDENTIALS_FILE_NAME)
+                .display()
+                .to_string();
+            if !candidates.iter().any(|c| c == &p) {
+                candidates.push(p);
+            }
         }
         if let Some(home) = dirs::home_dir() {
             candidates.push(
@@ -342,14 +352,25 @@ impl Config {
         candidates.push("./summa.toml".to_string());
         candidates.push("./summa-import.toml".to_string());
 
-        if let Some(config_home) = config_dir {
+        if let Some(home) = &home_dir {
             candidates.push(
-                config_home
+                home.join(".config")
                     .join(CONFIG_DIR_NAME)
                     .join(CONFIG_FILE_NAME)
                     .display()
                     .to_string(),
             );
+        }
+
+        if let Some(config_home) = config_dir {
+            let p = config_home
+                .join(CONFIG_DIR_NAME)
+                .join(CONFIG_FILE_NAME)
+                .display()
+                .to_string();
+            if !candidates.iter().any(|c| c == &p) {
+                candidates.push(p);
+            }
         }
 
         if let Some(home) = home_dir {
