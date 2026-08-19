@@ -251,19 +251,14 @@ fn apply_cors(origin: Option<&str>, public: bool, res: Response) -> Result<Respo
 }
 
 fn dashboard_html(publishable_key: &str, version: &str) -> String {
-    format!(
-        "<!doctype html><html><head><meta charset=utf-8><title>summa telemetry</title>\
-         <meta name=viewport content=\"width=device-width,initial-scale=1\">\
-         <style>body{{font:15px/1.45 system-ui,sans-serif;margin:24px;background:#f6f5f2;color:#161513}}\
-         code,pre{{font:13px ui-monospace,monospace}}pre{{background:#f0eee9;padding:12px;border-radius:8px}}</style>\
-         </head><body><h1>summa telemetry</h1>\
-         <p>v{version} · <a href=/health>health</a> · <a href=/ping>ping</a> · <a href=/install.sh>install.sh</a></p>\
-         <pre>curl -fsSL https://summa.duyet.net/install.sh | bash</pre>\
-         <p>Hub at <code>https://summa.duyet.net</code>. Sign in with Clerk (if configured) or a bootstrap token to mint <code>summa_</code> API keys.</p>\
-         <pre>[telemetry]\nendpoint = \"https://summa.duyet.net\"\n# credentials.toml telemetry_token = \"summa_…\"</pre>\
-         <p class=muted>Clerk pk set: {}</p></body></html>",
-        !publishable_key.is_empty()
-    )
+    let clerk = if publishable_key.is_empty() {
+        "<p class=\"muted\">mint needs a clerk session or bootstrap token on the request.</p>"
+    } else {
+        "<p class=\"muted\">clerk is configured. sign in, then mint.</p>"
+    };
+    include_str!("dashboard.html")
+        .replace("__VERSION__", version)
+        .replace("__CLERK_NOTE__", clerk)
 }
 
 #[cfg(test)]
@@ -277,5 +272,14 @@ mod tests {
         assert!(s.contains("SUMMA_DOWNLOAD_BASE"));
         assert!(s.contains("nightly"));
         assert!(s.contains("curl -fsSL"));
+    }
+
+    #[test]
+    fn dashboard_is_terminal_landing() {
+        let html = super::dashboard_html("", "0.1.1");
+        assert!(html.contains("curl -fsSL https://summa.duyet.net/install.sh | bash"));
+        assert!(html.contains("class=\"term\""));
+        assert!(html.contains("v0.1.1"));
+        assert!(!html.contains('\u{2014}'));
     }
 }
