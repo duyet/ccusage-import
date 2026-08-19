@@ -1,0 +1,17 @@
+{
+  "name": "summa-telemetry",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "summa.duyet.net", "custom_domain": true }],
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "summa-telemetry",
+    "database_id": "0ebf1a61-74cf-43d5-b3bd-decec245be3d",
+    "migrations_dir": "migrations"
+  }],
+  "vars": {
+    "CLERK_PUBLISHABLE_KEY": ""
+  }
+}

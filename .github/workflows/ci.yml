@@ -58,16 +58,33 @@ jobs:
           dist/summa-x86_64-unknown-linux-gnu.tar.gz
           dist/summa-x86_64-unknown-linux-gnu.tar.gz.sha256
 
+  api:
+    name: API Worker (typecheck)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+    - name: Setup Bun
+      uses: oven-sh/setup-bun@v2
+    - name: Install
+      run: bun install --frozen-lockfile
+    - name: Typecheck @summa/api
+      run: bun run build:api
+
   status-check:
     name: All checks passed
     if: always()
-    needs: [rust]
+    needs: [rust, api]
     runs-on: ubuntu-latest
     steps:
     - name: Check required jobs
       run: |
         if [ "${{ needs.rust.result }}" != "success" ]; then
           echo "Rust job failed"
+          exit 1
+        fi
+        if [ "${{ needs.api.result }}" != "success" ]; then
+          echo "API job failed"
           exit 1
         fi
         echo "All required checks passed!"

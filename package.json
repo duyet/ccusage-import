@@ -1,17 +1,24 @@
 {
   "name": "summa",
   "version": "0.1.0",
-  "description": "Import Claude Code (ccusage) and AI agent usage into DuckDB/ClickHouse",
+  "private": true,
+  "description": "summa monorepo — CLI (`@summa/cli`) + telemetry API Worker (`@summa/api`)",
   "type": "module",
-  "main": "./dist/index.js",
-  "bin": {
-    "summa": "dist/cli.js"
-  },
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
+    "build": "bun run build:cli && bun run build:api",
+    "build:cli": "bun run --filter @summa/cli build",
+    "build:api": "bun run --filter @summa/api build",
+    "check": "bun run --filter @summa/cli check && bun run --filter @summa/api check",
+    "test": "bun run --filter @summa/cli test",
+    "test:ts": "bun test",
+    "dev:api": "bun run --filter @summa/api dev",
+    "deploy:api": "bun run --filter @summa/api deploy",
     "dev": "bun run src/index.ts",
-    "build": "bun build src/cli.ts --outdir ./dist --target bun",
+    "build:ts": "bun build src/cli.ts --outdir ./dist --target bun",
     "build:node": "bun build src/cli.ts --outdir ./dist --target node",
-    "test": "bun test",
     "test:watch": "bun test --watch",
     "test:bun": "bun test",
     "test:coverage": "bun test --coverage",

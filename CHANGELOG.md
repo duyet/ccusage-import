@@ -34,6 +34,7 @@ at the top for curated notes; generated release blocks are inserted above it.
 
 ### Features
 
+- Monorepo apps `@summa/cli` + `@summa/api`; `.env.example` for CLI and Worker credentials
 - `summa serve` telemetry HTTP: ingest fans out to MotherDuck and ClickHouse by `dedup_key`; `/health` `/ping` `/status`; `/v1/analytics` + `/v1/analytics/summary` for burn.duyet.net
 - `SUMMA_SETUP_CRON=1` on `install.sh` registers `summa cronjob install`
 - Hermes k8s sidecar/sidebar spec at `deploy/k8s/summa-sidecar.yaml`

@@ -1,0 +1,21 @@
+{
+  "name": "@summa/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "summa telemetry API (Cloudflare Worker, summa.duyet.net)",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
+    "migrate:local": "wrangler d1 migrations apply summa-telemetry --local",
+    "migrate:remote": "wrangler d1 migrations apply summa-telemetry --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "4.20250813.0",
+    "typescript": "^5.9.2",
+    "wrangler": "^4.32.0"
+  }
+}

@@ -1,0 +1,16 @@
+# wrangler dev secrets (gitignored as .dev.vars)
+# cp .dev.vars.example .dev.vars
+
+CH_HOST=
+CH_PORT=8123
+CH_USER=default
+CH_PASSWORD=
+CH_DATABASE=default
+CH_PROTOCOL=http
+
+MOTHERDUCK_TOKEN=
+MOTHERDUCK_DATABASE=ccusage
+# MOTHERDUCK_SQL_URL=
+
+CLERK_SECRET_KEY=
+BOOTSTRAP_TOKEN=

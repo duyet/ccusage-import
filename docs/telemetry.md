@@ -1,77 +1,55 @@
-# Telemetry API (`summa serve`)
+# Telemetry (summa.duyet.net)
 
-HTTP hub for ingest, live sink ping, and analytics. Machines POST events; this process fills `dedup_key`, then writes **both** MotherDuck/DuckDB and ClickHouse. [burn.duyet.net](https://burn.duyet.net) pulls `/v1/analytics`.
+The hub is a **Cloudflare Worker**, not a local `summa serve`. Every `summa` binary POSTs events with an API key. The worker stamps `account_id` / `api_key_id` and double-writes **MotherDuck** and **ClickHouse**. burn.duyet.net, MCP, and the dashboard pull `/v1/analytics`.
 
-Default bind: `127.0.0.1:8787`.
+Existing rows keep empty `account_id`. Analytics for the **first/owner** tenant includes `account_id IN (theirs, '')` so current data still shows; other tenants only see their own `account_id`.
 
-## Config
+Worker deploy, D1, and secrets: `apps/api/README.md`. Creds: `.env.example`.
+
+## Client config
 
 ```toml
+# ~/.config/summa/config.toml
 [telemetry]
-bind = "0.0.0.0:8787"
-# token is better in credentials.toml
+endpoint = "https://summa.duyet.net"
 ```
 
 ```toml
-# credentials.toml
-telemetry_token = "…"
+# ~/.config/summa/credentials.toml
+telemetry_token = "summa_…"
 ```
 
-Env: `SUMMA_TELEMETRY_BIND`, `SUMMA_TELEMETRY_TOKEN`.
+Env: `SUMMA_TELEMETRY_ENDPOINT`, `SUMMA_TELEMETRY_TOKEN`.
 
-Auth: `Authorization: Bearer <token>` or `X-Summa-Token`. `/health` and `/ping` are public. Empty token disables auth (local only).
+`summa import` still writes local DuckDB. When a token is set it also POSTs `/v1/ingest`. The hourly/6h job runs `summa update` then `summa import` (auto-upgrade from GitHub CI).
 
-CORS: `https://burn.duyet.net` and `http://localhost` / `http://127.0.0.1` (any port).
-
-## Endpoints
+## Hub API
 
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
-| GET | `/` | no | Tiny HTML sidebar (iframe) |
-| GET | `/health` | no | `{ok, service, version}` |
-| GET | `/ping` | no | Live `SELECT 1` latency to DuckDB/MotherDuck and ClickHouse |
-| GET | `/status` | yes | Last ingest, last sink acks, last ping samples |
-| POST | `/v1/ingest` | yes | `{events: EventRow[]}` fan-out write |
-| GET | `/v1/analytics` | yes | Daily points for burn.duyet.net |
-| GET | `/v1/analytics/summary` | yes | Totals + cost-per-day + per-source |
+| GET | `/` | Clerk or bootstrap | Create/revoke API keys |
+| GET | `/health` | no | Liveness |
+| GET | `/ping` | no | Sink latency |
+| POST | `/v1/ingest` | API key | Fan-out write |
+| GET | `/v1/analytics` | API key | Daily points (`group=source\|model`) |
+| GET | `/v1/analytics/summary` | API key | Totals + calendar `cost_per_day` |
+| POST | `/v1/keys` | Clerk session or bootstrap | Mint `summa_…` key (shown once) |
+| GET | `/v1/keys` | Clerk / bootstrap | List prefixes |
+| DELETE | `/v1/keys/:id` | Clerk / bootstrap | Revoke |
 
-### Ingest
+## Keys
 
-Missing `dedup_key` / timestamps are filled. Writes replace **by `dedup_key` only** (a partial POST does not wipe the rest of that day). Fan-out is parallel to both sinks when configured — not first-match `[sinks].routes`.
+Sign in at https://summa.duyet.net (Clerk). Generate a key, put it on each machine. Multi-tenant: each Clerk user is an `account_id`; events never leak across accounts.
 
-HTTP status: **200** if at least one sink succeeded, **502** if every configured sink failed, **503** if none configured, **401** if auth failed.
-
-### Analytics
-
-```
-GET /v1/analytics?since=2026-08-01&until=2026-08-20&group=source
-GET /v1/analytics?group=model&days=30
-GET /v1/analytics/summary?days=7
-```
-
-`group=source` (default) or `model`. Window is inclusive `YYYY-MM-DD`. Default last 30 days (summary default 7). Prefer DuckDB/MotherDuck; fall back to ClickHouse `FINAL`.
-
-`cost_per_day` is total cost divided by the **calendar** window, not the count of days that have rows.
-
-Response points: `{date, source, model_name, cost, total_tokens, entries}`.
-
-## curl
+## Install a new machine
 
 ```bash
-curl -s http://127.0.0.1:8787/health
-curl -s http://127.0.0.1:8787/ping
-curl -s -H "Authorization: Bearer $SUMMA_TELEMETRY_TOKEN" http://127.0.0.1:8787/status
-curl -s -H "Authorization: Bearer $SUMMA_TELEMETRY_TOKEN" \
-  "http://127.0.0.1:8787/v1/analytics?days=7&group=source"
-curl -s -H "Authorization: Bearer $SUMMA_TELEMETRY_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"events":[]}' \
-  http://127.0.0.1:8787/v1/ingest
+SUMMA_SETUP_CRON=1 SUMMA_CRON_EVERY=1h \
+SUMMA_TELEMETRY_ENDPOINT=https://summa.duyet.net \
+SUMMA_TELEMETRY_TOKEN=summa_… \
+  curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash
+summa update
+summa cronjob install --every 1h --replace
 ```
 
-## Run
-
-```bash
-summa serve
-summa serve --bind 0.0.0.0:8787
-```
+Never `cargo build --release` on laptops or home Linux.

@@ -72,10 +72,6 @@ summa import --verbose --days-back=2
 
 ## 5. Optional telemetry hub
 
-On the machine that should fan-out writes and serve burn.duyet.net:
+Hosted hub: [https://summa.duyet.net](https://summa.duyet.net). Put `telemetry_token` in `credentials.toml` (and optional `[telemetry] endpoint`). See `docs/telemetry.md` and `apps/api/README.md`. Copy `.env.example` → `.env`.
 
-```bash
-summa serve --bind 0.0.0.0:8787
-```
-
-See `docs/telemetry.md`. Kubernetes sidecar + Hermes sidebar: `deploy/k8s/summa-sidecar.yaml`.
+Kubernetes sidecar + Hermes sidebar: `deploy/k8s/summa-sidecar.yaml`.

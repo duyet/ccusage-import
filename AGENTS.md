@@ -12,6 +12,11 @@ Docs index: `docs/INDEX.md` (core memory: `docs/knowledge/core-memory.md`).
 ## Commands
 
 ```bash
+bun run check                           # CLI cargo check + API tsc
+bun run build:cli                       # cargo build --locked --bin summa (not --release)
+bun run build:api                       # Worker typecheck
+bun run test                            # cargo test --test-threads=1
+bun run deploy:api                      # wrangler deploy (apps/api)
 cargo test                              # tests
 cargo check                             # typecheck
 git switch -c automation/<topic> origin/master  # create branch first when worktree is on detached HEAD
@@ -30,7 +35,7 @@ Config: `~/.config/summa/config.toml` + `credentials.toml` (secrets separate). `
 Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
 Install: `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` then `summa update`. Never `cargo build --release` on laptops or home Linux hosts (CI only).
 Scheduler: `summa cronjob install` (launchd / systemd user timer / crontab / loop). Installer: `SUMMA_SETUP_CRON=1` runs that after curl|bash.
-Telemetry hub: `summa serve` (`POST /v1/ingest` fans out to MotherDuck **and** ClickHouse with `dedup_key` replace; `GET /health` `/ping` `/status`; `GET /v1/analytics` + `/v1/analytics/summary` for burn.duyet.net). Docs: `docs/install.md`, `docs/telemetry.md`. k8s sidecar/sidebar: `deploy/k8s/summa-sidecar.yaml`.
+Telemetry hub: Cloudflare Worker at **https://summa.duyet.net** (`apps/api`). Clients POST with `telemetry_token`; worker stamps `account_id`/`api_key_id` and double-writes MotherDuck + ClickHouse. Clerk login generates keys. Analytics: `GET /v1/analytics` + `/summary` for burn.duyet.net. Cron job runs `summa update` then `summa import`. Creds template: `.env.example`. Docs: `docs/install.md`, `docs/telemetry.md`.
 
 Keep **Cursor** and **local Grok Build** on every machine. Account-wide Cursor rows use `machine_name=account`; sinks (`ccusage_events` ReplacingMergeTree / DuckDB dedup) must collapse duplicates — do not disable those sources to “avoid double-count”.
 
