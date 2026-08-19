@@ -134,11 +134,22 @@ At install time: `SUMMA_SETUP_CRON=1 SUMMA_CRON_EVERY=1h` with `install.sh`. Ful
 
 ## Telemetry API
 
-```bash
-summa serve --bind 127.0.0.1:8787
+Hub: [https://summa.duyet.net](https://summa.duyet.net) (Cloudflare Worker, `apps/api`). Not a local HTTP server.
+
+```toml
+# ~/.config/summa/config.toml
+[telemetry]
+endpoint = "https://summa.duyet.net"
 ```
 
-Ingest fans out to MotherDuck **and** ClickHouse (`dedup_key` replace). `GET /health` `/ping` `/status`. `GET /v1/analytics` and `/v1/analytics/summary` for [burn.duyet.net](https://burn.duyet.net). Hermes k8s sidecar/sidebar: [`deploy/k8s/summa-sidecar.yaml`](deploy/k8s/summa-sidecar.yaml). See [`docs/telemetry.md`](docs/telemetry.md).
+```toml
+# ~/.config/summa/credentials.toml
+telemetry_token = "summa_…"
+```
+
+`summa import` POSTs `/v1/ingest` when a token is set. D1 stores API keys/accounts only; usage data is ClickHouse + MotherDuck. `GET /v1/analytics` and `/v1/analytics/summary` for [burn.duyet.net](https://burn.duyet.net).
+
+`summa serve` only pings the cloud hub (deprecated local bind). k8s/Hermes runs **import** as a client (`deploy/k8s/summa-sidecar.yaml`); sidebar iframe `https://summa.duyet.net`. See [`docs/telemetry.md`](docs/telemetry.md).
 
 Logs: `~/.local/log/summa/cron.log`. Optional env file: `~/.config/summa/env` (systemd). `SUMMA_SETUP_CRON=1` registers the job at install time.
 
@@ -148,7 +159,7 @@ Keep Cursor and Grok enabled on every host. Account-wide Cursor uses `machine_na
 
 ```bash
 cargo test
-cargo build --release
+# cargo build --release is CI only — never on laptops
 cargo package
 cargo publish   # needs CARGO_REGISTRY_TOKEN / cargo login
 ```

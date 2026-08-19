@@ -4,7 +4,9 @@ The hub is a **Cloudflare Worker**, not a local `summa serve`. Every `summa` bin
 
 Existing rows keep empty `account_id`. Analytics for the **first/owner** tenant includes `account_id IN (theirs, '')` so current data still shows; other tenants only see their own `account_id`.
 
-Worker deploy, D1, and secrets: `apps/api/README.md`. Creds: `.env.example`.
+Worker deploy, D1 (API keys/accounts only), and secrets: `apps/api/README.md`. Usage data: ClickHouse + MotherDuck. Creds: `.env.example` at repo root.
+
+`summa serve` only pings this hub (deprecated local HTTP). k3s/Hermes: `docs/k3s.md` — run **import**, not a local server. Sidebar iframe: https://summa.duyet.net.
 
 ## Client config
 

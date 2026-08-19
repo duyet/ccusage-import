@@ -10,13 +10,13 @@ git switch -c automation/<topic> origin/master
 git worktree list --porcelain
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only
 git log --since='7 days ago' --no-merges --pretty=format:'%h %cI %s'
-rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
+rg -n "<symbol>" apps/cli/src apps/cli/tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 ```
 
 ## Known guardrails
 
 - **Never `cargo build --release` on these machines** (macOS laptop is often low-memory; Linux home servers too). CI (`release.yml`) is the only builder. Install with `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` (tagged GitHub Release) or `summa update` (newest CI artifact for this OS/arch). Do not `cargo build` just to deploy. `SUMMA_SETUP_CRON=1` runs `summa cronjob install` after the binary lands.
-- **Telemetry (`summa serve`)**: machines POST `/v1/ingest`; hub fans out to MotherDuck **and** ClickHouse, replacing by `dedup_key` (never scoped day-delete). `/ping` measures live sink latency; `/v1/analytics` and `/v1/analytics/summary` serve burn.duyet.net (`cost_per_day` = cost / inclusive calendar days). Token: `credentials.toml` `telemetry_token` / `SUMMA_TELEMETRY_TOKEN`. k8s: `deploy/k8s/summa-sidecar.yaml`.
+- **Telemetry hub is https://summa.duyet.net** (Rust Worker `apps/api`), not local `summa serve`. Clients: `[telemetry] endpoint` + `credentials.toml` `telemetry_token` / `SUMMA_TELEMETRY_TOKEN`. `summa import` POSTs `/v1/ingest`. Worker stamps `account_id`/`api_key_id` and double-writes MotherDuck **and** ClickHouse (`dedup_key` replace, never scoped day-delete). D1 = keys/accounts only. `/ping` sink latency; `/v1/analytics` + `/v1/analytics/summary` for burn.duyet.net (`cost_per_day` = cost / inclusive calendar days). `summa serve` only pings the cloud hub. Cron: `summa update` then `summa import`. k8s: Hermes pod runs **import** (client); sidebar iframe https://summa.duyet.net; hourly CronJob; secrets `SUMMA_TELEMETRY_ENDPOINT` + `SUMMA_TELEMETRY_TOKEN`. Manifest: `deploy/k8s/summa-sidecar.yaml`.
 
 - `run-import.sh` is Bun-only; do not add npm/yarn fallback.
 - `src/scripts/setup-cronjob.ts` must write crontab via stdin (`crontab -`), not shell-quoted `echo`.
@@ -38,8 +38,8 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 
 ## Routine operations
 
-- Full import: `bun run src/scripts/import-all.ts --verbose`
-- DuckDB backfill from ClickHouse: `bun run src/scripts/backfill-duckdb.ts`
+- Full import: `cargo run --bin summa -- import --verbose` (from `apps/cli`)
+- DuckDB backfill from ClickHouse: `cargo run --bin summa -- backfill-duckdb`
 
 ## CI and archived Python docs
 

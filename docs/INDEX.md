@@ -3,8 +3,9 @@
 - `docs/install.md` — machine install, config, auto cron, telemetry hub.
 - `docs/telemetry.md` — hosted hub at summa.duyet.net. Rust Worker: `apps/api`.
 - `.env.example` — CLI + API Worker credentials (copy to `.env`).
-- `deploy/k8s/summa-sidecar.yaml` — Hermes sidecar + sidebar + hourly import CronJob.
-- `deploy/k8s/hermes-values-summa.yaml` — `extraContainers` overlay for the duyet/hermes-agent Helm chart.
+- `deploy/k8s/summa-sidecar.yaml` — Hermes **import client** + sidebar iframe (summa.duyet.net) + hourly CronJob (not a local telemetry server).
+- `deploy/k8s/hermes-values-summa.yaml` — k3s Hermes Helm overlay: import sidecar → cloud hub.
+- `docs/k3s.md` — k3s / Hermes client (not an in-cluster telemetry server).
 - `docs/knowledge/core-memory.md` — durable maintenance notes for automation runs.
 - `docs/knowledge/antigravity.md` — integration details, architecture, and running guide for Antigravity source.
 - `docs/knowledge/cursor.md` — Cursor account-wide usage source (dashboard/Admin APIs, surface labels).
