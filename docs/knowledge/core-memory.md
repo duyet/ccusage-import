@@ -15,7 +15,7 @@ rg -n "<symbol>" src tests -g '!**/*.test.ts' -g '!**/*.spec.ts'
 
 ## Known guardrails
 
-- **Never `cargo build` on the Linux home servers.** CI (`release.yml`) produces the binaries; copy the matching `summa-<arch>-unknown-linux-gnu` artifact and install it (`install` to `~/.local/bin/summa` or `~/.cargo/bin/summa`). Use `summa update` when GitHub artifact download works. Local `cargo build --release` is for the macOS workstation only.
+- **Never `cargo build --release` on these machines** (macOS laptop is often low-memory; Linux home servers too). CI (`release.yml`) is the only builder. Install with `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` (tagged GitHub Release) or `summa update` (newest CI artifact for this OS/arch). Do not `cargo build` just to deploy.
 
 - `run-import.sh` is Bun-only; do not add npm/yarn fallback.
 - `src/scripts/setup-cronjob.ts` must write crontab via stdin (`crontab -`), not shell-quoted `echo`.

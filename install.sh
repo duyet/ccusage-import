@@ -112,9 +112,9 @@ main() {
     warn "release asset not found at ${url}"
     warn "No prebuilt binary for this platform/tag yet."
     warn "Options:"
-    warn "  1) cargo install summa-import --locked"
-    warn "  2) git clone https://github.com/${REPO}.git && cargo build --release"
-    warn "  3) Wait for the first GitHub Release after merge of the release-please PR"
+    warn "  1) summa update          # newest CI artifact (needs gh auth or GITHUB_TOKEN)"
+    warn "  2) Wait for the GitHub Release after the release-please PR is merged"
+    warn "Do not cargo build --release on this machine."
     exit 1
   fi
 

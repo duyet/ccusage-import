@@ -41,12 +41,7 @@ cargo install summa-import --locked
 
 ### From source
 
-```bash
-git clone https://github.com/duyet/summa.git
-cd summa   # or just: cargo build --release  # from anywhere if using the crate name
-cargo build --release
-./target/release/summa --help
-```
+Prefer CI binaries on laptops and home servers (`summa update` or the curl installer). `cargo build --release` is for CI only.
 
 ## Quick start (local-first)
 
