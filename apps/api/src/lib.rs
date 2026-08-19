@@ -23,7 +23,10 @@ async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     if method == Method::Options {
         return apply_cors(origin.as_deref(), true, Response::empty()?.with_status(204));
     }
-    let public = matches!(req.path().as_str(), "/" | "/health" | "/ping");
+    let public = matches!(
+        req.path().as_str(),
+        "/" | "/health" | "/ping" | "/install.sh"
+    );
     match route(req, env).await {
         Ok(res) => apply_cors(origin.as_deref(), public, res),
         Err(e) => {
@@ -42,6 +45,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
             let html = dashboard_html(&opt_var(&env, "CLERK_PUBLISHABLE_KEY"), VERSION);
             Response::from_html(html)
         }
+        (Method::Get, "/install.sh") => install_sh_response(),
         (Method::Get, "/health") => Response::from_json(&serde_json::json!({
             "ok": true,
             "service": "summa",
@@ -218,6 +222,18 @@ async fn delete_key(req: Request, env: Env, id: &str) -> Result<Response> {
     Response::from_json(&serde_json::json!({"ok": true, "id": id, "revoked": true}))
 }
 
+pub fn install_script() -> &'static str {
+    include_str!("../../../install.sh")
+}
+
+fn install_sh_response() -> Result<Response> {
+    let headers = Headers::new();
+    let _ = headers.set("content-type", "text/plain; charset=utf-8");
+    let _ = headers.set("content-disposition", "inline; filename=\"install.sh\"");
+    let _ = headers.set("cache-control", "public, max-age=300");
+    Ok(Response::ok(install_script())?.with_headers(headers))
+}
+
 fn apply_cors(origin: Option<&str>, public: bool, res: Response) -> Result<Response> {
     let allow = cors_allow_origin(origin).or_else(|| if public { Some("*".into()) } else { None });
     let Some(allow) = allow else {
@@ -241,10 +257,25 @@ fn dashboard_html(publishable_key: &str, version: &str) -> String {
          <style>body{{font:15px/1.45 system-ui,sans-serif;margin:24px;background:#f6f5f2;color:#161513}}\
          code,pre{{font:13px ui-monospace,monospace}}pre{{background:#f0eee9;padding:12px;border-radius:8px}}</style>\
          </head><body><h1>summa telemetry</h1>\
-         <p>v{version} · <a href=/health>health</a> · <a href=/ping>ping</a></p>\
+         <p>v{version} · <a href=/health>health</a> · <a href=/ping>ping</a> · <a href=/install.sh>install.sh</a></p>\
+         <pre>curl -fsSL https://summa.duyet.net/install.sh | bash</pre>\
          <p>Hub at <code>https://summa.duyet.net</code>. Sign in with Clerk (if configured) or a bootstrap token to mint <code>summa_</code> API keys.</p>\
          <pre>[telemetry]\nendpoint = \"https://summa.duyet.net\"\n# credentials.toml telemetry_token = \"summa_…\"</pre>\
          <p class=muted>Clerk pk set: {}</p></body></html>",
         !publishable_key.is_empty()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::install_script;
+
+    #[test]
+    fn install_script_is_curl_bash() {
+        let s = install_script();
+        assert!(s.contains("summa installer"));
+        assert!(s.contains("SUMMA_DOWNLOAD_BASE"));
+        assert!(s.contains("nightly"));
+        assert!(s.contains("curl -fsSL"));
+    }
 }

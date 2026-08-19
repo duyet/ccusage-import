@@ -1,5 +1,6 @@
 # Docs Index
 
+- `install.sh` — `curl | bash` installer (stable tarball, else rolling `nightly`).
 - `scripts/ci/validate-deploy.sh` — CI checks for install.sh, k8s, wrangler.jsonc, release-please.
 - `docs/install.md` — machine install, config, auto cron, telemetry hub.
 - `docs/telemetry.md` — hosted hub at summa.duyet.net. Rust Worker: `apps/api`.

@@ -29,14 +29,14 @@ rg -n "<symbol>" apps/cli/src apps/cli/tests -g '!**/*.test.ts' -g '!**/*.spec.t
 cargo run -- import --verbose           # full import (local DuckDB by default)
 cargo run -- backfill-duckdb            # backfill DuckDB from ClickHouse
 # Do not cargo build --release here (low memory). CI builds; install:
-#   curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash
+#   curl -fsSL https://summa.duyet.net/install.sh | bash
 #   summa update   # newest CI Release-workflow artifact for this OS/arch
 git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
 
 Config: `~/.config/summa/config.toml` + `credentials.toml` (secrets separate). `.env` still overlays `CH_*` / `MOTHERDUCK_TOKEN` / `DUCKDB_PATH`.
 Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
-Install: `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` then `summa update`. Never `cargo build --release` on laptops or home Linux hosts (CI only).
+Install: `curl -fsSL https://summa.duyet.net/install.sh | bash` (or GitHub raw `install.sh`). Env vars go on bash: `curl … | SUMMA_SETUP_CRON=1 bash`. Never `cargo build --release` on laptops or home Linux hosts (CI only).
 Scheduler: `summa cronjob install` (launchd / systemd user timer / crontab / loop). Installer: `SUMMA_SETUP_CRON=1` runs that after curl|bash.
 Telemetry hub: Cloudflare Worker at **https://summa.duyet.net** (`apps/api`). Clients POST with `telemetry_token`; worker stamps `account_id`/`api_key_id` and double-writes MotherDuck + ClickHouse. Clerk login generates keys. Analytics: `GET /v1/analytics` + `/summary` for burn.duyet.net. Cron job runs `summa update` then `summa import`. k3s: `deploy/k8s/summa-sidecar.yaml` is an **import client** (CronJob), not a local serve. Creds: `.env.example`. Docs: `docs/install.md`, `docs/telemetry.md`.
 
