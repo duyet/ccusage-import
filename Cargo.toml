@@ -47,7 +47,9 @@ path = "src/lib.rs"
 
 [dependencies]
 # Runtime
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "io-util", "time", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "io-util", "time", "sync", "net"] }
+axum = { version = "0.7", default-features = false, features = ["http1", "json", "query", "tokio"] }
+tower = { version = "0.4", default-features = false, features = ["util"] }
 async-trait = "0.1"
 futures = "0.3"
 

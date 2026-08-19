@@ -13,6 +13,7 @@ pub mod pipeline;
 pub mod script;
 pub mod sink;
 pub mod source;
+pub mod telemetry;
 pub mod util;
 
 pub use model::{

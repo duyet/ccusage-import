@@ -212,111 +212,145 @@ impl DuckDbSink {
             conn.execute(&sql, [])?;
         }
 
-        // Build CSV in memory and load via COPY FROM a real temp file
-        // (md: paths cannot host a local CSV next to them).
-        let mut csv_lines: Vec<String> = Vec::with_capacity(rows.len() + 1);
-        csv_lines.push(csv_line(&vec![
-            "date".into(),
-            "record_type".into(),
-            "record_key".into(),
-            "source".into(),
-            "machine_name".into(),
-            "model_name".into(),
-            "session_id".into(),
-            "project_path".into(),
-            "input_tokens".into(),
-            "output_tokens".into(),
-            "cache_creation_tokens".into(),
-            "cache_read_tokens".into(),
-            "reasoning_tokens".into(),
-            "total_tokens".into(),
-            "cost".into(),
-            "dedup_key".into(),
-            "import_id".into(),
-            "block_id".into(),
-            "start_time".into(),
-            "end_time".into(),
-            "actual_end_time".into(),
-            "is_active".into(),
-            "is_gap".into(),
-            "entries".into(),
-            "burn_rate".into(),
-            "projection".into(),
-            "usage_limit_reset_time".into(),
-            "created_at".into(),
-            "updated_at".into(),
-        ]));
-
-        for row in rows {
-            let values: Vec<String> = vec![
-                csv_value(&row.date),
-                csv_value(&row.record_type),
-                csv_value(&row.record_key),
-                csv_value(&row.source),
-                csv_value(&row.machine_name),
-                csv_value(&row.model_name),
-                csv_value(&row.session_id),
-                csv_value(&row.project_path),
-                row.input_tokens.to_string(),
-                row.output_tokens.to_string(),
-                row.cache_creation_tokens.to_string(),
-                row.cache_read_tokens.to_string(),
-                row.reasoning_tokens.to_string(),
-                row.total_tokens.to_string(),
-                if row.cost.is_finite() {
-                    row.cost.to_string()
-                } else {
-                    "0".into()
-                },
-                csv_value(&row.dedup_key),
-                csv_value(&row.import_id),
-                csv_value(&row.block_id),
-                csv_opt_ts(&row.start_time),
-                csv_opt_ts(&row.end_time),
-                csv_opt_ts(&row.actual_end_time),
-                row.is_active.to_string(),
-                row.is_gap.to_string(),
-                row.entries.to_string(),
-                if row.burn_rate.is_finite() {
-                    row.burn_rate.to_string()
-                } else {
-                    "0".into()
-                },
-                if row.projection.is_finite() {
-                    row.projection.to_string()
-                } else {
-                    "0".into()
-                },
-                csv_opt_ts(&row.usage_limit_reset_time),
-                csv_value(&row.created_at),
-                csv_value(&row.updated_at),
-            ];
-            csv_lines.push(csv_line(&values));
-        }
-
-        let csv_data = csv_lines.join("\n");
-        let tmp_path = write_temp_csv(&csv_data)?;
-        let tmp_path_str = tmp_path.to_string_lossy().replace('\\', "/");
-        // Explicit column list so COPY maps by name even when the target
-        // table was created with an older column order (e.g. MotherDuck
-        // where reasoning_tokens/dedup_key were ADDed at the end).
-        const COLS: &str = "date, record_type, record_key, source, machine_name, \
-            model_name, session_id, project_path, input_tokens, output_tokens, \
-            cache_creation_tokens, cache_read_tokens, reasoning_tokens, total_tokens, \
-            cost, dedup_key, import_id, block_id, start_time, end_time, actual_end_time, \
-            is_active, is_gap, entries, burn_rate, projection, usage_limit_reset_time, \
-            created_at, updated_at";
-        let sql = format!(
-            "COPY ccusage_events ({cols}) FROM '{path}' (HEADER, DELIMITER ',', FORMAT csv, NULL '')",
-            cols = COLS,
-            path = tmp_path_str
-        );
-        let result = conn.execute(&sql, []);
-        let _ = std::fs::remove_file(&tmp_path);
-        result?;
-
+        copy_rows_from_csv(&conn, rows)?;
         Ok(rows.len())
     }
+
+    /// Telemetry ingest: replace by `dedup_key` only (do not wipe a whole day).
+    pub fn write_events_by_dedup_key(&mut self, rows: &[EventRow]) -> anyhow::Result<usize> {
+        let rows: Vec<EventRow> = rows
+            .iter()
+            .filter(|r| !r.dedup_key.is_empty())
+            .cloned()
+            .collect();
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let conn = self.open_connection()?;
+        self.ensure_tables(&conn)?;
+
+        let mut keys: Vec<String> = Vec::new();
+        for row in &rows {
+            if !keys.iter().any(|k| k == &row.dedup_key) {
+                keys.push(row.dedup_key.clone());
+            }
+        }
+        const KEY_BATCH: usize = 200;
+        for chunk in keys.chunks(KEY_BATCH) {
+            let list = chunk
+                .iter()
+                .map(|k| format!("'{}'", csv_value(k)))
+                .collect::<Vec<_>>()
+                .join(",");
+            conn.execute(
+                &format!("DELETE FROM ccusage_events WHERE dedup_key IN ({list})"),
+                [],
+            )?;
+        }
+        copy_rows_from_csv(&conn, &rows)?;
+        Ok(rows.len())
+    }
+}
+
+fn copy_rows_from_csv(conn: &duckdb::Connection, rows: &[EventRow]) -> anyhow::Result<()> {
+    let mut csv_lines: Vec<String> = Vec::with_capacity(rows.len() + 1);
+    csv_lines.push(csv_line(&vec![
+        "date".into(),
+        "record_type".into(),
+        "record_key".into(),
+        "source".into(),
+        "machine_name".into(),
+        "model_name".into(),
+        "session_id".into(),
+        "project_path".into(),
+        "input_tokens".into(),
+        "output_tokens".into(),
+        "cache_creation_tokens".into(),
+        "cache_read_tokens".into(),
+        "reasoning_tokens".into(),
+        "total_tokens".into(),
+        "cost".into(),
+        "dedup_key".into(),
+        "import_id".into(),
+        "block_id".into(),
+        "start_time".into(),
+        "end_time".into(),
+        "actual_end_time".into(),
+        "is_active".into(),
+        "is_gap".into(),
+        "entries".into(),
+        "burn_rate".into(),
+        "projection".into(),
+        "usage_limit_reset_time".into(),
+        "created_at".into(),
+        "updated_at".into(),
+    ]));
+
+    for row in rows {
+        let values: Vec<String> = vec![
+            csv_value(&row.date),
+            csv_value(&row.record_type),
+            csv_value(&row.record_key),
+            csv_value(&row.source),
+            csv_value(&row.machine_name),
+            csv_value(&row.model_name),
+            csv_value(&row.session_id),
+            csv_value(&row.project_path),
+            row.input_tokens.to_string(),
+            row.output_tokens.to_string(),
+            row.cache_creation_tokens.to_string(),
+            row.cache_read_tokens.to_string(),
+            row.reasoning_tokens.to_string(),
+            row.total_tokens.to_string(),
+            if row.cost.is_finite() {
+                row.cost.to_string()
+            } else {
+                "0".into()
+            },
+            csv_value(&row.dedup_key),
+            csv_value(&row.import_id),
+            csv_value(&row.block_id),
+            csv_opt_ts(&row.start_time),
+            csv_opt_ts(&row.end_time),
+            csv_opt_ts(&row.actual_end_time),
+            row.is_active.to_string(),
+            row.is_gap.to_string(),
+            row.entries.to_string(),
+            if row.burn_rate.is_finite() {
+                row.burn_rate.to_string()
+            } else {
+                "0".into()
+            },
+            if row.projection.is_finite() {
+                row.projection.to_string()
+            } else {
+                "0".into()
+            },
+            csv_opt_ts(&row.usage_limit_reset_time),
+            csv_value(&row.created_at),
+            csv_value(&row.updated_at),
+        ];
+        csv_lines.push(csv_line(&values));
+    }
+
+    let csv_data = csv_lines.join("\n");
+    let tmp_path = write_temp_csv(&csv_data)?;
+    let tmp_path_str = tmp_path.to_string_lossy().replace('\\', "/");
+    const COLS: &str = "date, record_type, record_key, source, machine_name, \
+        model_name, session_id, project_path, input_tokens, output_tokens, \
+        cache_creation_tokens, cache_read_tokens, reasoning_tokens, total_tokens, \
+        cost, dedup_key, import_id, block_id, start_time, end_time, actual_end_time, \
+        is_active, is_gap, entries, burn_rate, projection, usage_limit_reset_time, \
+        created_at, updated_at";
+    let sql = format!(
+        "COPY ccusage_events ({cols}) FROM '{path}' (HEADER, DELIMITER ',', FORMAT csv, NULL '')",
+        cols = COLS,
+        path = tmp_path_str
+    );
+    let result = conn.execute(&sql, []);
+    let _ = std::fs::remove_file(&tmp_path);
+    result?;
+    Ok(())
 }
 
 fn write_temp_csv(csv_data: &str) -> anyhow::Result<PathBuf> {
@@ -500,5 +534,53 @@ mod tests {
             nested.display()
         );
         assert!(nested.parent().unwrap().is_dir());
+    }
+
+    #[test]
+    fn dedup_key_write_replaces_one_row_not_the_day() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.duckdb");
+        let mut sink = DuckDbSink::new(path.to_string_lossy().to_string());
+        let a = EventRow {
+            date: "2026-08-20".into(),
+            record_type: "daily".into(),
+            record_key: "a".into(),
+            source: "cursor".into(),
+            machine_name: "account".into(),
+            model_name: "grok".into(),
+            cost: 1.0,
+            total_tokens: 10,
+            dedup_key: "key-a".into(),
+            ..EventRow::default()
+        };
+        let b = EventRow {
+            date: "2026-08-20".into(),
+            record_type: "daily".into(),
+            record_key: "b".into(),
+            source: "cursor".into(),
+            machine_name: "account".into(),
+            model_name: "opus".into(),
+            cost: 2.0,
+            total_tokens: 20,
+            dedup_key: "key-b".into(),
+            ..EventRow::default()
+        };
+        sink.write_events_by_dedup_key(&[a.clone(), b]).unwrap();
+        let mut a2 = a;
+        a2.cost = 9.0;
+        sink.write_events_by_dedup_key(&[a2]).unwrap();
+        let conn = duckdb::Connection::open(&path).unwrap();
+        let n: i64 = conn
+            .query_row("SELECT count(*) FROM ccusage_events", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2);
+        let cost: f64 = conn
+            .query_row(
+                "SELECT cost FROM ccusage_events WHERE dedup_key = 'key-a'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((cost - 9.0).abs() < 1e-9);
     }
 }

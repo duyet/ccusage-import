@@ -75,6 +75,9 @@ pub struct Credentials {
     /// Cursor Team Admin API key (Basic auth username).
     #[serde(default)]
     pub cursor_api_key: Option<String>,
+    /// Bearer token for `summa serve` ingest/analytics.
+    #[serde(default)]
+    pub telemetry_token: Option<String>,
 }
 
 impl Credentials {
@@ -170,6 +173,10 @@ impl Credentials {
     pub fn cursor_api_key(&self) -> Option<&str> {
         self.cursor_api_key.as_deref().filter(|s| !s.is_empty())
     }
+
+    pub fn telemetry_token(&self) -> Option<&str> {
+        self.telemetry_token.as_deref().filter(|s| !s.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -218,6 +225,14 @@ pub struct SinksConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct TelemetryConfig {
+    /// Bind address for `summa serve` (default 127.0.0.1:8787).
+    pub bind: Option<String>,
+    /// Optional bearer token (prefer credentials.toml `telemetry_token`).
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub clickhouse: ClickHouseConfig,
@@ -227,6 +242,8 @@ pub struct Config {
     pub sinks: SinksConfig,
     #[serde(default)]
     pub ui: UiConfig,
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
 }
 
 impl Config {
@@ -305,6 +322,17 @@ impl Config {
         {
             if let Some(key) = creds.cursor_api_key() {
                 std::env::set_var("CURSOR_API_KEY", key);
+            }
+        }
+        if self
+            .telemetry
+            .token
+            .as_deref()
+            .unwrap_or("")
+            .is_empty()
+        {
+            if let Some(t) = creds.telemetry_token.as_deref().filter(|s| !s.is_empty()) {
+                self.telemetry.token = Some(t.to_string());
             }
         }
         Ok(())
@@ -495,6 +523,28 @@ impl Config {
         }
         if self.importer.codex_path.is_none() {
             self.importer.codex_path = env_lookup("CODEX_HOME");
+        }
+        if self
+            .telemetry
+            .bind
+            .as_deref()
+            .unwrap_or("")
+            .is_empty()
+        {
+            if let Some(bind) = env_lookup("SUMMA_TELEMETRY_BIND").filter(|s| !s.is_empty()) {
+                self.telemetry.bind = Some(bind);
+            }
+        }
+        if self
+            .telemetry
+            .token
+            .as_deref()
+            .unwrap_or("")
+            .is_empty()
+        {
+            if let Some(token) = env_lookup("SUMMA_TELEMETRY_TOKEN").filter(|s| !s.is_empty()) {
+                self.telemetry.token = Some(token);
+            }
         }
     }
 
@@ -832,6 +882,7 @@ motherduck_token = "md-token-xyz"
             },
             sinks: SinksConfig::default(),
             ui: UiConfig::default(),
+            telemetry: TelemetryConfig::default(),
         };
         let toml_str = toml::to_string_pretty(&original).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
@@ -864,6 +915,17 @@ motherduck_token = "md-token-xyz"
     fn credentials_candidate_paths_include_xdg() {
         let paths = Credentials::candidate_paths();
         assert!(paths.iter().any(|p| p.ends_with("credentials.toml")));
+    }
+
+    #[test]
+    fn telemetry_env_fills_bind_and_token() {
+        let mut cfg = Config::default();
+        let mut env_map: HashMap<String, String> = HashMap::new();
+        env_map.insert("SUMMA_TELEMETRY_BIND".into(), "0.0.0.0:8787".into());
+        env_map.insert("SUMMA_TELEMETRY_TOKEN".into(), "tok".into());
+        cfg.apply_env_fallback_with(|k| env_map.get(k).cloned());
+        assert_eq!(cfg.telemetry.bind.as_deref(), Some("0.0.0.0:8787"));
+        assert_eq!(cfg.telemetry.token.as_deref(), Some("tok"));
     }
 }
 

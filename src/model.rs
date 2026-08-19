@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 /// `parser/schema.rs`). The `schema_tests.rs` golden test enforces the
 /// 1:1 invariant.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, PartialOrd)]
+#[serde(default)]
 pub struct EventRow {
     pub date: String,
     pub record_type: String,

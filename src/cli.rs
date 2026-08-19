@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use crate::script::cronjob::CronjobArgs;
 use crate::script::publish::PublishArgs;
+use crate::script::serve::ServeArgs;
 
 pub async fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
@@ -39,6 +40,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Cronjob(args) => crate::script::cronjob::run(args).await,
         Commands::Publish(args) => crate::script::publish::run(args).await,
         Commands::Update(args) => crate::script::update::run(args).await,
+        Commands::Serve(args) => crate::script::serve::run(args).await,
     }
 }
 
@@ -69,6 +71,8 @@ pub enum Commands {
     Publish(PublishArgs),
     /// Install the newest CI Release-workflow binary for this OS/arch
     Update(crate::script::update::UpdateArgs),
+    /// HTTP telemetry API: ingest (fan-out MotherDuck + ClickHouse), status, analytics
+    Serve(ServeArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -226,6 +230,26 @@ mod tests {
             help.contains("cronjob"),
             "top-level help should list cronjob: {help}"
         );
+    }
+
+    #[test]
+    fn help_includes_serve_subcommand() {
+        use clap::CommandFactory;
+        let mut cmd = Cli::command();
+        let help = cmd.render_long_help().to_string();
+        assert!(
+            help.contains("serve"),
+            "top-level help should list serve: {help}"
+        );
+    }
+
+    #[test]
+    fn parse_serve_bind() {
+        let cli = Cli::try_parse_from(["summa", "serve", "--bind", "0.0.0.0:8787"]).unwrap();
+        match cli.command {
+            Commands::Serve(args) => assert_eq!(args.bind.as_deref(), Some("0.0.0.0:8787")),
+            other => panic!("expected Serve, got {other:?}"),
+        }
     }
 
     #[test]

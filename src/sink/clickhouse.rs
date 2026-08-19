@@ -138,6 +138,93 @@ impl ClickHouseSink {
         Ok(())
     }
 
+    fn select_url(&self) -> String {
+        let cfg = self
+            .config
+            .as_ref()
+            .expect("ClickHouseSink not connected");
+        if cfg.database.is_empty() {
+            format!("{}/", self.base_url())
+        } else {
+            format!(
+                "{}/?database={}",
+                self.base_url(),
+                percent_encode(&cfg.database)
+            )
+        }
+    }
+
+    pub async fn query_text(&self, query: &str) -> anyhow::Result<String> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouseSink not connected"))?;
+        let cfg = self
+            .config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("ClickHouseSink not connected"))?;
+        let resp = client
+            .post(self.select_url())
+            .basic_auth(
+                if cfg.user.is_empty() {
+                    "default"
+                } else {
+                    cfg.user.as_str()
+                },
+                if cfg.password.is_empty() {
+                    None
+                } else {
+                    Some(cfg.password.as_str())
+                },
+            )
+            .header("Content-Type", "text/plain; charset=UTF-8")
+            .body(query.to_string())
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(resp.text().await?)
+    }
+
+    pub async fn ping(&self) -> anyhow::Result<()> {
+        let text = self.query_text("SELECT 1").await?;
+        if text.trim().starts_with('1') {
+            Ok(())
+        } else {
+            anyhow::bail!("clickhouse ping: {}", text.trim())
+        }
+    }
+
+    pub async fn delete_by_dedup_keys(&self, keys: &[String]) -> anyhow::Result<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        const KEY_BATCH: usize = 200;
+        for chunk in keys.chunks(KEY_BATCH) {
+            let list = chunk
+                .iter()
+                .filter(|k| !k.is_empty())
+                .map(|k| format!("'{}'", escape_sql_literal(k)))
+                .collect::<Vec<_>>();
+            if list.is_empty() {
+                continue;
+            }
+            let query = format!(
+                "ALTER TABLE ccusage_events DELETE WHERE dedup_key IN ({})",
+                list.join(",")
+            );
+            self.run_query(&query).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn insert_events(&self, rows: &[EventRow]) -> anyhow::Result<()> {
+        const CHUNK_SIZE: usize = 1000;
+        for chunk in rows.chunks(CHUNK_SIZE) {
+            self.insert_rows(chunk).await?;
+        }
+        Ok(())
+    }
+
     async fn insert_rows(&self, rows: &[EventRow]) -> anyhow::Result<()> {
         let client = self
             .client
