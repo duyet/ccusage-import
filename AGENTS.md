@@ -26,9 +26,12 @@ cargo run -- backfill-duckdb            # backfill DuckDB from ClickHouse
 git log --since='7 days ago' --no-merges --name-only --pretty=format:'--- %h %ad %s' --date=short
 ```
 
-Config: `~/.config/summa/config.toml` + `credentials.toml` (secrets separate).
+Config: `~/.config/summa/config.toml` + `credentials.toml` (secrets separate). `.env` still overlays `CH_*` / `MOTHERDUCK_TOKEN` / `DUCKDB_PATH`.
 Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
-Scheduler: `summa cronjob install` (launchd / systemd user timer / crontab).
+Install: `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` then `summa update`. Never `cargo build --release` on laptops or home Linux hosts (CI only).
+Scheduler: `summa cronjob install` (launchd / systemd user timer / crontab / loop).
+
+Keep **Cursor** and **local Grok Build** on on every machine. Account-wide Cursor rows use `machine_name=account`; sinks (`ccusage_events` ReplacingMergeTree / DuckDB dedup) must collapse duplicates — do not disable those sources to “avoid double-count”.
 
 ## Architecture
 
@@ -49,6 +52,10 @@ Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 - Grok Build: `~/.grok` / `GROK_HOME` — `logs/unified.jsonl` (`shell.turn.inference_done`) + session `summary.json` for model/cwd; tokens: input=`prompt-cached`, cache_read=`cached`, output=`completion`, total=`prompt+completion` (reasoning not double-counted); `--skip-grok`. Optional account-wide CLI-proxy billing (`grok-api`) is imported only when the JSON has countable spend/tokens — credits-percent payloads are skipped (no fabricated turns).
 - Cursor (account-wide, `machine_name=account`): dashboard `POST https://cursor.com/api/dashboard/get-filtered-usage-events` (session/cookie or Cursor.app `state.vscdb` JWT) or Admin `POST https://api.cursor.com/teams/filtered-usage-events`; surfaces `cursor` / `cursor-cloud-agent` / `cursor-api` / `cursor-grok-bot`; `--skip-cursor`. Missing auth skips the source.
 - Monthly not fetched — derivable via `toYYYYMM(date)` SQL
+
+## Code style
+
+No comments unless WHY is non-obvious. Surgical changes only. No AI slop.
 
 ## Core memory
 
