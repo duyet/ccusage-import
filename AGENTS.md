@@ -15,10 +15,13 @@ Docs index: `docs/INDEX.md` (core memory: `docs/knowledge/core-memory.md`).
 bun run check                           # CLI cargo check + API wasm check
 bun run build:cli                       # cargo build --locked --bin summa (not --release)
 bun run build:api                       # Worker typecheck
-bun run test                            # cargo test --test-threads=1
+bun run test                            # CLI + API cargo test --test-threads=1
+bun run test:deploy                     # install.sh / k8s / wrangler / release-please
 bun run deploy:api                      # wrangler deploy (apps/api)
-cargo test                              # tests
-cargo check                             # typecheck
+cargo test --locked -p summa-import     # CLI tests
+cargo test --locked -p summa-api --lib  # Worker unit tests
+cargo check --locked -p summa-import    # typecheck CLI
+cargo package --locked -p summa-import  # crates.io pack (CI also runs this)
 git switch -c automation/<topic> origin/master  # create branch first when worktree is on detached HEAD
 git worktree list --porcelain  # find owning worktree when .git/worktrees/.../*.lock errors appear
 git log --since='<last-run-iso>' --pretty=format:'%H %cI %s' --name-only  # recent-change audit window

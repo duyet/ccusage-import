@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   rust:
-    name: Rust (check / test / release build)
+    name: Rust CLI (check / test / package / release build)
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -24,19 +24,41 @@ jobs:
 
     - name: Cache cargo
       uses: Swatinem/rust-cache@v2
+      with:
+        key: cli
 
-    - name: cargo check
-      run: cargo check --locked
+    - name: cargo check -p summa-import
+      run: cargo check --locked -p summa-import
 
-    - name: cargo test
+    - name: cargo test -p summa-import
       # Env-mutating config/credentials tests race under the default thread pool.
-      run: cargo test --locked -- --test-threads=1
+      run: cargo test --locked -p summa-import -- --test-threads=1
 
-    - name: cargo build --release
-      run: cargo build --release --bin summa
+    - name: cargo package -p summa-import
+      run: cargo package --locked -p summa-import --list | tee /tmp/summa-package.list
+
+    - name: Package list includes CLI sources
+      run: |
+        set -euo pipefail
+        grep -q 'src/main.rs' /tmp/summa-package.list
+        grep -q 'src/lib.rs' /tmp/summa-package.list
+        grep -q 'Cargo.toml' /tmp/summa-package.list
+        grep -q 'README.md' /tmp/summa-package.list
+
+    - name: cargo build --release --bin summa
+      run: cargo build --locked --release -p summa-import --bin summa
 
     - name: Binary size
       run: ls -lah target/release/summa && file target/release/summa
+
+    - name: CLI smoke
+      run: |
+        set -euo pipefail
+        ./target/release/summa --help
+        ./target/release/summa --version
+        ./target/release/summa import --help
+        ./target/release/summa cronjob --help
+        ./target/release/summa update --help
 
     - name: Package linux x86_64 artifact
       if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -59,7 +81,7 @@ jobs:
           dist/summa-x86_64-unknown-linux-gnu.tar.gz.sha256
 
   api:
-    name: API Worker (Rust wasm check)
+    name: API Worker (wasm check / unit tests)
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -72,23 +94,78 @@ jobs:
       uses: Swatinem/rust-cache@v2
       with:
         key: api-wasm
+    - name: cargo test -p summa-api
+      run: cargo test --locked -p summa-api --lib
     - name: cargo check -p summa-api --target wasm32-unknown-unknown
-      run: cargo check -p summa-api --target wasm32-unknown-unknown
+      run: cargo check --locked -p summa-api --target wasm32-unknown-unknown
+
+  deploy-scripts:
+    name: Deploy scripts (install / k8s / wrangler / release-please)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Install shellcheck + actionlint
+      run: |
+        set -euo pipefail
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq shellcheck
+        bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+        sudo mv actionlint /usr/local/bin/actionlint
+        actionlint -version
+
+    - name: Validate install.sh, k8s, wrangler, release wiring
+      run: bash scripts/ci/validate-deploy.sh
+
+    - name: actionlint workflows
+      run: actionlint -color
+
+  wrangler:
+    name: Wrangler config (Worker deploy dry-run)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+    - name: Install bun
+      uses: oven-sh/setup-bun@v2
+    - name: Install Rust (wasm)
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: wrangler-dry-run
+    - name: bun install
+      run: bun install --frozen-lockfile
+    - name: wrangler deploy --dry-run
+      working-directory: apps/api
+      run: bunx wrangler deploy --dry-run --outdir /tmp/summa-api-out
+    - name: Dry-run output exists
+      run: |
+        set -euo pipefail
+        ls -la /tmp/summa-api-out
+        files="$(find /tmp/summa-api-out -type f)"
+        printf '%s\n' "$files"
+        [ -n "$files" ]
+        echo "$files" | grep -E '\.(js|wasm|mjs)$' >/dev/null
 
   status-check:
     name: All checks passed
     if: always()
-    needs: [rust, api]
+    needs: [rust, api, deploy-scripts, wrangler]
     runs-on: ubuntu-latest
     steps:
     - name: Check required jobs
       run: |
-        if [ "${{ needs.rust.result }}" != "success" ]; then
-          echo "Rust job failed"
-          exit 1
-        fi
-        if [ "${{ needs.api.result }}" != "success" ]; then
-          echo "API job failed"
+        set -euo pipefail
+        fail=0
+        [ "${{ needs.rust.result }}" = "success" ] || { echo "Rust job failed"; fail=1; }
+        [ "${{ needs.api.result }}" = "success" ] || { echo "API job failed"; fail=1; }
+        [ "${{ needs.deploy-scripts.result }}" = "success" ] || { echo "Deploy-scripts job failed"; fail=1; }
+        [ "${{ needs.wrangler.result }}" = "success" ] || { echo "Wrangler job failed"; fail=1; }
+        if [ "$fail" -ne 0 ]; then
           exit 1
         fi
         echo "All required checks passed!"

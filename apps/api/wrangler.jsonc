@@ -4,7 +4,7 @@
   "compatibility_date": "2026-08-19",
   "observability": { "enabled": true },
   "build": {
-    "command": "cargo install -q worker-build && worker-build --release"
+    "command": "bash build.sh"
   },
   "routes": [{ "pattern": "summa.duyet.net", "custom_domain": true }],
   "d1_databases": [{

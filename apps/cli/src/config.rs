@@ -919,8 +919,14 @@ motherduck_token = "md-token-xyz"
             LEGACY_CONFIG_ENV,
             CREDENTIALS_ENV,
         ]);
-        std::env::set_var(CONFIG_ENV, "/tmp/does-not-exist-summa.toml");
-        let cfg = Config::load(None).unwrap();
+        // Isolated empty file — `load(None)` would pick up a live XDG config.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.toml");
+        std::fs::write(&path, "").unwrap();
+        let creds = dir.path().join("credentials.toml");
+        std::fs::write(&creds, "").unwrap();
+        std::env::set_var(CREDENTIALS_ENV, creds.to_str().unwrap());
+        let cfg = Config::load(Some(path.to_str().unwrap())).unwrap();
         assert!(cfg.clickhouse.host.is_empty());
     }
 

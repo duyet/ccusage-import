@@ -158,10 +158,12 @@ Keep Cursor and Grok enabled on every host. Account-wide Cursor uses `machine_na
 ## Development / release
 
 ```bash
-cargo test
+cargo test --locked -p summa-import
+cargo test --locked -p summa-api --lib
+bash scripts/ci/validate-deploy.sh
 # cargo build --release is CI only — never on laptops
-cargo package
-cargo publish   # needs CARGO_REGISTRY_TOKEN / cargo login
+cargo package --locked -p summa-import
+cargo publish --locked -p summa-import   # needs CARGO_REGISTRY_TOKEN / cargo login
 ```
 
 - release-please + GitHub Release builds multi-arch `summa` binaries

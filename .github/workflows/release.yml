@@ -64,10 +64,11 @@ jobs:
 
       - name: Build release binary
         run: |
+          set -euo pipefail
           if [ "${{ matrix.cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} --bin summa
+            cross build --locked --release --target ${{ matrix.target }} -p summa-import --bin summa
           else
-            cargo build --release --target ${{ matrix.target }} --bin summa
+            cargo build --locked --release --target ${{ matrix.target }} -p summa-import --bin summa
           fi
 
       - name: Package asset
@@ -129,16 +130,17 @@ jobs:
         with:
           key: crates-io-publish
 
-      - name: cargo package (verify)
-        run: cargo package --list | head -100
+      - name: cargo package -p summa-import (verify)
+        run: cargo package --locked -p summa-import --list | head -100
 
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
+          set -euo pipefail
           if [ -z "${CARGO_REGISTRY_TOKEN:-}" ]; then
             echo "CARGO_REGISTRY_TOKEN not set — skipping crates.io publish"
             echo "Add the secret under repo Settings → Secrets to enable."
             exit 0
           fi
-          cargo publish --locked --no-verify 2>/dev/null || cargo publish --locked
+          cargo publish --locked -p summa-import

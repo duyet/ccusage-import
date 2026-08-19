@@ -1,5 +1,6 @@
 # Docs Index
 
+- `scripts/ci/validate-deploy.sh` — CI checks for install.sh, k8s, wrangler.jsonc, release-please.
 - `docs/install.md` — machine install, config, auto cron, telemetry hub.
 - `docs/telemetry.md` — hosted hub at summa.duyet.net. Rust Worker: `apps/api`.
 - `.env.example` — CLI + API Worker credentials (copy to `.env`).

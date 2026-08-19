@@ -22,17 +22,6 @@ stringData:
   CH_PASSWORD: ""
   CH_DATABASE: "default"
 ---
-# Sidecar snippet (merge into a Hermes agent pod):
-#   containers:
-#     - name: hermes
-#       ...
-#     - name: summa-import
-#       image: ghcr.io/duyet/summa:latest
-#       args: ["cronjob", "install", "--every", "1h", "--backend", "loop"]
-#       # or a one-shot: ["import", "--days-back=2"]
-#       envFrom:
-#         - secretRef: { name: summa-telemetry }
----
 apiVersion: batch/v1
 kind: CronJob
 metadata:

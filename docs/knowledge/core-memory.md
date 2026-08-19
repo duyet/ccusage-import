@@ -41,6 +41,13 @@ rg -n "<symbol>" apps/cli/src apps/cli/tests -g '!**/*.test.ts' -g '!**/*.spec.t
 - Full import: `cargo run --bin summa -- import --verbose` (from `apps/cli`)
 - DuckDB backfill from ClickHouse: `cargo run --bin summa -- backfill-duckdb`
 
+## CI / release
+
+- Workspace is virtual: CI and publish **must** use `-p summa-import` (CLI) and `-p summa-api` (Worker). Never `cargo publish` / `cargo package` at the workspace root.
+- `scripts/ci/validate-deploy.sh` gates `install.sh` dry-run, k8s manifests, wrangler.jsonc + D1 migrations, and release-please package path (`apps/cli` + `cargo-workspace` plugin).
+- release-please: package `apps/cli` (crate `summa-import`), not `.`. Do **not** auto-merge `release-please--*` PRs.
+- Wrangler dry-run is a CI job (`wrangler deploy --dry-run`); live deploy is `bun run deploy:api` with Cloudflare creds.
+
 ## CI and archived Python docs
 
 - `docs/archive/python/pyproject.toml` should keep `requires-python` aligned with dependency floors to avoid Dependabot security-update resolution failures.

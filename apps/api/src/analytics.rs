@@ -119,3 +119,40 @@ pub async fn load_points(
         .map_err(|e| worker::Error::RustError(e))?;
     Ok(parse_json_each_row(&text))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::AnalyticsPoint;
+
+    #[test]
+    fn window_inclusive_range() {
+        let (since, until) =
+            analytics_window(Some("2026-01-01"), Some("2026-01-10"), None).unwrap();
+        assert_eq!(since, "2026-01-01");
+        assert_eq!(until, "2026-01-10");
+        assert_eq!(inclusive_days(&since, &until), 10);
+    }
+
+    #[test]
+    fn window_rejects_inverted_range() {
+        assert!(analytics_window(Some("2026-02-01"), Some("2026-01-01"), None).is_err());
+    }
+
+    #[test]
+    fn summarize_cost_per_day_uses_inclusive_days() {
+        let points = vec![AnalyticsPoint {
+            date: "2026-01-01".into(),
+            source: "cursor".into(),
+            model_name: "x".into(),
+            cost: 10.0,
+            total_tokens: 100,
+            entries: 2,
+        }];
+        let v = summarize("2026-01-01", "2026-01-10", &points);
+        assert_eq!(v["days"], 10);
+        assert_eq!(v["cost"], 10.0);
+        assert_eq!(v["cost_per_day"], 1.0);
+        assert_eq!(v["entries"], 2);
+    }
+}

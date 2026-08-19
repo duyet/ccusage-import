@@ -165,3 +165,96 @@ pub fn cors_allow_origin(origin: Option<&str>) -> Option<String> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ingest_status_empty_is_unavailable() {
+        assert_eq!(ingest_status_code(&[]), 503);
+    }
+
+    #[test]
+    fn ingest_status_any_ok_is_200() {
+        let sinks = vec![
+            SinkAck {
+                name: "clickhouse".into(),
+                rows: 1,
+                duration_ms: 2,
+                error: None,
+            },
+            SinkAck {
+                name: "motherduck".into(),
+                rows: 0,
+                duration_ms: 3,
+                error: Some("timeout".into()),
+            },
+        ];
+        assert_eq!(ingest_status_code(&sinks), 200);
+    }
+
+    #[test]
+    fn ingest_status_all_errors_is_502() {
+        let sinks = vec![SinkAck {
+            name: "clickhouse".into(),
+            rows: 0,
+            duration_ms: 1,
+            error: Some("refused".into()),
+        }];
+        assert_eq!(ingest_status_code(&sinks), 502);
+    }
+
+    #[test]
+    fn ping_ok_requires_all_samples() {
+        assert!(!ping_ok(&[]));
+        assert!(ping_ok(&[PingSample {
+            name: "ch".into(),
+            ok: true,
+            latency_ms: 4,
+            error: None,
+        }]));
+        assert!(!ping_ok(&[
+            PingSample {
+                name: "ch".into(),
+                ok: true,
+                latency_ms: 4,
+                error: None,
+            },
+            PingSample {
+                name: "md".into(),
+                ok: false,
+                latency_ms: 9,
+                error: Some("404".into()),
+            },
+        ]));
+    }
+
+    #[test]
+    fn cors_allows_burn_and_localhost() {
+        assert_eq!(cors_allow_origin(None).as_deref(), Some("*"));
+        assert_eq!(
+            cors_allow_origin(Some("https://burn.duyet.net")).as_deref(),
+            Some("https://burn.duyet.net")
+        );
+        assert_eq!(
+            cors_allow_origin(Some("http://localhost:3000")).as_deref(),
+            Some("http://localhost:3000")
+        );
+        assert_eq!(cors_allow_origin(Some("https://evil.example")), None);
+    }
+
+    #[test]
+    fn sql_literal_escapes_quotes() {
+        assert_eq!(sql_literal("acme"), "'acme'");
+        assert_eq!(sql_literal("a'b"), "'a''b'");
+    }
+
+    #[test]
+    fn token_hash_is_stable() {
+        let h = sha256_hex16("summa_test");
+        assert_eq!(h.len(), 16);
+        assert_eq!(h, sha256_hex16("summa_test"));
+        assert_ne!(h, sha256_hex16("summa_other"));
+    }
+}
