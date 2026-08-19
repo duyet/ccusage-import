@@ -31,7 +31,7 @@ Default DuckDB: `~/.local/share/summa/summa.duckdb` (auto-created).
 Install: `curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash` then `summa update`. Never `cargo build --release` on laptops or home Linux hosts (CI only).
 Scheduler: `summa cronjob install` (launchd / systemd user timer / crontab / loop).
 
-Keep **Cursor** and **local Grok Build** on on every machine. Account-wide Cursor rows use `machine_name=account`; sinks (`ccusage_events` ReplacingMergeTree / DuckDB dedup) must collapse duplicates — do not disable those sources to “avoid double-count”.
+Keep **Cursor** and **local Grok Build** on every machine. Account-wide Cursor rows use `machine_name=account`; sinks (`ccusage_events` ReplacingMergeTree / DuckDB dedup) must collapse duplicates — do not disable those sources to “avoid double-count”.
 
 ## Architecture
 
