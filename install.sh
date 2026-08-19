@@ -136,6 +136,26 @@ main() {
     info "ok: $("${INSTALL_DIR}/${BIN_NAME}" --version 2>/dev/null || true)"
   fi
 
+  local cfg_dir="${HOME}/.config/summa"
+  mkdir -p "${cfg_dir}"
+  if [ -n "${SUMMA_TELEMETRY_ENDPOINT:-}${SUMMA_TELEMETRY_TOKEN:-}" ]; then
+    if ! grep -q '^\[telemetry\]' "${cfg_dir}/config.toml" 2>/dev/null; then
+      {
+        echo ""
+        echo "[telemetry]"
+        echo "endpoint = \"${SUMMA_TELEMETRY_ENDPOINT:-https://summa.duyet.net}\""
+      } >> "${cfg_dir}/config.toml"
+      info "telemetry endpoint written to ${cfg_dir}/config.toml"
+    fi
+    if [ -n "${SUMMA_TELEMETRY_TOKEN:-}" ]; then
+      if ! grep -q '^telemetry_token' "${cfg_dir}/credentials.toml" 2>/dev/null; then
+        printf 'telemetry_token = "%s"\n' "${SUMMA_TELEMETRY_TOKEN}" >> "${cfg_dir}/credentials.toml"
+        chmod 600 "${cfg_dir}/credentials.toml" 2>/dev/null || true
+        info "telemetry_token written to ${cfg_dir}/credentials.toml"
+      fi
+    fi
+  fi
+
   if [ "${SUMMA_SETUP_CRON:-0}" = "1" ] || [ "${SUMMA_SETUP_CRON:-}" = "true" ]; then
     local every="${SUMMA_CRON_EVERY:-1h}"
     info "registering import scheduler (summa cronjob install --every ${every})"

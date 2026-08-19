@@ -43,15 +43,14 @@ cargo install summa-import --locked
 
 Prefer CI binaries on laptops and home servers (`summa update` or the curl installer). `cargo build --release` is for CI only.
 
-Monorepo apps: `@summa/cli` (Rust) and `@summa/api` (Cloudflare Worker).
+Cargo workspace: `apps/cli` (Rust binary `summa`) and `apps/api` (Rust Cloudflare Worker).
 
 ```bash
 bun install
 cp .env.example .env
 bun run build:cli    # cargo build --locked --bin summa
-bun run build:api    # Worker typecheck
-bun run check
-bun run deploy:api   # wrangler deploy
+bun run build:api    # cargo check -p summa-api --target wasm32-unknown-unknown
+bun run deploy:api   # wrangler deploy (worker-build)
 ```
 
 ## Quick start (local-first)

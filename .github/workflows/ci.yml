@@ -59,17 +59,21 @@ jobs:
           dist/summa-x86_64-unknown-linux-gnu.tar.gz.sha256
 
   api:
-    name: API Worker (typecheck)
+    name: API Worker (Rust wasm check)
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v7
-    - name: Setup Bun
-      uses: oven-sh/setup-bun@v2
-    - name: Install
-      run: bun install --frozen-lockfile
-    - name: Typecheck @summa/api
-      run: bun run build:api
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+    - name: Cache cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        key: api-wasm
+    - name: cargo check -p summa-api --target wasm32-unknown-unknown
+      run: cargo check -p summa-api --target wasm32-unknown-unknown
 
   status-check:
     name: All checks passed

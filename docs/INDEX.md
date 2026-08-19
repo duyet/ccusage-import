@@ -1,7 +1,7 @@
 # Docs Index
 
 - `docs/install.md` — machine install, config, auto cron, telemetry hub.
-- `docs/telemetry.md` — hosted hub at summa.duyet.net (ingest / ping / analytics for burn.duyet.net). Worker: `apps/api/README.md`.
+- `docs/telemetry.md` — hosted hub at summa.duyet.net. Rust Worker: `apps/api`.
 - `.env.example` — CLI + API Worker credentials (copy to `.env`).
 - `deploy/k8s/summa-sidecar.yaml` — Hermes sidecar + sidebar + hourly import CronJob.
 - `deploy/k8s/hermes-values-summa.yaml` — `extraContainers` overlay for the duyet/hermes-agent Helm chart.

@@ -1,104 +1,17 @@
-[package]
-name = "summa-import"
-version = "0.1.1"
+[workspace]
+resolver = "2"
+members = ["apps/cli", "apps/api"]
+default-members = ["apps/cli"]
+
+[workspace.package]
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
-description = "Import Claude Code (ccusage) and AI agent usage costs into DuckDB/ClickHouse (summa = Latin sum, total)"
-readme = "README.md"
-repository = "https://github.com/duyet/summa"
-homepage = "https://github.com/duyet/summa"
-documentation = "https://docs.rs/summa-import"
-keywords = ["duckdb", "clickhouse", "analytics", "claude", "usage"]
-categories = ["command-line-utilities", "database"]
 authors = ["Duyet Le <me@duyet.net>"]
-exclude = [
-    "node_modules/",
-    "target/",
-    "htmlcov/",
-    "dist/",
-    "docs/archive/",
-    "__pycache__/",
-    "tests/__pycache__/",
-    "*.pyc",
-    ".tmp/",
-    ".claude/",
-    ".poolside/",
-    "a.out",
-    "bun.lock",
-    "package.json",
-    "tsconfig.json",
-    "vitest.config.ts",
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "tests/unit/",
-    "tests/setup.ts",
-    "tests/**/*.py",
-    "tests/**/*.pyc",
-]
-
-[[bin]]
-name = "summa"
-path = "src/main.rs"
-
-[lib]
-name = "summa_import"
-path = "src/lib.rs"
-
-[dependencies]
-# Runtime
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "io-util", "time", "sync", "net"] }
-axum = { version = "0.7", default-features = false, features = ["http1", "json", "query", "tokio"] }
-tower = { version = "0.4", default-features = false, features = ["util"] }
-async-trait = "0.1"
-futures = "0.3"
-
-# CLI
-clap = { version = "4", features = ["derive", "env"] }
-
-# Serialization & config
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml = "1.0"
-
-# Cryptography
-sha2 = "0.11"
-
-# Databases
-duckdb = { version = "1", features = ["bundled"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
-
-# HTTP (ClickHouse HTTP API)
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-
-# Date/time
-chrono = { version = "0.4", features = ["serde"] }
-
-# UUIDs
-uuid = { version = "1", features = ["v4", "serde"] }
-
-# Error handling
-anyhow = "1"
-thiserror = "2"
-
-# File utilities
-walkdir = "2"
-dotenvy = "0.15"
-regex = "1"
-dirs = "6"
-
-# Random (for retry jitter)
-rand = "0.10"
-
-# Temp files for tests
-tempfile = "3"
-
-[dev-dependencies]
-assert-json-diff = "2"
+repository = "https://github.com/duyet/summa"
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
 opt-level = 3
-panic = "abort"

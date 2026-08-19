@@ -34,6 +34,7 @@ at the top for curated notes; generated release blocks are inserted above it.
 
 ### Features
 
+- Cargo workspace: `apps/cli` (Rust `summa`) and `apps/api` (Rust Cloudflare Worker via workers-rs)
 - Monorepo apps `@summa/cli` + `@summa/api`; `.env.example` for CLI and Worker credentials
 - `summa serve` telemetry HTTP: ingest fans out to MotherDuck and ClickHouse by `dedup_key`; `/health` `/ping` `/status`; `/v1/analytics` + `/v1/analytics/summary` for burn.duyet.net
 - `SUMMA_SETUP_CRON=1` on `install.sh` registers `summa cronjob install`

@@ -5,10 +5,10 @@
   "description": "summa telemetry API (Cloudflare Worker, summa.duyet.net)",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "cargo check -p summa-api --target wasm32-unknown-unknown --manifest-path ../../Cargo.toml",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "tsc --noEmit",
+    "check": "cargo check -p summa-api --target wasm32-unknown-unknown --manifest-path ../../Cargo.toml",
     "cf-typegen": "wrangler types",
     "migrate:local": "wrangler d1 migrations apply summa-telemetry --local",
     "migrate:remote": "wrangler d1 migrations apply summa-telemetry --remote"

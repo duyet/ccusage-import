@@ -1,9 +1,11 @@
 {
   "name": "summa-telemetry",
-  "main": "src/index.ts",
+  "main": "build/worker/shim.mjs",
   "compatibility_date": "2026-08-19",
-  "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  "build": {
+    "command": "cargo install -q worker-build && worker-build --release"
+  },
   "routes": [{ "pattern": "summa.duyet.net", "custom_domain": true }],
   "d1_databases": [{
     "binding": "DB",

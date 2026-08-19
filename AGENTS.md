@@ -43,11 +43,11 @@ Keep **Cursor** and **local Grok Build** on every machine. Account-wide Cursor r
 
 Plugin: sources → pipeline runner → sinks. Single table `ccusage_events`.
 
-- Sources: `src/source/{ccusage,companion,antigravity,hermes,grok,grok_api,cursor}.rs`
-- Parsers: `src/parser/{rows,cost,schema,companion}.rs`
-- Sinks: `src/sink/{clickhouse,duckdb,csv}.rs`
-- Telemetry: `src/telemetry/mod.rs` + `src/script/serve.rs` (`summa serve`)
-- Types: `src/model.rs` — `EventRow`, pipeline result types
+- CLI crate: `apps/cli` (`summa-import`, binary `summa`)
+- API Worker: `apps/api` (`summa-api`, `workers-rs` wasm)
+- Sources: `apps/cli/src/source/{ccusage,companion,antigravity,hermes,grok,grok_api,cursor}.rs`
+- Sinks: `apps/cli/src/sink/{clickhouse,duckdb,csv}.rs`
+- Types: `apps/cli/src/model.rs` — `EventRow`
 
 ## Key conventions
 

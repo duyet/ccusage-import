@@ -1,5 +1,6 @@
 .dev.vars
 .wrangler
 node_modules
+build/
 .DS_Store
 *.log
