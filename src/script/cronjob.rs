@@ -61,6 +61,8 @@ pub enum Backend {
     Launchd,
     Systemd,
     Cron,
+    /// No crontab/systemd (e.g. Debian container): nohup sleep-loop.
+    Loop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +101,8 @@ pub fn parse_backend(raw: &str) -> anyhow::Result<Option<Backend>> {
         "launchd" => Ok(Some(Backend::Launchd)),
         "systemd" => Ok(Some(Backend::Systemd)),
         "cron" | "crontab" => Ok(Some(Backend::Cron)),
-        other => bail!("unknown --backend `{other}` (auto|launchd|systemd|cron)"),
+        "loop" => Ok(Some(Backend::Loop)),
+        other => bail!("unknown --backend `{other}` (auto|launchd|systemd|cron|loop)"),
     }
 }
 
@@ -113,7 +116,7 @@ pub fn detect_backend() -> anyhow::Result<Backend> {
     if command_exists("crontab") {
         return Ok(Backend::Cron);
     }
-    bail!("no scheduler backend: install systemd --user or crontab")
+    Ok(Backend::Loop)
 }
 
 fn command_exists(name: &str) -> bool {
@@ -200,6 +203,27 @@ pub fn systemd_unit_dir(home: &Path) -> PathBuf {
 
 pub fn job_script_path(home: &Path) -> PathBuf {
     home.join(".config/summa/import-job.sh")
+}
+
+pub fn loop_script_path(home: &Path) -> PathBuf {
+    home.join(".config/summa/import-loop.sh")
+}
+
+pub fn loop_pid_path(home: &Path) -> PathBuf {
+    home.join(".local/log/summa/import-loop.pid")
+}
+
+pub fn generate_loop_script(job_script: &Path, schedule: Schedule) -> String {
+    let secs = launchd_start_interval_secs(schedule);
+    let job = job_script.display().to_string().replace('\'', "'\\''");
+    let mut s = String::from("#!/bin/sh\n");
+    s.push_str(&format!("INTERVAL={secs}\n"));
+    s.push_str(&format!("JOB='{job}'\n"));
+    s.push_str("while true; do\n");
+    s.push_str("  \"$JOB\"\n");
+    s.push_str("  sleep \"$INTERVAL\"\n");
+    s.push_str("done\n");
+    s
 }
 
 pub fn generate_job_script(bin: &Path, days_back: i64) -> String {
@@ -418,6 +442,7 @@ async fn install(opts: InstallArgs) -> anyhow::Result<()> {
         Backend::Launchd => install_launchd(&bin, days_back, schedule, &log, &home)?,
         Backend::Systemd => install_systemd(&bin, days_back, schedule, &log, &home)?,
         Backend::Cron => install_cron(&bin, days_back, schedule, &log, &home, opts.replace)?,
+        Backend::Loop => install_loop(&bin, days_back, schedule, &log, &home)?,
     }
 
     if opts.replace && backend != Backend::Cron {
@@ -449,6 +474,7 @@ fn backend_name(b: Backend) -> &'static str {
         Backend::Launchd => "launchd",
         Backend::Systemd => "systemd",
         Backend::Cron => "cron",
+        Backend::Loop => "loop",
     }
 }
 
@@ -482,6 +508,10 @@ fn print_generated(
             println!("--- crontab");
             println!("{CRON_MARKER}");
             println!("{}", generate_crontab_line(&job, schedule, log));
+        }
+        Backend::Loop => {
+            println!("--- {}", loop_script_path(home).display());
+            print!("{}", generate_loop_script(&job, schedule));
         }
     }
 }
@@ -593,6 +623,75 @@ fn run_systemctl(args: &[&str]) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+fn install_loop(
+    bin: &Path,
+    days_back: i64,
+    schedule: Schedule,
+    log: &Path,
+    home: &Path,
+) -> anyhow::Result<()> {
+    let job = write_job_script(home, bin, days_back)?;
+    let loop_sh = loop_script_path(home);
+    if let Some(parent) = loop_sh.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&loop_sh, generate_loop_script(&job, schedule))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&loop_sh)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&loop_sh, perms)?;
+    }
+    stop_loop(home);
+    std::fs::create_dir_all(log_dir(home))?;
+    let pid_path = loop_pid_path(home);
+    let child = Command::new(&loop_sh)
+        .stdin(Stdio::null())
+        .stdout(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log)?,
+        )
+        .stderr(Stdio::from(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log)?,
+        ))
+        .spawn()
+        .context("start import-loop.sh")?;
+    std::fs::write(&pid_path, format!("{}\n", child.id()))?;
+    Ok(())
+}
+
+fn stop_loop(home: &Path) {
+    let pid_path = loop_pid_path(home);
+    if let Ok(s) = std::fs::read_to_string(&pid_path) {
+        if let Ok(pid) = s.trim().parse::<i32>() {
+            let _ = Command::new("kill").arg(pid.to_string()).status();
+        }
+    }
+    let _ = std::fs::remove_file(pid_path);
+}
+
+fn loop_running(home: &Path) -> Option<i32> {
+    let pid_path = loop_pid_path(home);
+    let s = std::fs::read_to_string(pid_path).ok()?;
+    let pid = s.trim().parse::<i32>().ok()?;
+    let ok = Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|st| st.success())
+        .unwrap_or(false);
+    if ok {
+        Some(pid)
+    } else {
+        None
+    }
 }
 
 fn install_cron(
@@ -713,6 +812,8 @@ async fn remove(dry_run: bool) -> anyhow::Result<()> {
         }
     }
 
+    stop_loop(&home);
+
     println!("cronjob removed");
     Ok(())
 }
@@ -763,6 +864,13 @@ async fn show_status() -> anyhow::Result<()> {
         for l in legacy {
             println!("  {l}");
         }
+    }
+
+    if let Some(pid) = loop_running(&home) {
+        found = true;
+        println!("cronjob: loop");
+        println!("  script: {}", loop_script_path(&home).display());
+        println!("  pid: {pid}");
     }
 
     if !found {
@@ -881,6 +989,14 @@ mod tests {
         assert!(stripped.contains("PATH=/bin"));
         assert!(!stripped.contains("summa import"));
         assert!(!stripped.contains(CRON_MARKER));
+    }
+
+    #[test]
+    fn loop_script_sleeps_interval() {
+        let sh = generate_loop_script(Path::new("/home/box/.config/summa/import-job.sh"), Schedule::EveryHours(6));
+        assert!(sh.contains("INTERVAL=21600"));
+        assert!(sh.contains("import-job.sh"));
+        assert!(sh.contains("sleep \"$INTERVAL\""));
     }
 
     #[test]
