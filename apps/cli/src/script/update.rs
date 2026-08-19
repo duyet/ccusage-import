@@ -551,8 +551,8 @@ mod tests {
 
     #[test]
     fn update_workflows_include_master_ci_and_release() {
-        assert!(UPDATE_WORKFLOWS.contains(&"ci.yml"));
-        assert!(UPDATE_WORKFLOWS.contains(&"release.yml"));
+        // curl|bash uses GitHub Release tarballs; `summa update` stays on Actions.
+        assert_eq!(UPDATE_WORKFLOWS, &["ci.yml", "release.yml"]);
     }
 
     #[test]
