@@ -31,7 +31,7 @@ Env: `SUMMA_TELEMETRY_ENDPOINT`, `SUMMA_TELEMETRY_TOKEN`.
 |--------|------|------|---------|
 | GET | `/` | Clerk or bootstrap | Create/revoke API keys |
 | GET | `/health` | no | Liveness |
-| GET | `/ping` | no | Sink latency |
+| GET | `/ping` | API key | Sink latency (does not hit sinks without a key) |
 | POST | `/v1/ingest` | API key | Fan-out write |
 | GET | `/v1/analytics` | API key | Daily points (`group=source\|model`) |
 | GET | `/v1/analytics/summary` | API key | Totals + calendar `cost_per_day` |

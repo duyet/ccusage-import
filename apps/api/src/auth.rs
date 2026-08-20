@@ -205,9 +205,9 @@ pub async fn mint_api_key(env: &Env, account_id: &str, name: &str) -> Result<(St
     let token_hash = sha256_hex(&token);
     let created = chrono::Utc::now().to_rfc3339();
     let key_name = if name.trim().is_empty() {
-        "default"
+        "default".to_string()
     } else {
-        name.trim()
+        name.trim().chars().take(80).collect()
     };
     env.d1("DB")?
         .prepare(
@@ -251,16 +251,29 @@ pub async fn list_api_keys(env: &Env, account_id: &str) -> Result<Vec<serde_json
 }
 
 pub async fn revoke_api_key(env: &Env, account_id: &str, key_id: &str) -> Result<bool> {
-    let now = chrono::Utc::now().to_rfc3339();
-    let res = env
-        .d1("DB")?
+    #[derive(Deserialize)]
+    #[allow(dead_code)]
+    struct KeyId {
+        id: String,
+    }
+    let db = env.d1("DB")?;
+    let existing = db
         .prepare(
-            "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
+            "SELECT id FROM api_keys WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
         )
-        .bind(&[now.into(), key_id.into(), account_id.into()])?
-        .run()
+        .bind(&[key_id.into(), account_id.into()])?
+        .first::<KeyId>(None)
         .await?;
-    let _ = res;
+    if existing.is_none() {
+        return Ok(false);
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    db.prepare(
+        "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND account_id = ? AND revoked_at IS NULL",
+    )
+    .bind(&[now.into(), key_id.into(), account_id.into()])?
+    .run()
+    .await?;
     Ok(true)
 }
 

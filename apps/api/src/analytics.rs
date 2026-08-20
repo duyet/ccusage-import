@@ -5,7 +5,7 @@ use crate::sinks::{
     clickhouse_configured, clickhouse_query, motherduck_configured, motherduck_query,
     parse_analytics_payload,
 };
-use crate::types::AnalyticsPoint;
+use crate::types::{AnalyticsPoint, MAX_ANALYTICS_DAYS};
 
 pub fn analytics_window(
     since: Option<&str>,
@@ -22,12 +22,15 @@ pub fn analytics_window(
         Some(s) => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .map_err(|_| format!("invalid date `{s}`"))?,
         None => {
-            let n = days.unwrap_or(30).max(1);
+            let n = days.unwrap_or(30).clamp(1, MAX_ANALYTICS_DAYS);
             until_d - Duration::days(n - 1)
         }
     };
     if since_d > until_d {
         return Err("since is after until".into());
+    }
+    if (until_d - since_d).num_days() + 1 > MAX_ANALYTICS_DAYS {
+        return Err("range exceeds 366 days".into());
     }
     Ok((
         since_d.format("%Y-%m-%d").to_string(),
@@ -154,6 +157,14 @@ mod tests {
     #[test]
     fn window_rejects_inverted_range() {
         assert!(analytics_window(Some("2026-02-01"), Some("2026-01-01"), None).is_err());
+    }
+
+    #[test]
+    fn window_rejects_range_over_a_year() {
+        assert!(analytics_window(Some("2024-01-01"), Some("2026-01-02"), None).is_err());
+        let (since, until) = analytics_window(None, Some("2026-01-31"), Some(9_999)).unwrap();
+        assert_eq!(until, "2026-01-31");
+        assert_eq!(since, "2025-01-31");
     }
 
     #[test]

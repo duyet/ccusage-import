@@ -84,19 +84,20 @@ async fn write_clickhouse(env: &Env, rows: &[EventRow]) -> SinkAck {
     if rows.is_empty() {
         return ack("clickhouse", 0, start, None);
     }
+    let account_id = rows.first().map(|r| r.account_id.as_str()).unwrap_or("");
+    if account_id.is_empty() {
+        return ack("clickhouse", 0, start, Some("missing account_id".into()));
+    }
     let keys: Vec<String> = rows
         .iter()
         .map(|r| r.dedup_key.clone())
         .filter(|k| !k.is_empty())
         .collect();
     for chunk in keys.chunks(200) {
-        let list = chunk.iter().map(|k| sql_literal(k)).collect::<Vec<_>>().join(",");
-        if let Err(e) = clickhouse_query(
-            env,
-            &format!("ALTER TABLE ccusage_events DELETE WHERE dedup_key IN ({list})"),
-        )
-        .await
-        {
+        let Some(sql) = dedup_delete_sql(account_id, chunk, true) else {
+            continue;
+        };
+        if let Err(e) = clickhouse_query(env, &sql).await {
             return ack("clickhouse", 0, start, Some(e));
         }
     }
@@ -116,19 +117,20 @@ async fn write_motherduck(env: &Env, rows: &[EventRow]) -> SinkAck {
     if rows.is_empty() {
         return ack("motherduck", 0, start, None);
     }
+    let account_id = rows.first().map(|r| r.account_id.as_str()).unwrap_or("");
+    if account_id.is_empty() {
+        return ack("motherduck", 0, start, Some("missing account_id".into()));
+    }
     let keys: Vec<String> = rows
         .iter()
         .map(|r| r.dedup_key.clone())
         .filter(|k| !k.is_empty())
         .collect();
     for chunk in keys.chunks(200) {
-        let list = chunk.iter().map(|k| sql_literal(k)).collect::<Vec<_>>().join(",");
-        if let Err(e) = motherduck_query(
-            env,
-            &format!("DELETE FROM ccusage_events WHERE dedup_key IN ({list})"),
-        )
-        .await
-        {
+        let Some(sql) = dedup_delete_sql(account_id, chunk, false) else {
+            continue;
+        };
+        if let Err(e) = motherduck_query(env, &sql).await {
             return ack("motherduck", 0, start, Some(e));
         }
     }
@@ -246,6 +248,23 @@ fn event_values_sql(row: &EventRow) -> String {
         sql_literal(&row.created_at),
         sql_literal(&row.updated_at),
     )
+}
+
+pub fn dedup_delete_sql(account_id: &str, keys: &[String], clickhouse: bool) -> Option<String> {
+    if account_id.is_empty() || keys.is_empty() {
+        return None;
+    }
+    let list = keys.iter().map(|k| sql_literal(k)).collect::<Vec<_>>().join(",");
+    let account = sql_literal(account_id);
+    if clickhouse {
+        Some(format!(
+            "ALTER TABLE ccusage_events DELETE WHERE account_id = {account} AND dedup_key IN ({list})"
+        ))
+    } else {
+        Some(format!(
+            "DELETE FROM ccusage_events WHERE account_id = {account} AND dedup_key IN ({list})"
+        ))
+    }
 }
 
 pub fn motherduck_insert_sql(rows: &[EventRow]) -> String {
@@ -678,6 +697,19 @@ mod tests {
     #[test]
     fn now_ms_is_nonzero_on_native() {
         assert!(now_ms() > 0);
+    }
+
+    #[test]
+    fn dedup_delete_requires_account_and_scopes_keys() {
+        assert!(dedup_delete_sql("", &["abc".into()], true).is_none());
+        assert!(dedup_delete_sql("acc", &[], false).is_none());
+        let ch = dedup_delete_sql("acc", &["k1".into(), "k'2".into()], true).unwrap();
+        assert!(ch.starts_with("ALTER TABLE ccusage_events DELETE"));
+        assert!(ch.contains("account_id = 'acc'"));
+        assert!(ch.contains("dedup_key IN ('k1','k''2')"));
+        let md = dedup_delete_sql("acc", &["k1".into()], false).unwrap();
+        assert!(md.starts_with("DELETE FROM ccusage_events"));
+        assert!(md.contains("account_id = 'acc'"));
     }
 
     #[test]

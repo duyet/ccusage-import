@@ -32,6 +32,13 @@ at the top for curated notes; generated release blocks are inserted above it.
 
 ## [Unreleased]
 
+### Security
+
+- Ingest ignores client `dedup_key` / `account_id` and recomputes keys after stamping the API-key tenant. ClickHouse/MotherDuck deletes are scoped to that `account_id` (a key can no longer delete another tenant's rows).
+- `/v1/ingest` rejects bodies over 1.5MB or 500 events (413). CLI `summa-cloud` posts in 400-row chunks.
+- `/ping` requires an API key so anonymous clients cannot hammer ClickHouse/MotherDuck. `/health` stays public.
+- Analytics date range is capped at 366 days. Worker 500/502 responses no longer echo internal errors.
+
 ### Fixes
 
 - Worker `/ping` and `/v1/ingest` no longer panic on `Instant` in WASM (Cloudflare 1101). MotherDuck ingest now INSERTs after dedup delete. Analytics falls back to MotherDuck when ClickHouse is unreachable from the edge.
