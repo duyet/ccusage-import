@@ -32,6 +32,10 @@ at the top for curated notes; generated release blocks are inserted above it.
 
 ## [Unreleased]
 
+### Fixes
+
+- Worker `/ping` and `/v1/ingest` no longer panic on `Instant` in WASM (Cloudflare 1101). MotherDuck ingest now INSERTs after dedup delete. Analytics falls back to MotherDuck when ClickHouse is unreachable from the edge.
+
 ### CI
 
 - Workspace CI/release: `-p summa-import` / `-p summa-api`, `cargo package`, install.sh dry-run, k8s + wrangler validation, release-please package path `apps/cli`

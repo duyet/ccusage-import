@@ -1,7 +1,10 @@
 use chrono::{Duration, Utc};
 use worker::{Env, Result};
 
-use crate::sinks::{clickhouse_configured, clickhouse_query, parse_json_each_row};
+use crate::sinks::{
+    clickhouse_configured, clickhouse_query, motherduck_configured, motherduck_query,
+    parse_analytics_payload,
+};
 use crate::types::AnalyticsPoint;
 
 pub fn analytics_window(
@@ -87,9 +90,6 @@ pub async fn load_points(
     since: &str,
     until: &str,
 ) -> Result<Vec<AnalyticsPoint>> {
-    if !clickhouse_configured(env) {
-        return Err(worker::Error::RustError("no analytics sink configured".into()));
-    }
     let extra = if group == "model" {
         "source, model_name"
     } else {
@@ -108,16 +108,33 @@ pub async fn load_points(
     } else {
         format!("account_id = {}", crate::types::sql_literal(account_id))
     };
-    let sql = format!(
-        "SELECT date, {extra}, sum(cost) AS cost, sum(total_tokens) AS total_tokens, sum(entries) AS entries \
-         FROM ccusage_events FINAL \
-         WHERE record_type = 'daily' AND date >= '{since}' AND date <= '{until}' AND {tenant} \
-         GROUP BY {group_by} ORDER BY date, source FORMAT JSONEachRow"
+    let where_sql = format!(
+        "record_type = 'daily' AND date >= '{since}' AND date <= '{until}' AND {tenant}"
     );
-    let text = clickhouse_query(env, &sql)
-        .await
-        .map_err(|e| worker::Error::RustError(e))?;
-    Ok(parse_json_each_row(&text))
+    let select = format!(
+        "SELECT date, {extra}, sum(cost) AS cost, sum(total_tokens) AS total_tokens, sum(entries) AS entries \
+         FROM ccusage_events"
+    );
+    let tail = format!(" WHERE {where_sql} GROUP BY {group_by} ORDER BY date, source");
+    let mut errors = Vec::new();
+    if clickhouse_configured(env) {
+        let sql = format!("{select} FINAL{tail} FORMAT JSONEachRow");
+        match clickhouse_query(env, &sql).await {
+            Ok(text) => return Ok(parse_analytics_payload(&text)),
+            Err(e) => errors.push(format!("clickhouse: {e}")),
+        }
+    }
+    if motherduck_configured(env) {
+        let sql = format!("{select}{tail}");
+        match motherduck_query(env, &sql).await {
+            Ok(text) => return Ok(parse_analytics_payload(&text)),
+            Err(e) => errors.push(format!("motherduck: {e}")),
+        }
+    }
+    if errors.is_empty() {
+        return Err(worker::Error::RustError("no analytics sink configured".into()));
+    }
+    Err(worker::Error::RustError(errors.join("; ")))
 }
 
 #[cfg(test)]
