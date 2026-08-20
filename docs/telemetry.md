@@ -2,7 +2,7 @@
 
 The hub is a **Cloudflare Worker**, not a local `summa serve`. Every `summa` binary POSTs events with an API key. The worker stamps `account_id` / `api_key_id` and double-writes **MotherDuck** and **ClickHouse**. burn.duyet.net, MCP, and the dashboard pull `/v1/analytics`.
 
-Existing rows keep empty `account_id`. Analytics for the **first/owner** tenant includes `account_id IN (theirs, '')` so current data still shows; other tenants only see their own `account_id`. `GET /v1/analytics` uses ClickHouse when reachable and falls back to MotherDuck (MCP SQL at `https://api.motherduck.com/mcp`). `CH_HOST` on the Worker must be a public hostname (Cloudflare Workers cannot fetch raw IPs).
+Existing rows keep empty `account_id`. Analytics for the **first/owner** tenant includes `account_id IN (theirs, '')` so current data still shows; other tenants only see their own `account_id`. `GET /v1/analytics` uses ClickHouse when reachable and falls back to MotherDuck (MCP SQL at `https://api.motherduck.com/mcp`). Worker `CH_HOST` is the tunnel hostname `clickhouse-homelab.duyet.net` (HTTPS) plus Cloudflare Access service-token headers (`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`). Sync local keys with `bash scripts/sync-worker-secrets.sh`.
 
 Worker deploy, D1 (API keys/accounts only), and secrets: `apps/api/README.md`. Usage data: ClickHouse + MotherDuck. Creds: `.env.example` at repo root.
 

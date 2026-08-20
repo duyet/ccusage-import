@@ -35,6 +35,7 @@ at the top for curated notes; generated release blocks are inserted above it.
 ### Fixes
 
 - Worker `/ping` and `/v1/ingest` no longer panic on `Instant` in WASM (Cloudflare 1101). MotherDuck ingest now INSERTs after dedup delete. Analytics falls back to MotherDuck when ClickHouse is unreachable from the edge.
+- Worker reaches ClickHouse through `clickhouse-homelab.duyet.net` (Cloudflare Tunnel + Access service token). `scripts/sync-worker-secrets.sh` copies local CH/MD/Access keys into wrangler secrets.
 
 ### CI
 

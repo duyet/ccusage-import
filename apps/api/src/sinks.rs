@@ -150,16 +150,14 @@ fn ack(name: &str, rows: u64, start: u64, error: Option<String>) -> SinkAck {
 }
 
 async fn ensure_ch_columns(env: &Env) -> std::result::Result<(), String> {
-    let _ = clickhouse_query(
-        env,
+    for sql in [
         "ALTER TABLE ccusage_events ADD COLUMN IF NOT EXISTS account_id String DEFAULT ''",
-    )
-    .await;
-    let _ = clickhouse_query(
-        env,
         "ALTER TABLE ccusage_events ADD COLUMN IF NOT EXISTS api_key_id String DEFAULT ''",
-    )
-    .await;
+        "ALTER TABLE ccusage_events ADD COLUMN IF NOT EXISTS dedup_key String DEFAULT ''",
+        "ALTER TABLE ccusage_events ADD COLUMN IF NOT EXISTS import_id String DEFAULT ''",
+    ] {
+        let _ = clickhouse_query(env, sql).await;
+    }
     Ok(())
 }
 
@@ -255,20 +253,68 @@ pub fn motherduck_insert_sql(rows: &[EventRow]) -> String {
     format!("INSERT INTO ccusage_events ({EVENT_COLS}) VALUES {values}")
 }
 
-pub async fn clickhouse_query(env: &Env, sql: &str) -> std::result::Result<String, String> {
+pub fn clickhouse_default_port(proto: &str, port: &str) -> String {
+    if !port.is_empty() {
+        return port.into();
+    }
+    if proto == "https" {
+        "443".into()
+    } else {
+        "8123".into()
+    }
+}
+
+fn clickhouse_base_url(env: &Env) -> String {
     let host = opt_secret(env, "CH_HOST");
-    let port = opt_secret(env, "CH_PORT");
-    let port = if port.is_empty() { "8123".into() } else { port };
-    let user = opt_secret(env, "CH_USER");
-    let pass = opt_secret(env, "CH_PASSWORD");
-    let db = opt_secret(env, "CH_DATABASE");
     let proto = opt_secret(env, "CH_PROTOCOL");
     let proto = if proto.is_empty() { "http".into() } else { proto };
-    let mut url = format!("{proto}://{host}:{port}/");
+    let port = clickhouse_default_port(&proto, &opt_secret(env, "CH_PORT"));
+    format!("{proto}://{host}:{port}/")
+}
+
+fn apply_clickhouse_headers(env: &Env, headers: &Headers) -> std::result::Result<(), String> {
+    let user = opt_secret(env, "CH_USER");
+    let pass = opt_secret(env, "CH_PASSWORD");
+    if !user.is_empty() || !pass.is_empty() {
+        let b64 = base64(&format!("{user}:{pass}"));
+        headers
+            .set("authorization", &format!("Basic {b64}"))
+            .map_err(|e| e.to_string())?;
+    }
+    let id = opt_secret(env, "CF_ACCESS_CLIENT_ID");
+    let id = if id.is_empty() {
+        opt_secret(env, "CH_ACCESS_CLIENT_ID")
+    } else {
+        id
+    };
+    let secret = opt_secret(env, "CF_ACCESS_CLIENT_SECRET");
+    let secret = if secret.is_empty() {
+        opt_secret(env, "CH_ACCESS_CLIENT_SECRET")
+    } else {
+        secret
+    };
+    if clickhouse_access_configured(&id, &secret) {
+        headers
+            .set("CF-Access-Client-Id", &id)
+            .map_err(|e| e.to_string())?;
+        headers
+            .set("CF-Access-Client-Secret", &secret)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+pub fn clickhouse_access_configured(id: &str, secret: &str) -> bool {
+    !id.is_empty() && !secret.is_empty()
+}
+
+pub async fn clickhouse_query(env: &Env, sql: &str) -> std::result::Result<String, String> {
+    let db = opt_secret(env, "CH_DATABASE");
+    let mut url = clickhouse_base_url(env);
     if !db.is_empty() {
         url.push_str(&format!("?database={}", urlencoding(&db)));
     }
-    http_post(&url, sql, Some((&user, &pass))).await
+    clickhouse_post(env, &url, sql).await
 }
 
 async fn clickhouse_insert(env: &Env, rows: &[EventRow]) -> std::result::Result<(), String> {
@@ -277,15 +323,20 @@ async fn clickhouse_insert(env: &Env, rows: &[EventRow]) -> std::result::Result<
         body.push_str(&serde_json::to_string(row).map_err(|e| e.to_string())?);
         body.push('\n');
     }
-    let host = opt_secret(env, "CH_HOST");
-    let port = opt_secret(env, "CH_PORT");
-    let port = if port.is_empty() { "8123".into() } else { port };
-    let user = opt_secret(env, "CH_USER");
-    let pass = opt_secret(env, "CH_PASSWORD");
-    let proto = opt_secret(env, "CH_PROTOCOL");
-    let proto = if proto.is_empty() { "http".into() } else { proto };
-    let url = format!("{proto}://{host}:{port}/?query=INSERT+INTO+ccusage_events+FORMAT+JSONEachRow");
-    http_post(&url, &body, Some((&user, &pass))).await.map(|_| ())
+    let url = format!(
+        "{}?query=INSERT+INTO+ccusage_events+FORMAT+JSONEachRow",
+        clickhouse_base_url(env).trim_end_matches('/')
+    );
+    clickhouse_post(env, &url, &body).await.map(|_| ())
+}
+
+async fn clickhouse_post(env: &Env, url: &str, body: &str) -> std::result::Result<String, String> {
+    let headers = Headers::new();
+    headers
+        .set("content-type", "text/plain; charset=UTF-8")
+        .map_err(|e| e.to_string())?;
+    apply_clickhouse_headers(env, &headers)?;
+    fetch_post(url, headers, body).await
 }
 
 fn motherduck_sql_url(env: &Env) -> String {
@@ -433,21 +484,6 @@ fn mcp_rows_as_objects(sc: &serde_json::Value) -> Option<Vec<serde_json::Value>>
             })
             .collect(),
     )
-}
-
-async fn http_post(url: &str, body: &str, basic: Option<(&str, &str)>) -> std::result::Result<String, String> {
-    let headers = Headers::new();
-    headers
-        .set("content-type", "text/plain; charset=UTF-8")
-        .map_err(|e| e.to_string())?;
-    if let Some((user, pass)) = basic {
-        let raw = format!("{user}:{pass}");
-        let b64 = base64(&raw);
-        headers
-            .set("authorization", &format!("Basic {b64}"))
-            .map_err(|e| e.to_string())?;
-    }
-    fetch_post(url, headers, body).await
 }
 
 async fn http_post_json(url: &str, body: &str, bearer: Option<&str>) -> std::result::Result<String, String> {
@@ -736,5 +772,19 @@ mod tests {
     fn parse_mcp_error() {
         let text = r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"nope"}}"#;
         assert!(parse_mcp_result(text).unwrap_err().contains("nope"));
+    }
+
+    #[test]
+    fn https_defaults_to_443() {
+        assert_eq!(clickhouse_default_port("https", ""), "443");
+        assert_eq!(clickhouse_default_port("http", ""), "8123");
+        assert_eq!(clickhouse_default_port("https", "8443"), "8443");
+    }
+
+    #[test]
+    fn access_needs_both_parts() {
+        assert!(!clickhouse_access_configured("", "s"));
+        assert!(!clickhouse_access_configured("id", ""));
+        assert!(clickhouse_access_configured("id", "s"));
     }
 }
