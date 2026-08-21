@@ -47,6 +47,37 @@ put CH_PASSWORD "$(toml_get "$CREDS" clickhouse_password)"
 put MOTHERDUCK_TOKEN "$(toml_get "$CREDS" motherduck_token)"
 put MOTHERDUCK_DATABASE "${SUMMA_MOTHERDUCK_DATABASE:-ccusage}"
 
+# Clerk (login for key minting). Publishable key is also a wrangler var.
+MONOREPO_ENV="${SUMMA_CLERK_ENV:-$HOME/project/monorepo/.env.production.local}"
+if [[ -f "$MONOREPO_ENV" ]] || [[ -n "${CLERK_SECRET_KEY:-}" ]]; then
+  clerk_get() {
+    if [[ -n "${CLERK_SECRET_KEY:-}" && "$1" = "CLERK_SECRET_KEY" ]]; then
+      printf '%s' "$CLERK_SECRET_KEY"
+    else
+      grep -E "^${1}=" "$MONOREPO_ENV" 2>/dev/null | tail -n1 | cut -d= -f2-
+    fi
+  }
+  put CLERK_SECRET_KEY "$(clerk_get CLERK_SECRET_KEY)"
+  PK="$(clerk_get NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)"
+  PK="${PK:-$(clerk_get VITE_CLERK_PUBLISHABLE_KEY)}"
+  put CLERK_PUBLISHABLE_KEY "$PK"
+  if [[ -n "$PK" ]]; then
+    PK_ESCAPED="${PK//\"/\\\"}"
+    python3 - "$PK_ESCAPED" <<'PY'
+import re, sys
+from pathlib import Path
+pk = sys.argv[1]
+p = Path("wrangler.jsonc")
+text = p.read_text()
+new = re.sub(r'("CLERK_PUBLISHABLE_KEY"\s*:\s*)"[^"]*"', rf'\1"{pk}"', text)
+p.write_text(new)
+print("wrangler var CLERK_PUBLISHABLE_KEY updated")
+PY
+  fi
+else
+  echo "skip CLERK_* (no $MONOREPO_ENV)"
+fi
+
 if [[ -f "$ACCESS_FILE" ]]; then
   python3 - "$ACCESS_FILE" <<'PY'
 import json, sys

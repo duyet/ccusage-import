@@ -261,14 +261,24 @@ fn apply_cors(origin: Option<&str>, public: bool, res: Response) -> Result<Respo
 }
 
 fn dashboard_html(publishable_key: &str, version: &str) -> String {
-    let clerk = if publishable_key.is_empty() {
-        "<p class=\"muted\">mint needs a clerk session or bootstrap token on the request.</p>"
+    let clerk_script = if publishable_key.is_empty() {
+        ""
     } else {
-        "<p class=\"muted\">clerk is configured. sign in, then mint.</p>"
+        &format!(
+            "<script async crossorigin=\"anonymous\" data-clerk-publishable-key=\"{pk}\" src=\"https://cdn.jsdelivr.net/npm/@clerk/clerk-js@5/dist/clerk.browser.js\"></script>",
+            pk = publishable_key
+        )
+    };
+    let clerk_note = if publishable_key.is_empty() {
+        "clerk is not configured on this deployment; minting needs a session or bootstrap token."
+    } else {
+        "sign in to mint a telemetry_token for ~/.config/summa/credentials.toml."
     };
     include_str!("dashboard.html")
         .replace("__VERSION__", version)
-        .replace("__CLERK_NOTE__", clerk)
+        .replace("__CLERK_NOTE__", clerk_note)
+        .replace("__CLERK_SCRIPT__", &clerk_script)
+        .replace("__CLERK_PK__", publishable_key)
 }
 
 #[cfg(test)]
@@ -280,7 +290,9 @@ mod tests {
         let s = install_script();
         assert!(s.contains("summa installer"));
         assert!(s.contains("SUMMA_DOWNLOAD_BASE"));
-        assert!(s.contains("nightly"));
+        assert!(s.contains("beta"));
+        assert!(s.contains("SUMMA_CHANNEL"));
+        assert!(!s.contains("nightly"));
         assert!(s.contains("curl -fsSL"));
     }
 
@@ -290,6 +302,27 @@ mod tests {
         assert!(html.contains("curl -fsSL https://summa.duyet.net/install.sh | bash"));
         assert!(html.contains("class=\"term\""));
         assert!(html.contains("v0.1.1"));
-        assert!(!html.contains('\u{2014}'));
+        // Demo terminal mirrors real output: summa — machine: …
+        assert!(html.contains("=== Summary ==="));
+        assert!(html.contains("sink summa-cloud: 341 rows"));
+        // Menu: install is an in-page anchor; burn linked only from footer.
+        assert!(html.contains("href=\"#install\""));
+        assert_eq!(
+            html.matches("https://burn.duyet.net").count(),
+            1,
+            "burn only linked from the footer"
+        );
+        assert!(!html.contains("__CLERK_NOTE__"));
+        assert!(!html.contains("__CLERK_PK__"));
+        assert!(!html.contains("__CLERK_SCRIPT__"));
+    }
+
+    #[test]
+    fn dashboard_with_clerk_injects_script_and_signin() {
+        let html = super::dashboard_html("pk_test_x", "0.1.2");
+        assert!(html.contains("data-clerk-publishable-key=\"pk_test_x\""));
+        assert!(!html.contains("__CLERK_PK__"));
+        let bare = super::dashboard_html("", "0.1.2");
+        assert!(!bare.contains("clerk.browser.js"));
     }
 }

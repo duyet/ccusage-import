@@ -9,13 +9,13 @@ curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bas
 curl -fsSL https://summa.duyet.net/install.sh | bash
 ```
 
-Installs `~/.local/bin/summa`. Prefers a stable GitHub Release that actually has binaries; otherwise the rolling `nightly` tag (updated by `release.yml` on master). Env vars must be on **bash** (the right-hand side of the pipe):
+Installs `~/.local/bin/summa` from the `SUMMA_CHANNEL` you pick — default `beta`, the rolling tag `release.yml` publishes on every master push; `stable` uses release-please tagged GitHub Releases. Env vars must be on **bash** (the right-hand side of the pipe):
 
 ```bash
 curl -fsSL https://summa.duyet.net/install.sh | SUMMA_SETUP_CRON=1 SUMMA_CRON_EVERY=1h bash
 ```
 
-Env: `SUMMA_INSTALL_DIR`, `SUMMA_VERSION` (`nightly` or `v0.1.1`), `SUMMA_DRY_RUN=1`, `SUMMA_TELEMETRY_TOKEN`. Optional: `summa update` for Actions artifacts (`gh` auth).
+Env: `SUMMA_INSTALL_DIR`, `SUMMA_CHANNEL` (`beta` or `stable`), `SUMMA_VERSION` (a tag like `v0.1.1` overrides the channel), `SUMMA_DRY_RUN=1`, `SUMMA_TELEMETRY_TOKEN`. Switch channels and update with `summa update --beta|--stable`; enable auto-update with `summa config --set update.mode=auto`.
 
 ## 2. Config
 
@@ -34,7 +34,13 @@ protocol = "http"
 # duckdb_path = "md:ccusage"   # MotherDuck
 days_back = 7
 # skip_cursor / skip_grok stay off — every machine imports; sinks dedup
+
+[update]
+channel = "beta"   # or "stable"
+mode = "manual"    # "auto" downloads updates for the next launch
 ```
+
+Set with `summa config --set update.channel=stable` / `summa config --set update.mode=auto`.
 
 ```toml
 # ~/.config/summa/credentials.toml

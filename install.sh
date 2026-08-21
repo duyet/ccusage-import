@@ -8,7 +8,8 @@
 #   curl -fsSL ... | SUMMA_SETUP_CRON=1 bash
 #
 #   SUMMA_INSTALL_DIR   Install directory (default: ~/.local/bin)
-#   SUMMA_VERSION       Tag: v0.1.1, 0.1.1, nightly (default: stable, then nightly)
+#   SUMMA_CHANNEL       beta (rolling master builds) or stable (tagged releases)
+#   SUMMA_VERSION       Tag: v0.1.1, 0.1.1, beta (overrides SUMMA_CHANNEL)
 #   SUMMA_REPO          owner/repo (default: duyet/summa)
 #   SUMMA_DOWNLOAD_BASE Override GitHub download prefix (CI / mirrors)
 #   SUMMA_DRY_RUN=1     Print actions only; do not download/install
@@ -22,10 +23,11 @@ REPO="${SUMMA_REPO:-duyet/summa}"
 BIN_NAME="summa"
 INSTALL_DIR="${SUMMA_INSTALL_DIR:-${SUMMA_PREFIX:-${HOME}/.local/bin}}"
 VERSION="${SUMMA_VERSION:-}"
+CHANNEL="${SUMMA_CHANNEL:-beta}"
 DRY_RUN="${SUMMA_DRY_RUN:-0}"
 DOWNLOAD_BASE="${SUMMA_DOWNLOAD_BASE:-https://github.com/${REPO}/releases/download}"
 USER_AGENT="${SUMMA_USER_AGENT:-summa-install}"
-NIGHTLY_TAG="nightly"
+BETA_TAG="beta"
 
 info()  { printf '==> %s\n' "$*"; }
 warn()  { printf 'warn: %s\n' "$*" >&2; }
@@ -62,7 +64,7 @@ detect_target() {
 normalize_version() {
   local v="$1"
   case "$v" in
-    ""|nightly|latest) echo "$v" ;;
+    ""|beta|stable|latest) echo "$v" ;;
     v*) echo "$v" ;;
     *) echo "v${v}" ;;
   esac
@@ -105,6 +107,10 @@ latest_stable_tag() {
 
 resolve_version() {
   local asset="$1" url tag
+  # Explicit version (or "beta") wins; otherwise channel picks the tag.
+  if [ -z "$VERSION" ] && [ "$CHANNEL" = "beta" ]; then
+    VERSION="beta"
+  fi
   if [ -n "$VERSION" ]; then
     VERSION="$(normalize_version "$VERSION")"
     url="$(asset_url "$VERSION" "$asset")"
@@ -126,17 +132,17 @@ resolve_version() {
       echo "$tag"
       return
     fi
-    warn "stable ${tag} has no ${asset}.tar.gz — trying ${NIGHTLY_TAG}"
+    warn "stable ${tag} has no ${asset}.tar.gz — trying ${BETA_TAG}"
   else
-    warn "no GitHub stable release — trying ${NIGHTLY_TAG}"
+    warn "no GitHub stable release — trying ${BETA_TAG}"
   fi
 
-  url="$(asset_url "$NIGHTLY_TAG" "$asset")"
+  url="$(asset_url "$BETA_TAG" "$asset")"
   if [ "$DRY_RUN" = "1" ] || [ "$DRY_RUN" = "true" ] || asset_exists "$url"; then
-    echo "$NIGHTLY_TAG"
+    echo "$BETA_TAG"
     return
   fi
-  die "no prebuilt ${asset} on stable or ${NIGHTLY_TAG}. Wait for CI, or: summa update"
+  die "no prebuilt ${asset} on stable or ${BETA_TAG}. Wait for CI, or: summa update"
 }
 
 place_binary() {
@@ -185,7 +191,7 @@ main() {
     warn "No prebuilt binary for this platform/tag yet."
     warn "Options:"
     warn "  1) summa update          # newest CI artifact (needs gh auth or GITHUB_TOKEN)"
-    warn "  2) Wait for the GitHub Release / nightly assets after CI"
+    warn "  2) Wait for the GitHub Release / beta assets after CI"
     warn "Do not cargo build --release on this machine."
     exit 1
   fi
@@ -209,6 +215,16 @@ main() {
 
   local cfg_dir="${HOME}/.config/summa"
   mkdir -p "${cfg_dir}"
+  # Record the install channel so `summa update` (and auto-update) follow it.
+  if ! grep -q '^\[update\]' "${cfg_dir}/config.toml" 2>/dev/null; then
+    {
+      echo ""
+      echo "[update]"
+      echo "channel = \"${CHANNEL}\""
+      echo "mode = \"manual\""
+    } >> "${cfg_dir}/config.toml"
+    info "channel ${CHANNEL} written to ${cfg_dir}/config.toml"
+  fi
   if [ -n "${SUMMA_TELEMETRY_ENDPOINT:-}${SUMMA_TELEMETRY_TOKEN:-}" ]; then
     if ! grep -q '^\[telemetry\]' "${cfg_dir}/config.toml" 2>/dev/null; then
       {

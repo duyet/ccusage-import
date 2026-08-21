@@ -4,7 +4,9 @@ use crate::script::publish::PublishArgs;
 use crate::script::serve::ServeArgs;
 
 pub async fn run(cli: Cli) -> anyhow::Result<()> {
-    match cli.command {
+    // Auto-update downloads alongside the command; active on next launch.
+    let auto_update = tokio::spawn(crate::script::update::auto_update_tick());
+    let result = match cli.command {
         Commands::Import(args) => {
             if cli.verbose {
                 eprintln!("Importing with config: {:?}", args.config);
@@ -13,6 +15,17 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         }
         Commands::Check(args) => crate::script::check::run(args).await,
         Commands::Config(args) => {
+            for pair in &args.set {
+                let (key, value) = pair
+                    .split_once('=')
+                    .ok_or_else(|| anyhow::anyhow!("--set expects KEY=VALUE, got `{pair}`"))?;
+                let path = crate::config::Config::resolve_write_path(args.config.as_deref());
+                crate::config::Config::set_value(&path, key.trim(), value.trim())?;
+                println!("set {key} = {value} ({})", path.display());
+            }
+            if !args.set.is_empty() {
+                return finish(auto_update, Ok(())).await;
+            }
             let cfg = crate::config::Config::load(args.config.as_deref())?;
             if args.validate {
                 println!("config ok");
@@ -22,7 +35,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
                     "  password_set={}",
                     !cfg.clickhouse.password.is_empty()
                 );
-                return Ok(());
+                return finish(auto_update, Ok(())).await;
             }
             // Redact password when printing
             let mut printable = cfg.clone();
@@ -31,6 +44,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
             }
             println!("{}", toml::to_string_pretty(&printable)?);
             println!("# resolved duckdb default: {}", crate::config::Config::default_duckdb_path());
+            println!("# update: channel={} mode={}", cfg.update_channel(), cfg.update_mode());
             println!("# config candidates:");
             for p in crate::config::Config::candidate_paths() {
                 println!("#   {p}");
@@ -41,7 +55,16 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         Commands::Publish(args) => crate::script::publish::run(args).await,
         Commands::Update(args) => crate::script::update::run(args).await,
         Commands::Serve(args) => crate::script::serve::run(args).await,
-    }
+    };
+    finish(auto_update, result).await
+}
+
+async fn finish(
+    auto_update: tokio::task::JoinHandle<()>,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let _ = auto_update.await;
+    result
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -151,6 +174,19 @@ pub struct ConfigArgs {
     /// Validate config only
     #[arg(long)]
     pub validate: bool,
+    /// Set a config value (dotted key=value), e.g. --set update.mode=auto
+    #[arg(long = "set", value_name = "KEY=VALUE")]
+    pub set: Vec<String>,
+}
+
+impl Default for ConfigArgs {
+    fn default() -> Self {
+        Self {
+            config: None,
+            validate: false,
+            set: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -196,6 +232,15 @@ mod tests {
         match cli.command {
             Commands::Update(args) => assert!(args.dry_run),
             other => panic!("expected Update, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_config_set_key_value() {
+        let cli = Cli::try_parse_from(["summa", "config", "--set", "update.mode=auto"]).unwrap();
+        match cli.command {
+            Commands::Config(args) => assert_eq!(args.set, vec!["update.mode=auto".to_string()]),
+            other => panic!("expected Config, got {other:?}"),
         }
     }
 

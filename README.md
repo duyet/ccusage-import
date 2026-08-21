@@ -32,13 +32,13 @@ curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bas
 curl -fsSL https://summa.duyet.net/install.sh | bash
 ```
 
-Installs `~/.local/bin/summa` from the latest GitHub Release that has a tarball, or the rolling `nightly` release CI publishes on every master push. Put env vars on **bash**, not curl:
+Installs `~/.local/bin/summa` from the latest GitHub Release that has a tarball, or the rolling `beta` release CI publishes on every master push. Put env vars on **bash**, not curl:
 
 ```bash
 curl -fsSL https://summa.duyet.net/install.sh | SUMMA_SETUP_CRON=1 bash
 ```
 
-Env: `SUMMA_INSTALL_DIR`, `SUMMA_VERSION` (`v0.1.1` or `nightly`), `SUMMA_DRY_RUN=1`. Then `summa update` if you have `gh` auth. Full machine setup: [docs/install.md](docs/install.md).
+Env: `SUMMA_INSTALL_DIR`, `SUMMA_CHANNEL` (`beta` default, or `stable`), `SUMMA_VERSION` (`v0.1.1`), `SUMMA_DRY_RUN=1`. Then `summa update --beta|--stable` to switch channels, and `summa config --set update.mode=auto` for auto-updates. Full machine setup: [docs/install.md](docs/install.md).
 
 ### Cargo
 

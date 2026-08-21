@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>summa</title>
+  <title>summa — AI coding-agent usage, one table</title>
   <meta name="description" content="CLI that imports AI coding-agent usage into DuckDB and ClickHouse.">
   <style>
     :root {
@@ -17,6 +17,7 @@
       --accent: #c8e07a;
     }
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     html, body { margin: 0; background: var(--bg); color: var(--fg); }
     body {
       font: 14.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -26,7 +27,7 @@
     a { color: var(--fg); text-decoration: none; }
     a:hover { color: var(--accent); }
     .wrap {
-      max-width: 720px;
+      max-width: 760px;
       margin: 0 auto;
       padding: 28px 24px 72px;
     }
@@ -42,10 +43,21 @@
     nav .brand span { color: var(--accent); margin-right: 8px; }
     nav a { color: var(--muted); }
     nav a:hover { color: var(--fg); }
+    nav .spacer { flex: 1; }
+    nav .user { color: var(--dim); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    h1 {
+      font-size: clamp(26px, 6vw, 40px);
+      line-height: 1.15;
+      margin: 0 0 16px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    h1 em { font-style: normal; color: var(--accent); }
     .tag {
       color: var(--muted);
       margin: 0 0 18px;
       font-size: 15px;
+      max-width: 58ch;
     }
     .install {
       display: flex;
@@ -78,7 +90,7 @@
       font-size: 12.5px;
       margin: 0 0 36px;
     }
-    .meta a { color: var(--dim); }
+    .meta a { color: var(--dim); text-decoration: underline; text-underline-offset: 3px; }
     .term {
       background: var(--term);
       border: 1px solid var(--term-edge);
@@ -207,6 +219,12 @@
       cursor: pointer;
     }
     .row button:active { transform: scale(0.96); }
+    .row button.signin {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--term-edge);
+    }
+    .row button.signin:hover { border-color: var(--accent); }
     .out {
       margin-top: 12px;
       color: var(--accent);
@@ -215,6 +233,7 @@
       word-break: break-all;
     }
     .out.err { color: #e07a7a; }
+    .out a { text-decoration: underline; text-underline-offset: 3px; }
     .keys .muted { color: var(--dim); font-size: 12.5px; margin: 10px 0 0; }
     footer {
       margin-top: 56px;
@@ -222,6 +241,7 @@
       font-size: 12px;
     }
     footer a { color: var(--dim); }
+    footer a:hover { color: var(--fg); }
     @media (max-width: 720px) {
       .wrap { padding: 20px 16px 56px; }
       nav { gap: 14px; flex-wrap: wrap; height: auto; margin-bottom: 36px; }
@@ -234,19 +254,22 @@
   <div class="wrap">
     <nav>
       <a class="brand" href="/"><span>$</span> summa</a>
-      <a href="/install.sh">install</a>
-      <a href="/health">health</a>
-      <a href="https://github.com/duyet/summa">source</a>
-      <a href="https://burn.duyet.net">burn</a>
+      <a href="#install">install</a>
+      <a href="#channels">channels</a>
+      <a href="#keys">keys</a>
+      <span class="spacer"></span>
+      <span class="user" id="nav-user" hidden></span>
+      <button class="copy signin-nav" id="signin-nav" type="button" hidden>sign in</button>
     </nav>
 
-    <p class="tag">CLI for AI coding-agent usage. Local DuckDB, optional ClickHouse and MotherDuck.</p>
+    <h1>AI coding-agent usage,<br>one <em>ccusage_events</em> table.</h1>
+    <p class="tag">summa reads Claude Code, Codex, OpenCode, Cursor, Grok and more on every machine you use, then lands daily, session and per-model rows in local DuckDB — with an optional cloud double-write to ClickHouse + MotherDuck.</p>
 
     <div class="install" id="install">
       <code><span class="prompt">$</span> curl -fsSL https://summa.duyet.net/install.sh | bash</code>
       <button class="copy" type="button" id="copy">copy</button>
     </div>
-    <p class="meta">v__VERSION__ · rust cli · telemetry hub at summa.duyet.net</p>
+    <p class="meta">v__VERSION__ · rust cli · channels: <code>beta</code> (master builds) / <code>stable</code> · telemetry hub at summa.duyet.net</p>
 
     <div class="term" aria-label="summa terminal preview">
       <div class="term-bar">
@@ -255,14 +278,23 @@
         <span style="width:52px"></span>
       </div>
       <div class="term-body">
-        <div class="hi">summa v__VERSION__ · import then POST /v1/ingest</div>
-        <div class="muted">$ summa import --verbose</div>
-        <div>==&gt; ccusage</div>
-        <div>==&gt; cursor &nbsp; machine_name=account</div>
-        <div>==&gt; grok</div>
-        <div class="ok">ok &nbsp; duckdb ~/.local/share/summa/summa.duckdb</div>
-        <div class="ok">ok &nbsp; telemetry https://summa.duyet.net/v1/ingest</div>
-        <div class="muted">$ summa<span class="cursor"></span></div>
+        <div class="hi">$ summa update --beta</div>
+        <div class="muted">update: target=aarch64-apple-darwin channel=beta install=~/.local/bin/summa</div>
+        <div class="ok">update: installed ~/.local/bin/summa (channel beta sha 9f2c41e8aa10)</div>
+        <div>&nbsp;</div>
+        <div class="hi">$ summa import --verbose</div>
+        <div>summa — machine: laptop, since: 2026-08-20, import: 3f9c…</div>
+        <div class="muted">  config: ch_host=clickhouse-homelab.duyet.net duckdb=~/.local/share/summa/summa.duckdb password_set=true</div>
+        <div>&nbsp;</div>
+        <div>=== Summary ===</div>
+        <div>&nbsp; source ccusage: 214 rows</div>
+        <div>&nbsp; source cursor: 96 rows</div>
+        <div>&nbsp; source grok: 31 rows</div>
+        <div>&nbsp; sink clickhouse: 341 rows, 412ms</div>
+        <div>&nbsp; sink duckdb: 341 rows, 118ms</div>
+        <div>&nbsp; sink summa-cloud: 341 rows, 203ms</div>
+        <div class="ok">&nbsp; total: 733ms</div>
+        <div class="muted">$<span class="cursor"></span></div>
       </div>
       <div class="term-foot">
         <span>cron 1h</span>
@@ -271,45 +303,47 @@
     </div>
 
     <div class="prose">
-      <p>summa (Latin: sum, total) is a small Rust CLI. It reads Claude Code, Codex, OpenCode, Cursor, Grok, and other agent logs, then writes one table: <code>ccusage_events</code>.</p>
-      <p>Machines keep Cursor and Grok on. Sinks dedup. This host is the cloud hub: clients send a token, the worker stamps the tenant, and usage lands in ClickHouse and MotherDuck. D1 stores keys only.</p>
+      <p>summa (Latin: sum, total) is a small Rust CLI. It reads agent logs locally, explodes model breakdowns into rows, dedups by key, and writes one table: <code>ccusage_events</code>. Monthly rollups are just SQL — <code>toYYYYMM(date)</code>.</p>
+      <p>This host is the cloud hub: machines POST with a token, the worker stamps the tenant, and usage lands in ClickHouse and MotherDuck — that's what powers burn.duyet.net. D1 stores keys only.</p>
     </div>
 
     <div class="rule">* * *</div>
 
-    <div class="grid">
+    <div class="grid" id="channels">
       <div>
-        <h2>curl | bash</h2>
-        <p>Prebuilt binary to ~/.local/bin. Rolling nightly when a tagged release has no tarball.</p>
+        <h2>beta &amp; stable channels</h2>
+        <p>Every master build publishes to the rolling <code>beta</code> tag; release-please tags are <code>stable</code>. Switch anytime: <code>summa update --beta</code> or <code>--stable</code>.</p>
+      </div>
+      <div>
+        <h2>auto-update</h2>
+        <p><code>summa config --set update.mode=auto</code> checks hourly in the background while you work; the new binary is active next launch. No cron changes needed.</p>
       </div>
       <div>
         <h2>one table</h2>
-        <p>Daily, session, block, project rows. Model breakdowns exploded. ReplacingMergeTree + DuckDB key delete.</p>
-      </div>
-      <div>
-        <h2>double write</h2>
-        <p>POST /v1/ingest fans out to MotherDuck and ClickHouse. GET /v1/analytics for burn.duyet.net.</p>
+        <p>Daily, session, block, project rows. Model breakdowns exploded. ReplacingMergeTree + DuckDB key delete keep it idempotent.</p>
       </div>
       <div>
         <h2>cron on the box</h2>
-        <p>summa cronjob install. launchd, systemd --user, or crontab. Job runs update then import.</p>
+        <p><code>summa cronjob install</code> — launchd, systemd --user, or crontab. The job runs update then import.</p>
       </div>
     </div>
 
-    <div class="keys">
+    <div class="keys" id="keys">
       <label for="keyname">$ summa keys create --name</label>
       <form class="row" id="keyform">
         <input id="keyname" name="name" autocomplete="off" placeholder="laptop" aria-label="key name">
         <button type="submit">mint</button>
+        <button type="button" class="signin" id="signin-keys" hidden>sign in</button>
       </form>
       <p class="out" id="keyout" hidden></p>
-      __CLERK_NOTE__
+      <p class="muted" id="keynote">__CLERK_NOTE__</p>
     </div>
 
     <footer>
       <a href="https://github.com/duyet/summa">github.com/duyet/summa</a>
       · mit
       · <a href="/install.sh">install.sh</a>
+      · <a href="https://burn.duyet.net">burn.duyet.net</a>
     </footer>
   </div>
   <script>
@@ -326,8 +360,55 @@
           }, 1400);
         });
       });
-      var form = document.getElementById("keyform");
+
+      var PK = "__CLERK_PK__";
+      var clerk = null;
       var out = document.getElementById("keyout");
+      var signinKeys = document.getElementById("signin-keys");
+      var signinNav = document.getElementById("signin-nav");
+      var navUser = document.getElementById("nav-user");
+
+      function openClerk() {
+        if (!clerk || !PK) return;
+        clerk.openSignIn();
+      }
+
+      function showSignedIn(name) {
+        navUser.hidden = false;
+        navUser.textContent = name || "";
+        signinNav.hidden = true;
+        signinKeys.hidden = true;
+      }
+
+      function showSignedOut() {
+        navUser.hidden = true;
+        signinNav.hidden = !PK;
+        signinKeys.hidden = !PK;
+      }
+
+      if (PK && window.Clerk) {
+        window.Clerk.addListener(function (e) {
+          if (e && e.user) { showSignedIn(e.user.username || e.user.firstName); }
+        });
+        window.Clerk.load({ publishableKey: PK })
+          .then(function () {
+            clerk = window.Clerk;
+            var u = clerk.user;
+            if (u) {
+              showSignedIn(u.username || u.firstName);
+            } else {
+              showSignedOut();
+            }
+          })
+          .catch(function () { showSignedOut(); });
+      } else {
+        showSignedOut();
+      }
+
+      signinNav.addEventListener("click", openClerk);
+      signinKeys.addEventListener("click", openClerk);
+
+      var form = document.getElementById("keyform");
       form.addEventListener("submit", function (e) {
         e.preventDefault();
         out.hidden = false;
@@ -342,7 +423,14 @@
           .then(function (x) {
             if (!x.ok) {
               out.className = "out err";
-              out.textContent = (x.j && x.j.error) ? x.j.error : "unauthorized (clerk session or bootstrap token)";
+              if ((x.j && x.j.error) === "unauthorized") {
+                out.innerHTML = "unauthorized — <a href=\"#\" id=\"signin-link\">sign in with Clerk</a> to mint keys";
+                var link = document.getElementById("signin-link");
+                if (link) link.addEventListener("click", function (ev) { ev.preventDefault(); openClerk(); });
+                signinKeys.hidden = !PK;
+              } else {
+                out.textContent = (x.j && x.j.error) ? x.j.error : "unauthorized";
+              }
               return;
             }
             out.textContent = "telemetry_token = \"" + x.j.token + "\"\n# shown once. put in ~/.config/summa/credentials.toml";
@@ -354,5 +442,6 @@
       });
     })();
   </script>
+  __CLERK_SCRIPT__
 </body>
 </html>
