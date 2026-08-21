@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.3](https://github.com/duyet/summa/compare/v0.1.2...v0.1.3) (2026-08-21)
+
+
+### Features
+
+* beta/stable release channels, auto-update, Clerk login on landing page ([3a9b4dc](https://github.com/duyet/summa/commit/3a9b4dcbdbe6d75311bf64927860160453ed278a))
+* **cli:** beta/stable release channels with auto-update ([ea16540](https://github.com/duyet/summa/commit/ea16540bd666d18c9c38488da2683d04d825dac4))
+
+
+### Bug Fixes
+
+* **update:** match release asset names with .tar.gz suffix; backfill stable assets ([8e5b355](https://github.com/duyet/summa/commit/8e5b3553f43cf2f66feee5e4fccd373ff89aebf5))
+
 ## [0.1.2](https://github.com/duyet/summa/compare/v0.1.1...v0.1.2) (2026-08-21)
 
 
