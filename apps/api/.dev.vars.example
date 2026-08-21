@@ -1,12 +1,17 @@
 # wrangler dev secrets (gitignored as .dev.vars)
 # cp .dev.vars.example .dev.vars
+# Live Worker: bash scripts/sync-worker-secrets.sh
 
-CH_HOST=
-CH_PORT=8123
+# Public tunnel hostname (Workers cannot fetch raw IPs).
+CH_HOST=clickhouse-homelab.duyet.net
+CH_PORT=443
+CH_PROTOCOL=https
 CH_USER=default
 CH_PASSWORD=
 CH_DATABASE=default
-CH_PROTOCOL=http
+# Cloudflare Access service token for *-homelab.duyet.net
+CF_ACCESS_CLIENT_ID=
+CF_ACCESS_CLIENT_SECRET=
 
 MOTHERDUCK_TOKEN=
 MOTHERDUCK_DATABASE=ccusage

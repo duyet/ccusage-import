@@ -13,7 +13,8 @@ use auth::{
 };
 use sinks::{collect_pings, fanout_write};
 use types::{
-    ch_now, cors_allow_origin, ingest_status_code, ping_ok, sha256_hex16, IngestBody, VERSION,
+    ch_now, cors_allow_origin, ingest_body_too_large, ingest_status_code, ping_ok,
+    sanitize_event, stamp_ingest_identity, IngestBody, MAX_INGEST_EVENTS, VERSION,
 };
 
 #[event(fetch)]
@@ -25,12 +26,12 @@ async fn main(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     }
     let public = matches!(
         req.path().as_str(),
-        "/" | "/health" | "/ping" | "/install.sh"
+        "/" | "/health" | "/install.sh"
     );
     match route(req, env).await {
         Ok(res) => apply_cors(origin.as_deref(), public, res),
-        Err(e) => {
-            let res = Response::from_json(&serde_json::json!({"error": e.to_string()}))?
+        Err(_) => {
+            let res = Response::from_json(&serde_json::json!({"error": "internal error"}))?
                 .with_status(500);
             apply_cors(origin.as_deref(), public, res)
         }
@@ -51,13 +52,7 @@ async fn route(req: Request, env: Env) -> Result<Response> {
             "service": "summa",
             "version": VERSION,
         })),
-        (Method::Get, "/ping") => {
-            let samples = collect_pings(&env).await;
-            Response::from_json(&serde_json::json!({
-                "ok": ping_ok(&samples),
-                "samples": samples,
-            }))
-        }
+        (Method::Get, "/ping") => ping(req, env).await,
         (Method::Get, "/status") => status(req, env).await,
         (Method::Post, "/v1/ingest") => ingest(req, env).await,
         (Method::Get, "/v1/analytics") => analytics(req, env, false).await,
@@ -71,6 +66,17 @@ async fn route(req: Request, env: Env) -> Result<Response> {
         _ => Response::from_json(&serde_json::json!({"error": "not found"}))
             .map(|r| r.with_status(404)),
     }
+}
+
+async fn ping(req: Request, env: Env) -> Result<Response> {
+    if let Err(e) = require_api_key(&req, &env).await {
+        return auth_error_response(e);
+    }
+    let samples = collect_pings(&env).await;
+    Response::from_json(&serde_json::json!({
+        "ok": ping_ok(&samples),
+        "samples": samples,
+    }))
 }
 
 async fn status(req: Request, env: Env) -> Result<Response> {
@@ -92,6 +98,14 @@ async fn ingest(mut req: Request, env: Env) -> Result<Response> {
         Ok(a) => a,
         Err(e) => return auth_error_response(e),
     };
+    let len = req.headers().get("content-length").ok().flatten();
+    if ingest_body_too_large(len.as_deref()) {
+        return Response::from_json(&serde_json::json!({
+            "error": "payload too large",
+            "max_bytes": types::MAX_INGEST_BYTES,
+        }))
+        .map(|r| r.with_status(413));
+    }
     let body: IngestBody = match req.json().await {
         Ok(b) => b,
         Err(_) => {
@@ -99,24 +113,20 @@ async fn ingest(mut req: Request, env: Env) -> Result<Response> {
                 .map(|r| r.with_status(400));
         }
     };
+    if body.events.len() > MAX_INGEST_EVENTS {
+        return Response::from_json(&serde_json::json!({
+            "error": "too many events",
+            "max": MAX_INGEST_EVENTS,
+        }))
+        .map(|r| r.with_status(413));
+    }
     let now = ch_now();
     let mut events = Vec::new();
-    for mut e in body.events {
-        e.account_id = auth.account_id.clone();
-        e.api_key_id = auth.api_key_id.clone();
-        if e.dedup_key.is_empty() {
-            e.dedup_key = sha256_hex16(&format!(
-                "{}|{}|{}|{}|{}|{}|{}",
-                e.account_id, e.source, e.machine_name, e.record_type, e.date, e.model_name,
-                e.record_key
-            ));
-        }
-        if e.created_at.is_empty() {
-            e.created_at = now.clone();
-        }
-        if e.updated_at.is_empty() {
-            e.updated_at = now.clone();
-        }
+    for e in body.events {
+        let Some(mut e) = sanitize_event(e) else {
+            continue;
+        };
+        stamp_ingest_identity(&mut e, &auth.account_id, &auth.api_key_id, &now);
         events.push(e);
     }
     let sinks = fanout_write(&env, &events).await;
@@ -161,8 +171,8 @@ async fn analytics(req: Request, env: Env, summary: bool) -> Result<Response> {
     let include_legacy = is_owner_account(&env, &auth.account_id).await.unwrap_or(false);
     let points = match load_points(&env, &auth.account_id, include_legacy, &group, &since, &until).await {
         Ok(p) => p,
-        Err(e) => {
-            return Response::from_json(&serde_json::json!({"error": e.to_string()}))
+        Err(_) => {
+            return Response::from_json(&serde_json::json!({"error": "analytics unavailable"}))
                 .map(|r| r.with_status(502));
         }
     };
