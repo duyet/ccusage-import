@@ -124,7 +124,7 @@ pub fn ch_now() -> String {
 
 pub fn new_id() -> String {
     let mut buf = [0u8; 16];
-    let _ = getrandom::getrandom(&mut buf);
+    let _ = getrandom::fill(&mut buf);
     hex::encode(buf)
 }
 
