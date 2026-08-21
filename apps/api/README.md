@@ -11,4 +11,4 @@ cargo check -p summa-api --target wasm32-unknown-unknown
 bun run deploy:api
 ```
 
-`wrangler.jsonc` runs `worker-build --release` on deploy. Secrets via `wrangler secret put` (see repo `.env.example`).
+`wrangler.jsonc` runs `worker-build --release` on deploy. Secrets via `bash scripts/sync-worker-secrets.sh` (CH through `clickhouse-homelab.duyet.net` + Access token; MotherDuck MCP).

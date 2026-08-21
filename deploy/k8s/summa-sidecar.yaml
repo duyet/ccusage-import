@@ -2,30 +2,32 @@
 # Hub is the Cloudflare Worker at https://summa.duyet.net (apps/api, Rust).
 # This pod only runs `summa import` (and optional hourly CronJob).
 # Sidebar: iframe https://summa.duyet.net (not localhost:8787).
-# Placeholders only — put real values in a Secret.
+# Placeholders only — do not apply this Secret with empty tokens.
+# Homelab Hermes sidecar uses Secret `summa-import` in namespace hermes-agent.
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: summa-telemetry
+  name: summa-import
+  namespace: hermes-agent
   labels:
     app: summa
 type: Opaque
 stringData:
   SUMMA_TELEMETRY_ENDPOINT: "https://summa.duyet.net"
   SUMMA_TELEMETRY_TOKEN: ""
-  MOTHERDUCK_TOKEN: ""
-  DUCKDB_PATH: "md:ccusage"
-  CH_HOST: ""
+  DUCKDB_PATH: "/tmp/summa.duckdb"
+  CH_HOST: "clickhouse.clickhouse.svc.cluster.local"
   CH_PORT: "8123"
-  CH_USER: "default"
+  CH_USER: "duyet"
   CH_PASSWORD: ""
-  CH_DATABASE: "default"
+  CH_DATABASE: "duyet_analytics"
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: summa-import
+  namespace: hermes-agent
   labels:
     app: summa
 spec:
@@ -44,7 +46,7 @@ spec:
               args: ["import", "--days-back=2"]
               envFrom:
                 - secretRef:
-                    name: summa-telemetry
+                    name: summa-import
               resources:
                 requests:
                   cpu: 50m

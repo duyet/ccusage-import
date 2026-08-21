@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const TOKEN_PREFIX: &str = "summa_";
+pub const MAX_INGEST_EVENTS: usize = 500;
+pub const MAX_INGEST_BYTES: u64 = 1_500_000;
+pub const MAX_ANALYTICS_DAYS: i64 = 366;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EventRow {
@@ -115,7 +118,82 @@ pub fn sha256_hex16(input: &str) -> String {
 }
 
 pub fn timing_safe_eq(a: &str, b: &str) -> bool {
-    sha256_hex(a) == sha256_hex(b)
+    let ha = sha256_hex(a);
+    let hb = sha256_hex(b);
+    let mut diff = 0u8;
+    for (x, y) in ha.as_bytes().iter().zip(hb.as_bytes()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+pub fn ingest_body_too_large(content_length: Option<&str>) -> bool {
+    content_length
+        .and_then(|s| s.parse::<u64>().ok())
+        .map(|n| n > MAX_INGEST_BYTES)
+        .unwrap_or(false)
+}
+
+fn clip_field(value: &str, max: usize) -> String {
+    value
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(max)
+        .collect()
+}
+
+pub fn valid_iso_date(value: &str) -> bool {
+    value.len() == 10
+        && chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d").is_ok()
+}
+
+/// Drop forged tenant fields and junk rows before the worker stamps identity.
+pub fn sanitize_event(mut row: EventRow) -> Option<EventRow> {
+    row.date = row.date.trim().to_string();
+    if !valid_iso_date(&row.date) {
+        return None;
+    }
+    row.record_type = clip_field(&row.record_type, 32);
+    if row.record_type.is_empty() {
+        return None;
+    }
+    row.record_key = clip_field(&row.record_key, 256);
+    row.source = clip_field(&row.source, 64);
+    row.machine_name = clip_field(&row.machine_name, 128);
+    row.model_name = clip_field(&row.model_name, 256);
+    row.session_id = clip_field(&row.session_id, 128);
+    row.project_path = clip_field(&row.project_path, 512);
+    row.import_id = clip_field(&row.import_id, 64);
+    row.block_id = clip_field(&row.block_id, 128);
+    row.created_at = clip_field(&row.created_at, 32);
+    row.updated_at = clip_field(&row.updated_at, 32);
+    row.account_id.clear();
+    row.api_key_id.clear();
+    row.dedup_key.clear();
+    if !row.cost.is_finite() {
+        row.cost = 0.0;
+    }
+    if !row.burn_rate.is_finite() {
+        row.burn_rate = 0.0;
+    }
+    if !row.projection.is_finite() {
+        row.projection = 0.0;
+    }
+    Some(row)
+}
+
+pub fn stamp_ingest_identity(row: &mut EventRow, account_id: &str, api_key_id: &str, now: &str) {
+    row.account_id = account_id.to_string();
+    row.api_key_id = api_key_id.to_string();
+    row.dedup_key = sha256_hex16(&format!(
+        "{}|{}|{}|{}|{}|{}|{}",
+        row.account_id, row.source, row.machine_name, row.record_type, row.date, row.model_name,
+        row.record_key
+    ));
+    if row.created_at.is_empty() {
+        row.created_at = now.to_string();
+    }
+    row.updated_at = now.to_string();
 }
 
 pub fn ch_now() -> String {
@@ -256,5 +334,59 @@ mod tests {
         assert_eq!(h.len(), 16);
         assert_eq!(h, sha256_hex16("summa_test"));
         assert_ne!(h, sha256_hex16("summa_other"));
+    }
+
+    #[test]
+    fn sanitize_drops_forged_tenant_and_client_dedup() {
+        let mut row = EventRow::default();
+        row.date = "2026-08-19".into();
+        row.record_type = "daily".into();
+        row.source = "cursor".into();
+        row.account_id = "victim".into();
+        row.api_key_id = "k".into();
+        row.dedup_key = "aaaaaaaaaaaaaaaa".into();
+        row.project_path = "x\u{0000}y".into();
+        let out = sanitize_event(row).unwrap();
+        assert!(out.account_id.is_empty());
+        assert!(out.api_key_id.is_empty());
+        assert!(out.dedup_key.is_empty());
+        assert_eq!(out.project_path, "xy");
+    }
+
+    #[test]
+    fn sanitize_rejects_bad_dates() {
+        let mut row = EventRow::default();
+        row.date = "2026/08/19".into();
+        row.record_type = "daily".into();
+        assert!(sanitize_event(row).is_none());
+    }
+
+    #[test]
+    fn stamp_overwrites_client_dedup_with_account() {
+        let mut row = EventRow {
+            date: "2026-08-19".into(),
+            record_type: "daily".into(),
+            record_key: "k".into(),
+            source: "cursor".into(),
+            machine_name: "m".into(),
+            model_name: "grok".into(),
+            dedup_key: "clientkey".into(),
+            ..EventRow::default()
+        };
+        stamp_ingest_identity(&mut row, "acc-1", "key-1", "2026-08-20 00:00:00");
+        assert_eq!(row.account_id, "acc-1");
+        assert_eq!(row.api_key_id, "key-1");
+        assert_ne!(row.dedup_key, "clientkey");
+        assert_eq!(row.dedup_key.len(), 16);
+        let mut other = row.clone();
+        stamp_ingest_identity(&mut other, "acc-2", "key-1", "2026-08-20 00:00:00");
+        assert_ne!(row.dedup_key, other.dedup_key);
+    }
+
+    #[test]
+    fn ingest_body_too_large_uses_content_length() {
+        assert!(!ingest_body_too_large(None));
+        assert!(!ingest_body_too_large(Some("100")));
+        assert!(ingest_body_too_large(Some("2000000")));
     }
 }

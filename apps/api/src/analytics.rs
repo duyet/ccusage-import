@@ -1,8 +1,11 @@
 use chrono::{Duration, Utc};
 use worker::{Env, Result};
 
-use crate::sinks::{clickhouse_configured, clickhouse_query, parse_json_each_row};
-use crate::types::AnalyticsPoint;
+use crate::sinks::{
+    clickhouse_configured, clickhouse_query, motherduck_configured, motherduck_query,
+    parse_analytics_payload,
+};
+use crate::types::{AnalyticsPoint, MAX_ANALYTICS_DAYS};
 
 pub fn analytics_window(
     since: Option<&str>,
@@ -19,12 +22,15 @@ pub fn analytics_window(
         Some(s) => chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
             .map_err(|_| format!("invalid date `{s}`"))?,
         None => {
-            let n = days.unwrap_or(30).max(1);
+            let n = days.unwrap_or(30).clamp(1, MAX_ANALYTICS_DAYS);
             until_d - Duration::days(n - 1)
         }
     };
     if since_d > until_d {
         return Err("since is after until".into());
+    }
+    if (until_d - since_d).num_days() + 1 > MAX_ANALYTICS_DAYS {
+        return Err("range exceeds 366 days".into());
     }
     Ok((
         since_d.format("%Y-%m-%d").to_string(),
@@ -87,9 +93,6 @@ pub async fn load_points(
     since: &str,
     until: &str,
 ) -> Result<Vec<AnalyticsPoint>> {
-    if !clickhouse_configured(env) {
-        return Err(worker::Error::RustError("no analytics sink configured".into()));
-    }
     let extra = if group == "model" {
         "source, model_name"
     } else {
@@ -108,16 +111,33 @@ pub async fn load_points(
     } else {
         format!("account_id = {}", crate::types::sql_literal(account_id))
     };
-    let sql = format!(
-        "SELECT date, {extra}, sum(cost) AS cost, sum(total_tokens) AS total_tokens, sum(entries) AS entries \
-         FROM ccusage_events FINAL \
-         WHERE record_type = 'daily' AND date >= '{since}' AND date <= '{until}' AND {tenant} \
-         GROUP BY {group_by} ORDER BY date, source FORMAT JSONEachRow"
+    let where_sql = format!(
+        "record_type = 'daily' AND date >= '{since}' AND date <= '{until}' AND {tenant}"
     );
-    let text = clickhouse_query(env, &sql)
-        .await
-        .map_err(|e| worker::Error::RustError(e))?;
-    Ok(parse_json_each_row(&text))
+    let select = format!(
+        "SELECT date, {extra}, sum(cost) AS cost, sum(total_tokens) AS total_tokens, sum(entries) AS entries \
+         FROM ccusage_events"
+    );
+    let tail = format!(" WHERE {where_sql} GROUP BY {group_by} ORDER BY date, source");
+    let mut errors = Vec::new();
+    if clickhouse_configured(env) {
+        let sql = format!("{select} FINAL{tail} FORMAT JSONEachRow");
+        match clickhouse_query(env, &sql).await {
+            Ok(text) => return Ok(parse_analytics_payload(&text)),
+            Err(e) => errors.push(format!("clickhouse: {e}")),
+        }
+    }
+    if motherduck_configured(env) {
+        let sql = format!("{select}{tail}");
+        match motherduck_query(env, &sql).await {
+            Ok(text) => return Ok(parse_analytics_payload(&text)),
+            Err(e) => errors.push(format!("motherduck: {e}")),
+        }
+    }
+    if errors.is_empty() {
+        return Err(worker::Error::RustError("no analytics sink configured".into()));
+    }
+    Err(worker::Error::RustError(errors.join("; ")))
 }
 
 #[cfg(test)]
@@ -137,6 +157,14 @@ mod tests {
     #[test]
     fn window_rejects_inverted_range() {
         assert!(analytics_window(Some("2026-02-01"), Some("2026-01-01"), None).is_err());
+    }
+
+    #[test]
+    fn window_rejects_range_over_a_year() {
+        assert!(analytics_window(Some("2024-01-01"), Some("2026-01-02"), None).is_err());
+        let (since, until) = analytics_window(None, Some("2026-01-31"), Some(9_999)).unwrap();
+        assert_eq!(until, "2026-01-31");
+        assert_eq!(since, "2025-01-31");
     }
 
     #[test]
