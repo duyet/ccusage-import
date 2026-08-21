@@ -46,11 +46,11 @@ Sign in at https://summa.duyet.net (Clerk). Generate a key, put it on each machi
 ## Install a new machine
 
 ```bash
-SUMMA_SETUP_CRON=1 SUMMA_CRON_EVERY=1h \
-SUMMA_TELEMETRY_ENDPOINT=https://summa.duyet.net \
-SUMMA_TELEMETRY_TOKEN=summa_… \
-  curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash
-summa update
+curl -fsSL https://summa.duyet.net/install.sh | \
+  SUMMA_SETUP_CRON=1 SUMMA_CRON_EVERY=1h \
+  SUMMA_TELEMETRY_ENDPOINT=https://summa.duyet.net \
+  SUMMA_TELEMETRY_TOKEN=summa_… \
+  bash
 summa cronjob install --every 1h --replace
 ```
 

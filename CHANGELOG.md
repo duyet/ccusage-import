@@ -35,6 +35,7 @@ at the top for curated notes; generated release blocks are inserted above it.
 ### CI
 
 - Workspace CI/release: `-p summa-import` / `-p summa-api`, `cargo package`, install.sh dry-run, k8s + wrangler validation, release-please package path `apps/cli`
+- `curl | bash` installer: rolling `nightly` GitHub Release, local HTTP e2e in CI, `GET /install.sh` on the Worker
 
 ### Features
 
