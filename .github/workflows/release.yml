@@ -32,15 +32,19 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             asset: summa-x86_64-unknown-linux-gnu
+            cross: false
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             asset: summa-aarch64-unknown-linux-gnu
+            cross: true
           - os: macos-latest
             target: aarch64-apple-darwin
             asset: summa-aarch64-apple-darwin
+            cross: false
           - os: macos-latest
             target: x86_64-apple-darwin
             asset: summa-x86_64-apple-darwin
+            cross: false
 
     steps:
       - name: Checkout
@@ -111,6 +115,49 @@ jobs:
             dist/${{ matrix.asset }}.tar.gz
             dist/${{ matrix.asset }}.tar.gz.sha256
             dist/size-${{ matrix.asset }}.txt
+
+  publish-nightly:
+    name: Publish nightly binaries
+    runs-on: ubuntu-latest
+    needs: [build-binaries]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: summa-*
+          path: dist
+          merge-multiple: true
+
+      - name: List nightly assets
+        run: find dist -type f | sort
+
+      - name: Publish rolling nightly release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: nightly
+          name: nightly
+          prerelease: true
+          make_latest: false
+          target_commitish: ${{ github.sha }}
+          body: |
+            Rolling prebuilt `summa` binaries from `${{ github.sha }}`.
+            Versioned GitHub Releases may lag; this tag is what `curl | bash` uses when stable has no assets.
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash
+            curl -fsSL https://summa.duyet.net/install.sh | bash
+            ```
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-crates-io:
     name: Publish to crates.io

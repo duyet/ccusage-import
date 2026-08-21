@@ -60,8 +60,7 @@ jobs:
         ./target/release/summa cronjob --help
         ./target/release/summa update --help
 
-    - name: Package linux x86_64 artifact
-      if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    - name: Package linux x86_64 tarball
       run: |
         set -euo pipefail
         ASSET=summa-x86_64-unknown-linux-gnu
@@ -70,6 +69,41 @@ jobs:
         chmod +x "dist/${ASSET}/summa"
         (cd dist && tar -czf "${ASSET}.tar.gz" "${ASSET}")
         shasum -a 256 "dist/${ASSET}.tar.gz" > "dist/${ASSET}.tar.gz.sha256"
+
+    - name: curl | bash installs the linux binary
+      run: |
+        set -euo pipefail
+        WWW="$(mktemp -d)"
+        PORTFILE="$(mktemp)"
+        INSTALL_DIR="$(mktemp -d)"
+        HOME_DIR="$(mktemp -d)"
+        mkdir -p "$WWW/nightly"
+        cp dist/summa-x86_64-unknown-linux-gnu.tar.gz "$WWW/nightly/"
+        cp install.sh "$WWW/install.sh"
+        python3 - "$WWW" "$PORTFILE" <<'PY' &
+        import http.server, os, socketserver, sys
+        www, portfile = sys.argv[1], sys.argv[2]
+        os.chdir(www)
+        httpd = socketserver.TCPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+        with open(portfile, "w", encoding="utf-8") as f:
+            f.write(str(httpd.server_address[1]))
+        httpd.serve_forever()
+        PY
+        HTTP_PID=$!
+        trap 'kill "$HTTP_PID" >/dev/null 2>&1 || true' EXIT
+        for _ in $(seq 1 50); do
+          [ -s "$PORTFILE" ] && break
+          sleep 0.05
+        done
+        PORT="$(cat "$PORTFILE")"
+        curl -fsSL "http://127.0.0.1:${PORT}/install.sh" \
+          | env HOME="$HOME_DIR" \
+            SUMMA_DOWNLOAD_BASE="http://127.0.0.1:${PORT}" \
+            SUMMA_VERSION=nightly \
+            SUMMA_INSTALL_DIR="$INSTALL_DIR" \
+            bash
+        "$INSTALL_DIR/summa" --version
+        "$INSTALL_DIR/summa" --help >/dev/null
 
     - name: Upload linux x86_64 artifact
       if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
