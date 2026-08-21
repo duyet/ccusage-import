@@ -162,6 +162,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # release-please creates versioned releases without binaries (its token
+      # does not retrigger the `release` event). Backfill the stable channel:
+      # if the tagged release for the built Cargo version has no tarballs,
+      # attach them so `SUMMA_CHANNEL=stable` / `summa update --stable` work.
+      - name: Backfill stable release assets
+        run: |
+          set -euo pipefail
+          VER="$(grep -m1 '^version' apps/cli/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          TAG="v${VER}"
+          echo "stable tag: ${TAG}"
+          COUNT="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq '[.assets] | length' 2>/dev/null || echo 0)"
+          if [ "${COUNT}" != "0" ]; then
+            echo "already has ${COUNT} asset(s); skipping backfill"
+            exit 0
+          fi
+          cp dist/*.tar.gz dist/*.sha256 .
+          gh release upload "${TAG}" ./*.tar.gz ./*.sha256 --clobber
+          rm -f ./*.tar.gz ./*.sha256
+          echo "backfilled stable ${TAG}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish-crates-io:
     name: Publish to crates.io
     runs-on: ubuntu-latest

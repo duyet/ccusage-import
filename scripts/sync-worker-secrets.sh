@@ -60,8 +60,8 @@ if [[ -f "$MONOREPO_ENV" ]] || [[ -n "${CLERK_SECRET_KEY:-}" ]]; then
   put CLERK_SECRET_KEY "$(clerk_get CLERK_SECRET_KEY)"
   PK="$(clerk_get NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY)"
   PK="${PK:-$(clerk_get VITE_CLERK_PUBLISHABLE_KEY)}"
-  put CLERK_PUBLISHABLE_KEY "$PK"
   if [[ -n "$PK" ]]; then
+    # Publishable key is a plain wrangler var (in wrangler.jsonc), not a secret.
     PK_ESCAPED="${PK//\"/\\\"}"
     python3 - "$PK_ESCAPED" <<'PY'
 import re, sys
@@ -70,8 +70,13 @@ pk = sys.argv[1]
 p = Path("wrangler.jsonc")
 text = p.read_text()
 new = re.sub(r'("CLERK_PUBLISHABLE_KEY"\s*:\s*)"[^"]*"', rf'\1"{pk}"', text)
-p.write_text(new)
-print("wrangler var CLERK_PUBLISHABLE_KEY updated")
+if new != text:
+    p.write_text(new)
+    print("wrangler var CLERK_PUBLISHABLE_KEY updated")
+elif f'"{pk}"' in text:
+    print("wrangler var CLERK_PUBLISHABLE_KEY already set")
+else:
+    sys.exit("CLERK_PUBLISHABLE_KEY var not found in wrangler.jsonc")
 PY
   fi
 else

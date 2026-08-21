@@ -460,13 +460,17 @@ pub fn parse_release_value(
         return Ok(None);
     }
     let tag = rel.get("tag_name").and_then(|t| t.as_str()).unwrap_or("");
+    let want_tarball = format!("{asset_name}.tar.gz");
     let tarball_url = rel
         .get("assets")
         .and_then(|a| a.as_array())
         .and_then(|assets| {
             assets
                 .iter()
-                .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(asset_name))
+                .find(|a| {
+                    let name = a.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                    name == asset_name || name == want_tarball
+                })
                 .and_then(|a| a.get("browser_download_url").and_then(|u| u.as_str()))
         })
         .unwrap_or("")
@@ -955,6 +959,37 @@ mod tests {
     }
 
     #[test]
+    fn parse_release_value_accepts_tarball_and_artifact_names() {
+        let rel = serde_json::json!({
+            "tag_name": "v0.1.2",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+                {"name": "summa-aarch64-apple-darwin.tar.gz",
+                 "browser_download_url": "https://x/a.tar.gz"}
+            ]
+        });
+        let got = super::parse_release_value(&rel, "summa-aarch64-apple-darwin", false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.tag, "v0.1.2");
+        assert_eq!(got.tarball_url, "https://x/a.tar.gz");
+        // Bare artifact-style names still match (release uploads may vary).
+        let rel2 = serde_json::json!({
+            "tag_name": "v9",
+            "draft": false,
+            "prerelease": false,
+            "assets": [
+                {"name": "summa-aarch64-apple-darwin",
+                 "browser_download_url": "https://x/b"}
+            ]
+        });
+        assert!(super::parse_release_value(&rel2, "summa-aarch64-apple-darwin", false)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
     fn auto_update_marker_throttles_within_interval() {
         let tmp = tempfile::tempdir().unwrap();
         let marker = tmp.path().join("last-auto-update");
@@ -975,3 +1010,4 @@ mod tests {
         assert!(should_auto_update_now(&marker, 0));
     }
 }
+
