@@ -199,7 +199,7 @@ pub async fn is_owner_account(env: &Env, account_id: &str) -> Result<bool> {
 pub async fn mint_api_key(env: &Env, account_id: &str, name: &str) -> Result<(String, String, String)> {
     let id = new_id();
     let mut raw = [0u8; 32];
-    let _ = getrandom::getrandom(&mut raw);
+    let _ = getrandom::fill(&mut raw);
     let token = format!("{TOKEN_PREFIX}{}", hex::encode(raw));
     let prefix: String = token.chars().take(14).collect();
     let token_hash = sha256_hex(&token);
