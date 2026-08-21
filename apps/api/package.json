@@ -14,9 +14,9 @@
     "migrate:local": "wrangler d1 migrations apply summa-telemetry --local",
     "migrate:remote": "wrangler d1 migrations apply summa-telemetry --remote"
   },
-  "devDependencies": {
+    "devDependencies": {
     "@cloudflare/workers-types": "5.20260821.1",
-    "typescript": "^5.9.2",
+    "typescript": "^7.0.0",
     "wrangler": "^4.32.0"
   }
 }
