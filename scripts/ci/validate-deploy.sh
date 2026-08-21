@@ -23,7 +23,13 @@ else
 fi
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/summa-ci-deploy.XXXXXX")"
-cleanup() { rm -rf "$tmp"; }
+http_pid=""
+cleanup() {
+  if [ -n "${http_pid:-}" ]; then
+    kill "$http_pid" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$tmp"
+}
 trap cleanup EXIT
 
 HOME="$tmp/home"
@@ -43,6 +49,52 @@ echo "$out" | grep -Eq 'target +: +(x86_64|aarch64)-(unknown-linux-gnu|apple-dar
   || fail "install.sh dry-run missing platform target"
 [[ -d "$install_dir" ]] || fail "install.sh dry-run did not create install dir"
 ok "install.sh SUMMA_DRY_RUN=1"
+
+# curl | bash against a local tarball (same layout as GitHub Releases).
+www="$tmp/www"
+target="$(printf '%s\n' "$out" | sed -n 's/.*target *: *//p' | awk 'NR==1 { print }')"
+[ -n "$target" ] || fail "could not parse target from dry-run"
+asset="summa-${target}"
+mkdir -p "$www/nightly/${asset}"
+printf '#!/bin/sh\necho summa 0.0.0-ci\n' > "$www/nightly/${asset}/summa"
+chmod +x "$www/nightly/${asset}/summa"
+tar -C "$www/nightly" -czf "$www/nightly/${asset}.tar.gz" "$asset"
+cp install.sh "$www/install.sh"
+portfile="$tmp/http.port"
+python3 - "$www" "$portfile" <<'PY' &
+import http.server, os, socketserver, sys, time
+www, portfile = sys.argv[1], sys.argv[2]
+os.chdir(www)
+httpd = socketserver.TCPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+with open(portfile, "w", encoding="utf-8") as f:
+    f.write(str(httpd.server_address[1]))
+httpd.serve_forever()
+PY
+http_pid=$!
+for _ in $(seq 1 50); do
+  [ -s "$portfile" ] && break
+  sleep 0.05
+done
+[ -s "$portfile" ] || fail "http.server did not bind"
+port="$(cat "$portfile")"
+curl_bin="$tmp/curl-bin"
+mkdir -p "$curl_bin" "$tmp/curl-home"
+info_curl="$(
+  curl -fsSL "http://127.0.0.1:${port}/install.sh" \
+    | env \
+      HOME="$tmp/curl-home" \
+      SUMMA_DOWNLOAD_BASE="http://127.0.0.1:${port}" \
+      SUMMA_VERSION=nightly \
+      SUMMA_INSTALL_DIR="$curl_bin" \
+      bash
+)"
+printf '%s\n' "$info_curl"
+kill "$http_pid" >/dev/null 2>&1 || true
+wait "$http_pid" >/dev/null 2>&1 || true
+[[ -x "$curl_bin/summa" ]] || fail "curl | bash did not install an executable"
+got="$("$curl_bin/summa")"
+[[ "$got" == "summa 0.0.0-ci" ]] || fail "installed stub printed: $got"
+ok "curl | bash install.sh"
 
 python3 - <<'PY'
 from pathlib import Path
@@ -126,6 +178,7 @@ echo "$rel" | grep -q 'cargo package' || fail "release.yml missing cargo package
 echo "$rel" | grep -qE 'package .* -p summa-import|-p summa-import' \
   || fail "release.yml cargo package must use -p summa-import"
 echo "$rel" | grep -q -- '--bin summa' || fail "release.yml must build --bin summa"
+echo "$rel" | grep -q 'tag_name: nightly' || fail "release.yml must publish rolling nightly binaries"
 
 ci="$(cat .github/workflows/ci.yml)"
 echo "$ci" | grep -qE 'cargo test .* -p summa-import' || fail "ci.yml cargo test must use -p summa-import"

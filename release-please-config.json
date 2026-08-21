@@ -4,19 +4,12 @@
     "apps/cli": {
       "release-type": "rust",
       "package-name": "summa-import",
-      "changelog-path": "../../CHANGELOG.md",
+      "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": false,
       "bump-patch-for-minor-pre-major": true,
       "include-component-in-tag": false,
       "include-v-in-tag": true,
-      "pull-request-title-pattern": "chore: release${component} ${version}",
-      "extra-files": [
-        {
-          "type": "toml",
-          "path": "../api/Cargo.toml",
-          "jsonpath": "$.package.version"
-        }
-      ]
+      "pull-request-title-pattern": "chore: release${component} ${version}"
     }
   },
   "plugins": [

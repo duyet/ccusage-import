@@ -29,9 +29,16 @@ DuckDB, optionally syncing to ClickHouse or MotherDuck.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/duyet/summa/master/install.sh | bash
+curl -fsSL https://summa.duyet.net/install.sh | bash
 ```
 
-Installs `~/.local/bin/summa`. Env: `SUMMA_INSTALL_DIR`, `SUMMA_VERSION`, `SUMMA_DRY_RUN=1`. Then `summa update` for the newest CI artifact. Full machine setup: [docs/install.md](docs/install.md).
+Installs `~/.local/bin/summa` from the latest GitHub Release that has a tarball, or the rolling `nightly` release CI publishes on every master push. Put env vars on **bash**, not curl:
+
+```bash
+curl -fsSL https://summa.duyet.net/install.sh | SUMMA_SETUP_CRON=1 bash
+```
+
+Env: `SUMMA_INSTALL_DIR`, `SUMMA_VERSION` (`v0.1.1` or `nightly`), `SUMMA_DRY_RUN=1`. Then `summa update` if you have `gh` auth. Full machine setup: [docs/install.md](docs/install.md).
 
 ### Cargo
 
