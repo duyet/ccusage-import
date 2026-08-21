@@ -94,7 +94,7 @@ async fn cors_layer(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
     let path = req.uri().path().to_string();
-    let public = path == "/health" || path == "/ping";
+    let public = path == "/health";
     if req.method() == Method::OPTIONS {
         return cors_response(
             origin.as_deref(),
@@ -171,7 +171,10 @@ async fn health() -> Json<HealthBody> {
     })
 }
 
-async fn ping(State(state): State<Arc<AppState>>) -> Json<PingBody> {
+async fn ping(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Err(resp) = require_auth(&state, &headers) {
+        return resp;
+    }
     let samples = collect_pings(&state).await;
     let body = PingBody {
         ok: ping_ok(&samples),
@@ -182,7 +185,7 @@ async fn ping(State(state): State<Arc<AppState>>) -> Json<PingBody> {
         st.ping = samples;
         st.ok = body.ok;
     }
-    Json(body)
+    Json(body).into_response()
 }
 
 async fn status(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
@@ -723,6 +726,7 @@ mod tests {
             .oneshot(
                 axum::http::Request::builder()
                     .uri("/ping")
+                    .header("authorization", "Bearer secret")
                     .body(axum::body::Body::empty())
                     .unwrap(),
             )
@@ -779,6 +783,13 @@ mod tests {
         assert_eq!(unauthorized.status(), reqwest::StatusCode::UNAUTHORIZED);
 
         let ping = client.get(format!("{base}/ping")).send().await.unwrap();
+        assert_eq!(ping.status(), reqwest::StatusCode::UNAUTHORIZED);
+        let ping = client
+            .get(format!("{base}/ping"))
+            .bearer_auth("secret")
+            .send()
+            .await
+            .unwrap();
         assert_eq!(ping.status(), reqwest::StatusCode::OK);
         let body: serde_json::Value = ping.json().await.unwrap();
         assert_eq!(body["ok"], true);

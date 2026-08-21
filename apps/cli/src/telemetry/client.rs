@@ -1,7 +1,7 @@
 //! Cloud hub client (`https://summa.duyet.net`). Replaces local `summa serve`.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
@@ -9,6 +9,7 @@ use crate::model::{DataSink, EventsSnapshotData, SinkResult};
 use crate::telemetry::{prepare_events, IngestResponse};
 
 pub const DEFAULT_ENDPOINT: &str = "https://summa.duyet.net";
+pub const INGEST_CHUNK: usize = 400;
 
 pub struct TelemetrySink {
     endpoint: String,
@@ -42,7 +43,9 @@ impl DataSink for TelemetrySink {
     }
 
     async fn connect(&mut self) -> anyhow::Result<()> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build()?;
         let url = format!("{}/health", self.endpoint);
         let resp = client.get(&url).send().await?.error_for_status()?;
         let _ = resp.bytes().await?;
@@ -53,7 +56,6 @@ impl DataSink for TelemetrySink {
     async fn write(&mut self, data: EventsSnapshotData) -> anyhow::Result<SinkResult> {
         let start = Instant::now();
         let events = prepare_events(data.events);
-        let n = events.len() as u64;
         if events.is_empty() {
             return Ok(SinkResult {
                 sink_name: self.name().to_string(),
@@ -66,20 +68,24 @@ impl DataSink for TelemetrySink {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("telemetry sink not connected"))?;
         let url = format!("{}/v1/ingest", self.endpoint);
-        let resp = client
-            .post(&url)
-            .bearer_auth(&self.token)
-            .header("X-Summa-Token", &self.token)
-            .json(&serde_json::json!({ "events": events }))
-            .send()
-            .await?
-            .error_for_status()?;
-        let body: IngestResponse = resp.json().await.unwrap_or(IngestResponse {
-            accepted: n as usize,
-            sinks: Vec::new(),
-        });
+        let mut accepted = 0u64;
+        for chunk in events.chunks(INGEST_CHUNK) {
+            let resp = client
+                .post(&url)
+                .bearer_auth(&self.token)
+                .header("X-Summa-Token", &self.token)
+                .json(&serde_json::json!({ "events": chunk }))
+                .send()
+                .await?
+                .error_for_status()?;
+            let body: IngestResponse = resp.json().await.unwrap_or(IngestResponse {
+                accepted: chunk.len(),
+                sinks: Vec::new(),
+            });
+            accepted += body.accepted as u64;
+        }
         let mut rows_written = HashMap::new();
-        rows_written.insert("ccusage_events".into(), body.accepted as u64);
+        rows_written.insert("ccusage_events".into(), accepted);
         Ok(SinkResult {
             sink_name: self.name().to_string(),
             tables_written: vec!["ccusage_events".into()],
@@ -112,5 +118,11 @@ mod tests {
     fn strips_trailing_slash() {
         let s = TelemetrySink::new("https://summa.duyet.net/", "t");
         assert_eq!(s.endpoint, "https://summa.duyet.net");
+    }
+
+    #[test]
+    fn ingest_chunks_stay_under_worker_cap() {
+        assert!(INGEST_CHUNK <= 500);
+        assert!(INGEST_CHUNK >= 100);
     }
 }
