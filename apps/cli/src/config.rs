@@ -234,6 +234,102 @@ pub struct TelemetryConfig {
     pub bind: Option<String>,
 }
 
+/// Release channel for `summa update` / auto-update.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    /// Master-branch CI builds (rolling).
+    #[default]
+    Beta,
+    /// release-please tagged GitHub Releases.
+    Stable,
+}
+
+impl UpdateChannel {
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "beta" => Ok(Self::Beta),
+            "stable" => Ok(Self::Stable),
+            other => Err(anyhow::anyhow!(
+                "unknown update channel `{other}` (expected beta or stable)"
+            )),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Beta => "beta",
+            Self::Stable => "stable",
+        }
+    }
+}
+
+impl std::str::FromStr for UpdateChannel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+impl std::fmt::Display for UpdateChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Auto-update mode. `auto` = check after each command, download in background,
+/// new binary is active on the next invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateMode {
+    /// Check and download on every run; install lands for next launch.
+    #[default]
+    Manual,
+    Auto,
+}
+
+impl UpdateMode {
+    pub fn parse(s: &str) -> anyhow::Result<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "manual" | "off" => Ok(Self::Manual),
+            "auto" => Ok(Self::Auto),
+            other => Err(anyhow::anyhow!(
+                "unknown update mode `{other}` (expected manual or auto)"
+            )),
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Auto => "auto",
+        }
+    }
+}
+
+impl std::str::FromStr for UpdateMode {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
+impl std::fmt::Display for UpdateMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct UpdateConfig {
+    /// `stable` (release-please tags) or `beta` (master CI builds).
+    pub channel: Option<String>,
+    /// `manual` or `auto` (download updates in background for next launch).
+    pub mode: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -246,6 +342,8 @@ pub struct Config {
     pub ui: UiConfig,
     #[serde(default)]
     pub telemetry: TelemetryConfig,
+    #[serde(default)]
+    pub update: UpdateConfig,
 }
 
 impl Config {
@@ -575,6 +673,36 @@ impl Config {
         SinkRoutes::resolve(self)
     }
 
+    /// Update channel: config `[update] channel`, else `SUMMA_UPDATE_CHANNEL`, else beta.
+    pub fn update_channel(&self) -> UpdateChannel {
+        if let Some(c) = self.update.channel.as_deref().filter(|s| !s.is_empty()) {
+            if let Ok(ch) = UpdateChannel::parse(c) {
+                return ch;
+            }
+        }
+        if let Ok(v) = std::env::var("SUMMA_UPDATE_CHANNEL") {
+            if let Ok(ch) = UpdateChannel::parse(&v) {
+                return ch;
+            }
+        }
+        UpdateChannel::default()
+    }
+
+    /// Update mode: config `[update] mode`, else `SUMMA_UPDATE_MODE`, else manual.
+    pub fn update_mode(&self) -> UpdateMode {
+        if let Some(m) = self.update.mode.as_deref().filter(|s| !s.is_empty()) {
+            if let Ok(m) = UpdateMode::parse(m) {
+                return m;
+            }
+        }
+        if let Ok(v) = std::env::var("SUMMA_UPDATE_MODE") {
+            if let Ok(m) = UpdateMode::parse(&v) {
+                return m;
+            }
+        }
+        UpdateMode::default()
+    }
+
     pub fn to_env_map(&self) -> HashMap<String, String> {
         let mut map = HashMap::new();
 
@@ -622,6 +750,68 @@ impl Config {
         }
         std::fs::write(&path, content)?;
         Ok(path.as_ref().to_path_buf())
+    }
+
+    /// First existing config path, or the XDG default when none exist.
+    pub fn resolve_write_path(explicit: Option<&str>) -> PathBuf {
+        if let Some(p) = explicit.filter(|s| !s.is_empty()) {
+            return PathBuf::from(p);
+        }
+        Self::candidate_paths()
+            .into_iter()
+            .find(|p| Path::new(p).exists())
+            .map(PathBuf::from)
+            .unwrap_or_else(Self::default_config_path)
+    }
+
+    fn default_config_path() -> PathBuf {
+        if let Some(home) = dirs::home_dir() {
+            return home
+                .join(".config")
+                .join(CONFIG_DIR_NAME)
+                .join(CONFIG_FILE_NAME);
+        }
+        dirs::config_dir()
+            .map(|d| d.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME))
+            .unwrap_or_else(|| PathBuf::from(CONFIG_FILE_NAME))
+    }
+
+    /// Set a dotted config key (`update.channel`, `update.mode`, …) in the
+    /// config file, preserving formatting and comments via toml_edit.
+    pub fn set_value(path: &Path, key: &str, value: &str) -> anyhow::Result<()> {
+        const KNOWN: &[&str] = &[
+            "update.channel",
+            "update.mode",
+            "importer.machine_name",
+            "importer.days_back",
+            "importer.since",
+            "importer.end_date",
+            "importer.duckdb_path",
+            "telemetry.endpoint",
+        ];
+        if !KNOWN.contains(&key) {
+            anyhow::bail!("unknown config key `{key}` (known: {})", KNOWN.join(", "));
+        }
+        let mut doc = match std::fs::read_to_string(path) {
+            Ok(text) => text.parse::<toml_edit::DocumentMut>()?,
+            Err(_) => toml_edit::DocumentMut::new(),
+        };
+        let parsed = parse_set_value(key, value)?;
+        let segments: Vec<&str> = key.split('.').collect();
+        let mut table = doc.as_table_mut();
+        for seg in &segments[..segments.len() - 1] {
+            table = table
+                .entry(seg)
+                .or_insert(toml_edit::Item::Table(toml_edit::Table::new()))
+                .as_table_mut()
+                .ok_or_else(|| anyhow::anyhow!("config key `{seg}` is not a table"))?;
+        }
+        table.insert(segments[segments.len() - 1], toml_edit::value(parsed));
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, doc.to_string())?;
+        Ok(())
     }
 }
 
@@ -896,12 +1086,96 @@ motherduck_token = "md-token-xyz"
             sinks: SinksConfig::default(),
             ui: UiConfig::default(),
             telemetry: TelemetryConfig::default(),
+            update: UpdateConfig::default(),
         };
         let toml_str = toml::to_string_pretty(&original).unwrap();
         let parsed: Config = toml::from_str(&toml_str).unwrap();
         assert_eq!(parsed.clickhouse.host, "h");
         assert_eq!(parsed.importer.machine_name.as_deref(), Some("m"));
         assert_eq!(parsed.importer.days_back, Some(3));
+    }
+
+    #[test]
+    fn update_channel_parses_and_rejects() {
+        assert_eq!(UpdateChannel::parse("beta").unwrap(), UpdateChannel::Beta);
+        assert_eq!(
+            UpdateChannel::parse("Stable").unwrap(),
+            UpdateChannel::Stable
+        );
+        assert!(UpdateChannel::parse("nightly").is_err());
+        assert_eq!(UpdateChannel::default().as_str(), "beta");
+    }
+
+    #[test]
+    fn update_mode_parses_and_defaults_manual() {
+        assert_eq!(UpdateMode::parse("auto").unwrap(), UpdateMode::Auto);
+        assert_eq!(UpdateMode::parse("manual").unwrap(), UpdateMode::Manual);
+        assert_eq!(UpdateMode::parse("off").unwrap(), UpdateMode::Manual);
+        assert!(UpdateMode::parse("whenever").is_err());
+        assert_eq!(UpdateMode::default().as_str(), "manual");
+    }
+
+    #[test]
+    fn update_section_round_trips() {
+        let cfg: Config = toml::from_str(
+            r#"
+            [update]
+            channel = "stable"
+            mode = "auto"
+        "#,
+        )
+        .unwrap();
+        assert_eq!(cfg.update_channel(), UpdateChannel::Stable);
+        assert_eq!(cfg.update_mode(), UpdateMode::Auto);
+    }
+
+    #[test]
+    fn update_channel_env_fallback() {
+        let _guard = EnvGuard::new(&["SUMMA_UPDATE_CHANNEL", "SUMMA_UPDATE_MODE"]);
+        let cfg = Config::default();
+        std::env::set_var("SUMMA_UPDATE_CHANNEL", "stable");
+        assert_eq!(cfg.update_channel(), UpdateChannel::Stable);
+        std::env::set_var("SUMMA_UPDATE_MODE", "auto");
+        assert_eq!(cfg.update_mode(), UpdateMode::Auto);
+    }
+
+    #[test]
+    fn set_value_writes_update_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        Config::set_value(&path, "update.channel", "stable").unwrap();
+        Config::set_value(&path, "update.mode", "auto").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[update]"));
+        assert!(text.contains("channel = \"stable\""));
+        assert!(text.contains("mode = \"auto\""));
+        let cfg: Config = toml::from_str(&text).unwrap();
+        assert_eq!(cfg.update.channel.as_deref(), Some("stable"));
+        assert_eq!(cfg.update.mode.as_deref(), Some("auto"));
+    }
+
+    #[test]
+    fn set_value_preserves_existing_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "# my machine\n[importer]\nmachine_name = \"laptop\"\n",
+        )
+        .unwrap();
+        Config::set_value(&path, "update.channel", "beta").unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# my machine"), "comment kept: {text}");
+        assert!(text.contains("machine_name = \"laptop\""));
+    }
+
+    #[test]
+    fn set_value_rejects_unknown_key_and_bad_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        assert!(Config::set_value(&path, "nope.key", "x").is_err());
+        assert!(Config::set_value(&path, "update.channel", "nightly").is_err());
+        assert!(Config::set_value(&path, "importer.days_back", "soon").is_err());
     }
 
     #[test]
@@ -959,6 +1233,22 @@ pub struct SinkRoutes {
     pub local: bool,
     pub motherduck: bool,
     pub clickhouse: bool,
+}
+
+/// Coerce a CLI-provided string into the TOML value type for a dotted key.
+fn parse_set_value(key: &str, value: &str) -> anyhow::Result<toml_edit::Value> {
+    let v = value.trim();
+    Ok(match key {
+        "update.channel" => toml_edit::Value::from(UpdateChannel::parse(v)?.as_str()),
+        "update.mode" => toml_edit::Value::from(UpdateMode::parse(v)?.as_str()),
+        "importer.days_back" => toml_edit::Value::from(
+            v.parse::<i64>()
+                .map_err(|_| anyhow::anyhow!("importer.days_back must be an integer"))?,
+        ),
+        "telemetry.endpoint" | "importer.machine_name" | "importer.since"
+        | "importer.end_date" | "importer.duckdb_path" => toml_edit::Value::from(v),
+        _ => anyhow::bail!("unknown config key `{key}`"),
+    })
 }
 
 impl SinkRoutes {

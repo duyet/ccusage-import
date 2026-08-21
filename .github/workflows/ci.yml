@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -77,8 +77,8 @@ jobs:
         PORTFILE="$(mktemp)"
         INSTALL_DIR="$(mktemp -d)"
         HOME_DIR="$(mktemp -d)"
-        mkdir -p "$WWW/nightly"
-        cp dist/summa-x86_64-unknown-linux-gnu.tar.gz "$WWW/nightly/"
+        mkdir -p "$WWW/beta"
+        cp dist/summa-x86_64-unknown-linux-gnu.tar.gz "$WWW/beta/"
         cp install.sh "$WWW/install.sh"
         python3 - "$WWW" "$PORTFILE" <<'PY' &
         import http.server, os, socketserver, sys
@@ -99,7 +99,7 @@ jobs:
         curl -fsSL "http://127.0.0.1:${PORT}/install.sh" \
           | env HOME="$HOME_DIR" \
             SUMMA_DOWNLOAD_BASE="http://127.0.0.1:${PORT}" \
-            SUMMA_VERSION=nightly \
+            SUMMA_VERSION=beta \
             SUMMA_INSTALL_DIR="$INSTALL_DIR" \
             bash
         "$INSTALL_DIR/summa" --version
